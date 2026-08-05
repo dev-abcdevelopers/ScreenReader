@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.ACCESSIBILITY_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:name=".DataReaderApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Data Reader App"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DataReaderApp">
+
+        <activity
+            android:name=".ui.main.MainActivity"
+            android:exported="true"
+            android:label="Data Reader App">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.policy.PolicyCaptureActivity"
+            android:exported="false"
+            android:label="Smart Policy Reader" />
+
+        <activity
+            android:name=".ui.fup.FupCaptureActivity"
+            android:exported="false"
+            android:label="FUP Renewal Reader" />
+
+        <activity
+            android:name=".ui.ps.PsCaptureActivity"
+            android:exported="false"
+            android:label="PS Servicing Reader" />
+
+        <activity
+            android:name=".ui.dashboard.PolicyDashboardActivity"
+            android:exported="false"
+            android:label="Policy Records Dashboard" />
+
+        <activity
+            android:name=".ui.pdf.PdfListActivity"
+            android:exported="false"
+            android:label="Exported Documents" />
+
+        <activity
+            android:name=".ui.raw.RawCaptureActivity"
+            android:exported="false"
+            android:label="Raw Node Inspector" />
+
+        <service
+            android:name=".service.ScreenReaderService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.bliss.screenreader.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

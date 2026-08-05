@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Data Reader App</string>
+    <string name="app_subtitle">Smart Native Automation Engine</string>
+
+    <string name="main_hero_category">Screen Reader Automation</string>
+    <string name="main_hero_status_ready">● READY</string>
+    <string name="main_hero_title">Smart Native Engine</string>
+    <string name="main_hero_desc">Auto-scroll, extract structured policy details, and export clean PDF/Excel reports instantly.</string>
+    <string name="main_hero_target_app_label">Target App</string>
+    <string name="main_hero_target_app_val">LIC SuperApp</string>
+    <string name="main_hero_output_label">Output Formats</string>
+    <string name="main_hero_output_val">PDF • Excel • DB</string>
+
+    <string name="section_system_service_status">SYSTEM SERVICE STATUS</string>
+    <string name="title_accessibility_service">Accessibility Reader Service</string>
+    <string name="status_accessibility_checking">Checking service state...</string>
+    <string name="status_accessibility_active">Active &amp; Ready for Automation</string>
+    <string name="status_accessibility_disabled">Disabled - Action Required</string>
+    <string name="btn_enable">Enable</string>
+    <string name="btn_settings">Settings</string>
+
+    <string name="title_battery_optimization">Battery Optimization</string>
+    <string name="status_battery_checking">Checking battery exemption...</string>
+    <string name="status_battery_optimized">Optimized (System may kill background service)</string>
+    <string name="status_battery_unrestricted">Unrestricted (Background persistence active)</string>
+    <string name="btn_exempt">Exempt</string>
+    <string name="btn_ok">OK</string>
+
+    <string name="title_launch_lic_app">Launch LIC SuperApp</string>
+    <string name="desc_launch_lic_app">Open com.lic.sales.superapp directly</string>
+    <string name="btn_launch">Launch</string>
+    <string name="btn_launch_app">Launch App</string>
+
+    <string name="section_automation_modules">AUTOMATION MODULES</string>
+    <string name="title_smart_policy_reader">Smart Policy Reader</string>
+    <string name="desc_smart_policy_reader">Auto-extract detailed policy cards &amp; profile data</string>
+
+    <string name="title_policy_records_dashboard">Policy Records Dashboard</string>
+    <string name="subtitle_policy_records_dashboard">Search, Filter &amp; Export Policy Database</string>
+    <string name="desc_policy_records_dashboard">Search, filter, and export captured policy database</string>
+
+    <string name="title_exported_documents">Exported Documents</string>
+    <string name="subtitle_exported_documents">View, Open &amp; Share Reports</string>
+    <string name="desc_exported_documents">View, open &amp; share PDF and Excel reports</string>
+
+    <string name="title_ps_capture">PS Servicing Reader</string>
+    <string name="subtitle_ps_capture">Auto-Scroll Policy Servicing History</string>
+
+    <string name="title_fup_capture">FUP Renewal Reader</string>
+    <string name="subtitle_fup_capture">Auto-Scan Renewal History</string>
+
+    <string name="title_raw_capture">Raw Node Inspector</string>
+    <string name="subtitle_raw_capture">Inspect Accessibility Nodes &amp; Hierarchy</string>
+
+    <string name="policy_capture_status_ready">Ready for Screen Automation &amp; LIC SuperApp</string>
+    <string name="btn_start_capture">Start Capture</string>
+    <string name="btn_stop_parse">Stop &amp; Parse</string>
+
+    <string name="hint_search_policy">Search by Policy No or Holder Name</string>
+    <string name="chip_all_policies">All Policies</string>
+    <string name="chip_inforce">Inforce</string>
+    <string name="chip_lapsed">Lapsed</string>
+    <string name="btn_export_pdf">Export PDF</string>
+    <string name="btn_export_excel">Export Excel</string>
+
+    <string name="ps_status_ready">Ready for policy servicing auto-scroll</string>
+    <string name="btn_start_auto_scroll">Start Auto-Scroll</string>
+    <string name="btn_export_ps_excel">Export PS Excel Report</string>
+
+    <string name="fup_status_ready">Ready to scan renewal history</string>
+
+    <string name="label_premium">Premium</string>
+    <string name="label_sum_assured">Sum Assured</string>
+    <string name="label_renewal_due">Renewal Due</string>
+    <string name="dummy_policy_no">279608790</string>
+    <string name="dummy_holder_name">RAKESH KUMAR</string>
+    <string name="dummy_plan_name">714 - LIC\'S NEW ENDOWMENT PLAN</string>
+    <string name="dummy_premium">₹12,450</string>
+    <string name="dummy_sum_assured">₹5,00,000</string>
+    <string name="dummy_due_date">28/09/2026</string>
+
+    <string name="dummy_doc_name">Policy_Export_20260805.xlsx</string>
+    <string name="dummy_doc_sub">Excel Document • 45 KB</string>
+
+    <string name="content_desc_stop_recording">Stop Recording</string>
+    <string name="cd_accessibility_icon">Accessibility Reader Icon</string>
+    <string name="cd_battery_icon">Battery Optimization Icon</string>
+    <string name="cd_launch_icon">Launch LIC SuperApp Icon</string>
+    <string name="cd_policy_icon">Smart Policy Reader Icon</string>
+    <string name="cd_dashboard_icon">Policy Records Dashboard Icon</string>
+    <string name="cd_documents_icon">Exported Documents Icon</string>
+    <string name="cd_arrow_launch">Open Module</string>
+    <string name="cd_document_icon">Document Icon</string>
+    <string name="cd_share_button">Share Document</string>
+</resources>
