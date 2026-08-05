@@ -20,10 +20,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DataReaderApp">
 
+        <!--
+          singleTask so the accessibility service can bring the shell back to
+          front when a capture finishes, without stacking duplicates.
+        -->
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"
-            android:label="Data Reader App">
+            android:label="@string/app_name"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -31,34 +36,14 @@
         </activity>
 
         <activity
-            android:name=".ui.policy.PolicyCaptureActivity"
+            android:name=".ui.detail.PolicyDetailActivity"
             android:exported="false"
-            android:label="Smart Policy Reader" />
-
-        <activity
-            android:name=".ui.fup.FupCaptureActivity"
-            android:exported="false"
-            android:label="FUP Renewal Reader" />
-
-        <activity
-            android:name=".ui.ps.PsCaptureActivity"
-            android:exported="false"
-            android:label="PS Servicing Reader" />
-
-        <activity
-            android:name=".ui.dashboard.PolicyDashboardActivity"
-            android:exported="false"
-            android:label="Policy Records Dashboard" />
-
-        <activity
-            android:name=".ui.pdf.PdfListActivity"
-            android:exported="false"
-            android:label="Exported Documents" />
+            android:parentActivityName=".ui.main.MainActivity" />
 
         <activity
             android:name=".ui.raw.RawCaptureActivity"
             android:exported="false"
-            android:label="Raw Node Inspector" />
+            android:label="@string/title_raw_capture" />
 
         <service
             android:name=".service.ScreenReaderService"

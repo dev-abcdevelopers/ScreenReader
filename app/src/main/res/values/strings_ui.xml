@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Navigation -->
+    <string name="tab_capture">Capture</string>
+    <string name="tab_policies">Policies</string>
+    <string name="tab_exports">Exports</string>
+
+    <!-- Capture tab -->
+    <string name="capture_heading">Capture</string>
+    <string name="capture_question">What are you capturing?</string>
+    <string name="capture_mode_policy">Policy details</string>
+    <string name="capture_mode_policy_desc">Profile, premium, sum assured</string>
+    <string name="capture_mode_ps">Servicing history</string>
+    <string name="capture_mode_ps_desc">PS screen, auto-scrolls</string>
+    <string name="capture_mode_fup">Renewal history</string>
+    <string name="capture_mode_fup_desc">FUP screen, auto-scrolls</string>
+    <string name="capture_start">Start capture</string>
+    <string name="capture_start_hint">Opens LIC SuperApp. Finish from the bubble.</string>
+    <string name="capture_finish_now">Finish capture</string>
+    <string name="capture_in_progress_hint">Capture is running. Use the bubble, or finish from here.</string>
+    <string name="capture_live_format">%1$s · %2$s</string>
+
+    <!-- Preflight banners. Shown only when something is actually wrong. -->
+    <string name="preflight_accessibility_title">Accessibility service is off</string>
+    <string name="preflight_accessibility_body">Nothing can be read until you turn it on</string>
+    <string name="preflight_overlay_title">Display over other apps is off</string>
+    <string name="preflight_overlay_body">The capture bubble cannot appear without it</string>
+    <string name="preflight_battery_title">Battery optimisation is on</string>
+    <string name="preflight_battery_body">Long captures may be cut short</string>
+    <string name="preflight_fix">Fix</string>
+    <string name="preflight_all_clear">Ready to capture</string>
+
+    <!-- Policies tab -->
+    <string name="policies_heading">Policies</string>
+    <string name="policies_search_hint">Search policy number or holder</string>
+    <string name="policies_filter_all">All</string>
+    <string name="policies_filter_inforce">Inforce</string>
+    <string name="policies_filter_lapsed">Lapsed</string>
+    <string name="policies_count_format">%1$d of %2$d</string>
+    <string name="policies_empty_title">No policies captured yet</string>
+    <string name="policies_empty_body">Run a capture and the records land here.</string>
+    <string name="policies_empty_action">Go to capture</string>
+    <string name="policies_no_match_title">No matches</string>
+    <string name="policies_no_match_body">Nothing matches that search or filter.</string>
+    <string name="policies_export_pdf">PDF</string>
+    <string name="policies_export_excel">Excel</string>
+
+    <!-- Policy detail -->
+    <string name="detail_premium">Premium</string>
+    <string name="detail_sum_assured">Sum assured</string>
+    <string name="detail_next_due">Next due</string>
+    <string name="detail_term_ppt">Term / PPT</string>
+    <string name="detail_sections">Captured data</string>
+    <string name="detail_section_profile">Profile</string>
+    <string name="detail_section_servicing">Servicing</string>
+    <string name="detail_section_renewals">Renewals</string>
+    <string name="detail_section_more">Other fields</string>
+    <string name="detail_capture_action">Capture</string>
+    <string name="detail_not_captured">Not captured</string>
+    <string name="detail_entries_format">%1$d entries</string>
+    <string name="detail_fields_format">%1$d fields</string>
+    <string name="detail_missing">—</string>
+    <string name="detail_export_one">Export this policy</string>
+    <string name="detail_dob">Date of birth</string>
+    <string name="detail_mobile">Mobile</string>
+    <string name="detail_doc">Date of commencement</string>
+    <string name="detail_maturity">Date of maturity</string>
+    <string name="detail_eppt">End of premium paying term</string>
+    <string name="detail_address">Address</string>
+    <string name="detail_captured_at_format">Captured %1$s</string>
+
+    <!-- Exports tab -->
+    <string name="exports_heading">Exports</string>
+    <string name="exports_empty_title">No exports yet</string>
+    <string name="exports_empty_body">Export from the policies tab and the files show up here.</string>
+    <string name="exports_meta_format">%1$s · %2$s · %3$s</string>
+    <string name="exports_share">Share</string>
+    <string name="exports_open">Open</string>
+    <string name="exports_kind_excel">Excel</string>
+    <string name="exports_kind_pdf">PDF</string>
+
+    <!-- Shared -->
+    <string name="cd_back">Back</string>
+    <string name="cd_share_file">Share file</string>
+    <string name="cd_open_policy">Open policy</string>
+    <string name="status_inforce">Inforce</string>
+    <string name="status_lapsed">Lapsed</string>
+    <string name="status_unknown">Unknown</string>
+
+</resources>

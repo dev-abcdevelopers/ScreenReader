@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:paddingBottom="@dimen/space_xl">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_lg"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm"
+            android:text="@string/capture_heading"
+            android:textAppearance="@style/TextAppearance.App.Title" />
+
+        <!-- Preflight. Each row hides itself once the permission is granted. -->
+        <LinearLayout
+            android:id="@+id/preflightGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_sm"
+            android:text="@string/capture_question"
+            android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardModePolicy"
+            style="@style/Widget.App.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/card_gap"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="@dimen/touch_min">
+
+            <include
+                android:id="@+id/rowModePolicy"
+                layout="@layout/partial_mode_row" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardModePs"
+            style="@style/Widget.App.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/card_gap"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="@dimen/touch_min">
+
+            <include
+                android:id="@+id/rowModePs"
+                layout="@layout/partial_mode_row" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardModeFup"
+            style="@style/Widget.App.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/section_gap"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="@dimen/touch_min">
+
+            <include
+                android:id="@+id/rowModeFup"
+                layout="@layout/partial_mode_row" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPrimaryAction"
+            style="@style/Widget.App.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/capture_start"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/tvActionHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_sm"
+            android:gravity="center"
+            android:text="@string/capture_start_hint"
+            android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardLiveState"
+            style="@style/Widget.App.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_lg"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/status_blue_bg"
+            app:strokeColor="@color/status_blue_text">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="@dimen/card_padding">
+
+                <View
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_marginEnd="@dimen/space_md"
+                    android:background="@drawable/bg_live_dot"
+                    android:backgroundTint="@color/status_blue_text" />
+
+                <TextView
+                    android:id="@+id/tvLiveState"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:fontFeatureSettings="tnum"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/status_blue_text" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+
+</androidx.core.widget.NestedScrollView>

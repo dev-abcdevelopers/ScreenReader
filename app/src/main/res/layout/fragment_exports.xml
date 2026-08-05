@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingTop="@dimen/space_md"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingBottom="@dimen/space_md"
+        android:text="@string/exports_heading"
+        android:textAppearance="@style/TextAppearance.App.Title" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvExports"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="@dimen/list_bottom_inset"
+            android:scrollbars="vertical" />
+
+        <include
+            android:id="@+id/emptyState"
+            layout="@layout/partial_empty_state" />
+
+    </FrameLayout>
+
+</LinearLayout>

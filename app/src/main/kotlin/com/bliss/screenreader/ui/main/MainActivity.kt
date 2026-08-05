@@ -2,85 +2,119 @@
 
 package com.bliss.screenreader.ui.main
 
-import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import androidx.fragment.app.Fragment
 import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ActivityMainBinding
-import com.bliss.screenreader.service.ScreenReaderService
-import com.bliss.screenreader.ui.SetupEdgeToEdge
-import com.bliss.screenreader.ui.dashboard.PolicyDashboardActivity
-import com.bliss.screenreader.ui.pdf.PdfListActivity
-import com.bliss.screenreader.ui.policy.PolicyCaptureActivity
-import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.ui.capture.CaptureFragment
+import com.bliss.screenreader.ui.exports.ExportsFragment
+import com.bliss.screenreader.ui.policies.PoliciesFragment
 
+/**
+ * The shell. Three tabs, one back stack, and a single place that owns window
+ * insets. Replaces the old launcher grid, which sent every task through a
+ * separate activity and gave the app no home to return to.
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityMainBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         ViewBindingObj = ActivityMainBinding.inflate(layoutInflater)
         setContentView(ViewBindingObj.root)
 
-        SetupEdgeToEdge(RootView = ViewBindingObj.root, AppBarView = ViewBindingObj.toolbar)
-        SetupListeners()
+        ApplyInsets()
+
+        ViewBindingObj.bottomNav.setOnItemSelectedListener { MenuItemRef ->
+            ShowTab(ItemId = MenuItemRef.itemId)
+            true
+        }
+        ViewBindingObj.bottomNav.setOnItemReselectedListener { }
+
+        // BottomNavigationView already has item 0 checked once the menu inflates,
+        // so assigning selectedItemId here dispatches nothing and the container
+        // stays empty. The first tab has to be committed explicitly.
+        if (savedInstanceState == null) {
+            ShowTab(ItemId = R.id.tabCapture)
+        }
     }
 
-    override fun onResume() {
-        super.onResume()
-        UpdateStatusIndicators()
+    /**
+     * Safety net for restore. If a saved state comes back with nothing attached,
+     * or with everything hidden, the container would render empty with no way
+     * out except reelecting a tab.
+     */
+    override fun onStart() {
+        super.onStart()
+        val ManagerRef = supportFragmentManager
+        val NothingShowing = ManagerRef.fragments.none { !it.isHidden && it.tag?.startsWith("tab_") == true }
+        if (NothingShowing) {
+            ShowTab(ItemId = ViewBindingObj.bottomNav.selectedItemId)
+        }
     }
 
-    private fun UpdateStatusIndicators() {
-        val IsServiceActive = ScreenReaderService.IsServiceRunning()
-        if (IsServiceActive) {
-            ViewBindingObj.tvAccessibilityStatus.text = "Active & Ready for Automation"
-            ViewBindingObj.tvAccessibilityStatus.setTextColor(getColor(R.color.status_green_text))
-            ViewBindingObj.btnEnableAccessibility.text = "Settings"
+    /**
+     * The status bar inset goes to the fragment container so each tab can put
+     * its own header under it; the navigation bar inset goes to the bar itself.
+     */
+    private fun ApplyInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(ViewBindingObj.root) { _, WindowInsetsObj ->
+            val BarInsets = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.systemBars())
+            ViewBindingObj.navHost.updatePadding(top = BarInsets.top)
+            ViewBindingObj.bottomNav.updatePadding(bottom = BarInsets.bottom)
+            WindowInsetsObj
+        }
+    }
+
+    private fun ShowTab(ItemId: Int) {
+        val TagVal = when (ItemId) {
+            R.id.tabPolicies -> TAG_POLICIES
+            R.id.tabExports -> TAG_EXPORTS
+            else -> TAG_CAPTURE
+        }
+
+        val ManagerRef = supportFragmentManager
+        if (ManagerRef.isStateSaved) return
+
+        val AlreadyShowing = ManagerRef.findFragmentByTag(TagVal)?.let { !it.isHidden } == true
+        if (AlreadyShowing) return
+
+        val TransactionRef = ManagerRef.beginTransaction()
+        for (ExistingFragment in ManagerRef.fragments) {
+            TransactionRef.hide(ExistingFragment)
+        }
+
+        val TargetFragment = ManagerRef.findFragmentByTag(TagVal)
+        if (TargetFragment == null) {
+            TransactionRef.add(R.id.navHost, BuildFragment(TagVal = TagVal), TagVal)
         } else {
-            ViewBindingObj.tvAccessibilityStatus.text = "Disabled - Action Required"
-            ViewBindingObj.tvAccessibilityStatus.setTextColor(getColor(R.color.status_red_text))
-            ViewBindingObj.btnEnableAccessibility.text = "Enable"
+            TransactionRef.show(TargetFragment)
         }
-
-        val IsBatteryOptimizedVal = AppLauncherUtils.IsBatteryOptimized(ContextRef = this)
-        if (IsBatteryOptimizedVal) {
-            ViewBindingObj.tvBatteryStatus.text = "Optimized (System may kill background service)"
-            ViewBindingObj.tvBatteryStatus.setTextColor(getColor(R.color.status_amber_text))
-            ViewBindingObj.btnBatteryExemption.text = "Exempt"
-        } else {
-            ViewBindingObj.tvBatteryStatus.text = "Unrestricted (Background persistence active)"
-            ViewBindingObj.tvBatteryStatus.setTextColor(getColor(R.color.status_green_text))
-            ViewBindingObj.btnBatteryExemption.text = "OK"
-        }
+        // Synchronous so a following call sees this fragment and does not add a
+        // duplicate on top of it.
+        TransactionRef.commitNow()
     }
 
-    private fun SetupListeners() {
-        ViewBindingObj.btnEnableAccessibility.setOnClickListener {
-            val SettingsIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(SettingsIntent)
-        }
+    private fun BuildFragment(TagVal: String): Fragment = when (TagVal) {
+        TAG_POLICIES -> PoliciesFragment()
+        TAG_EXPORTS -> ExportsFragment()
+        else -> CaptureFragment()
+    }
 
-        ViewBindingObj.btnBatteryExemption.setOnClickListener {
-            AppLauncherUtils.RequestBatteryOptimizationExemption(ContextRef = this)
-        }
+    fun GoToCaptureTab() {
+        ViewBindingObj.bottomNav.selectedItemId = R.id.tabCapture
+    }
 
-        ViewBindingObj.btnLaunchLicApp.setOnClickListener {
-            AppLauncherUtils.LaunchTargetApp(ContextRef = this, PackageNameVal = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
-        }
-
-        ViewBindingObj.cardSmartReader.setOnClickListener {
-            startActivity(Intent(this, PolicyCaptureActivity::class.java))
-        }
-
-        ViewBindingObj.cardDashboard.setOnClickListener {
-            startActivity(Intent(this, PolicyDashboardActivity::class.java))
-        }
-
-        ViewBindingObj.cardDocuments.setOnClickListener {
-            startActivity(Intent(this, PdfListActivity::class.java))
-        }
+    companion object {
+        private const val TAG_CAPTURE = "tab_capture"
+        private const val TAG_POLICIES = "tab_policies"
+        private const val TAG_EXPORTS = "tab_exports"
     }
 }

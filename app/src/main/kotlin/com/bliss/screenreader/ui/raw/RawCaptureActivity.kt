@@ -2,18 +2,23 @@
 
 package com.bliss.screenreader.ui.raw
 
-import android.annotation.SuppressLint
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ActivityRawCaptureBinding
+import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.ui.SetupEdgeToEdge
 
+/**
+ * The evidence trail behind a parse. Prefers the capture that is currently
+ * waiting in the review sheet, so "view raw nodes" shows the session the user
+ * is actually judging rather than whatever the service happens to hold.
+ */
 class RawCaptureActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityRawCaptureBinding
 
-    @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ViewBindingObj = ActivityRawCaptureBinding.inflate(layoutInflater)
@@ -22,16 +27,23 @@ class RawCaptureActivity : AppCompatActivity() {
         SetupEdgeToEdge(RootView = ViewBindingObj.root, AppBarView = ViewBindingObj.toolbar)
         ViewBindingObj.toolbar.setNavigationOnClickListener { finish() }
 
-        val NodesList = ScreenReaderService.CapturedNodes
+        val PendingSession = CaptureSessionState.PendingSession
+        val NodesList: List<String> = PendingSession?.RawNodes ?: ScreenReaderService.CapturedNodes.toList()
+        val SourceLabel = getString(
+            if (PendingSession != null) R.string.raw_header_pending else R.string.raw_header_live
+        )
+
         if (NodesList.isEmpty()) {
-            ViewBindingObj.tvRawOutput.text = "No captured accessibility nodes available.\nStart a capture session first."
-        } else {
-            val StrBuilder = StringBuilder()
-            StrBuilder.append("Total Nodes Captured: ${NodesList.size}\n\n")
-            NodesList.forEachIndexed { Idx, NodeText ->
-                StrBuilder.append("[$Idx] $NodeText\n")
-            }
-            ViewBindingObj.tvRawOutput.text = StrBuilder.toString()
+            ViewBindingObj.tvRawOutput.setText(R.string.raw_empty)
+            return
         }
+
+        val StrBuilder = StringBuilder()
+        StrBuilder.append(getString(R.string.raw_header_format, NodesList.size, SourceLabel))
+        StrBuilder.append("\n\n")
+        NodesList.forEachIndexed { Idx, NodeText ->
+            StrBuilder.append("[").append(Idx).append("] ").append(NodeText).append("\n")
+        }
+        ViewBindingObj.tvRawOutput.text = StrBuilder.toString()
     }
 }

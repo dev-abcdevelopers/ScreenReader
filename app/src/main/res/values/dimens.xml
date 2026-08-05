@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Spacing. A 4dp grid; screens use screen_margin, cards use card_padding. -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">8dp</dimen>
+    <dimen name="space_md">12dp</dimen>
+    <dimen name="space_lg">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+
+    <dimen name="screen_margin">16dp</dimen>
+    <dimen name="card_padding">14dp</dimen>
+    <dimen name="card_gap">8dp</dimen>
+    <dimen name="section_gap">20dp</dimen>
+
+    <!-- Corners -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+
+    <!-- Controls. 48dp is the minimum touch target. -->
+    <dimen name="touch_min">48dp</dimen>
+    <dimen name="icon_sm">18dp</dimen>
+    <dimen name="icon_md">24dp</dimen>
+    <dimen name="icon_lg">32dp</dimen>
+
+    <!-- Content inset that clears the bottom navigation bar. -->
+    <dimen name="list_bottom_inset">88dp</dimen>
+
+</resources>

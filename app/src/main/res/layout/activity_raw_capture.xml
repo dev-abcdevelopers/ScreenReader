@@ -6,35 +6,35 @@
     android:background="@color/bg_light"
     android:orientation="vertical">
 
-    <com.google.android.material.appbar.AppBarLayout
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        style="@style/Widget.App.Toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/primary_variant"
-        app:elevation="4dp">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            app:navigationIcon="@drawable/ic_arrow_back"
-            app:title="@string/title_raw_capture"
-            app:subtitle="@string/subtitle_raw_capture"
-            app:subtitleTextColor="#93C5FD"
-            app:titleTextColor="@color/on_primary" />
-
-    </com.google.android.material.appbar.AppBarLayout>
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/bg_light"
+        app:navigationContentDescription="@string/cd_back"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:subtitle="@string/subtitle_raw_capture"
+        app:title="@string/title_raw_capture" />
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="16dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingBottom="@dimen/space_xl"
+        android:scrollbars="vertical">
 
         <TextView
             android:id="@+id/tvRawOutput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textColor="@color/text_primary"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/text_secondary"
+            android:textIsSelectable="true"
             android:textSize="12sp" />
 
     </ScrollView>

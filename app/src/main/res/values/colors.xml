@@ -1,18 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
+    <!--
+      Light palette. Every name here has a matching override in values-night,
+      so layouts reference these tokens and never a literal hex.
+    -->
+
     <color name="primary">#1E40AF</color>
     <color name="primary_variant">#1E3A8A</color>
     <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#DBEAFE</color>
+    <color name="on_primary_container">#1E3A8A</color>
 
     <color name="secondary">#0D9488</color>
     <color name="secondary_variant">#0F766E</color>
     <color name="on_secondary">#FFFFFF</color>
 
+    <!-- Surfaces -->
     <color name="bg_light">#F8FAFC</color>
     <color name="surface_light">#FFFFFF</color>
     <color name="surface_elevated">#F1F5F9</color>
+    <color name="surface_sunken">#EEF2F7</color>
     <color name="card_stroke">#E2E8F0</color>
+    <color name="divider">#EDF1F6</color>
 
+    <!-- Text. text_muted is the smallest type we use, so it clears 4.5:1. -->
+    <color name="text_primary">#0F172A</color>
+    <color name="text_secondary">#475569</color>
+    <color name="text_muted">#64748B</color>
+    <color name="text_faint">#94A3B8</color>
+    <color name="text_accent">#1D4ED8</color>
+    <color name="text_on_dark">#FFFFFF</color>
+
+    <!-- Status -->
     <color name="status_green_bg">#DCFCE7</color>
     <color name="status_green_text">#15803D</color>
 
@@ -20,15 +40,19 @@
     <color name="status_red_text">#B91C1C</color>
 
     <color name="status_amber_bg">#FEF3C7</color>
-    <color name="status_amber_text">#B45309</color>
+    <color name="status_amber_text">#92400E</color>
 
     <color name="status_blue_bg">#E0F2FE</color>
-    <color name="status_blue_text">#0369A1</color>
-
-    <color name="text_primary">#0F172A</color>
-    <color name="text_secondary">#475569</color>
-    <color name="text_muted">#94A3B8</color>
+    <color name="status_blue_text">#075985</color>
 
     <color name="purple_accent">#7C3AED</color>
     <color name="emerald_accent">#059669</color>
+
+    <!-- Capture overlay -->
+    <color name="bubble_surface">#1E40AF</color>
+    <color name="bubble_surface_paused">#475569</color>
+    <color name="bubble_stroke">#3B82F6</color>
+    <color name="bubble_meta_text">#DBEAFE</color>
+    <color name="bubble_on_surface">#FFFFFF</color>
+
 </resources>
