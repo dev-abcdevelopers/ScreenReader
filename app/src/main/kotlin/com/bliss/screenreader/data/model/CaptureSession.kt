@@ -12,6 +12,7 @@ import java.util.Locale
 enum class CaptureMode(val DisplayName: String, val RecordNounSingular: String, val RecordNounPlural: String) {
 
     POLICY("Policy Details", "policy", "policies"),
+
     PS("Servicing History", "record", "records"),
     FUP("Renewal History", "renewal", "renewals");
 
@@ -48,15 +49,19 @@ data class ParsedRecord(
 
 /**
  * The result of a capture, held in memory between the service finishing and the
- * user accepting or discarding it. Nothing reaches storage until [ParsedRecord]s
- * have been shown and confirmed.
+ * user accepting or discarding it. Typed policy records are retained here so
+ * details collected on separate screens cannot become associated with another
+ * policy. Nothing reaches storage until the review is confirmed.
  */
 data class CaptureSession(
+    val SessionId: String,
     val Mode: CaptureMode,
     val StartedAt: Long,
     val EndedAt: Long,
     val RawNodes: List<String>,
     val Records: List<ParsedRecord>,
+    val PolicyRecords: List<CustomerPolicy> = emptyList(),
+    val CapturePolicyDetails: Boolean = false,
     val TargetPackage: String = "",
     val OriginActivity: String = ""
 ) {

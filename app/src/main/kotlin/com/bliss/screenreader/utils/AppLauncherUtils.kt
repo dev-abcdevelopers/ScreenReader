@@ -15,12 +15,22 @@ object AppLauncherUtils {
     const val LIC_SUPER_APP_PACKAGE = "com.lic.sales.superapp"
     const val PS_AGENT_APP_PACKAGE = "com.perfectandroidappforagents"
 
-    fun LaunchTargetApp(ContextRef: Context, PackageNameVal: String = LIC_SUPER_APP_PACKAGE): Boolean {
+    fun LaunchTargetApp(
+        ContextRef: Context,
+        PackageNameVal: String = LIC_SUPER_APP_PACKAGE,
+        FreshStartVal: Boolean = false
+    ): Boolean {
         return try {
             val PackageManagerObj = ContextRef.packageManager
             var LaunchIntentObj = PackageManagerObj.getLaunchIntentForPackage(PackageNameVal)
             if (LaunchIntentObj != null) {
                 LaunchIntentObj.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (FreshStartVal) {
+                    // A normal launcher intent resumes the external app's last
+                    // activity/route. Rebuild its launcher task so every
+                    // capture begins from the same main entry screen.
+                    LaunchIntentObj.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                }
                 ContextRef.startActivity(LaunchIntentObj)
                 true
             } else {
@@ -28,6 +38,7 @@ object AppLauncherUtils {
                     addCategory(Intent.CATEGORY_LAUNCHER)
                     setPackage(PackageNameVal)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (FreshStartVal) addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 }
                 ContextRef.startActivity(FallbackIntentObj)
                 true

@@ -9,6 +9,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.OnBackPressedCallback
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.DividerItemDecoration
@@ -19,6 +20,7 @@ import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
+import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
@@ -30,8 +32,13 @@ class PoliciesFragment : Fragment() {
 
     private var ViewBindingObj: FragmentPoliciesBinding? = null
     private val AdapterObj = PolicyRowAdapter { PolicyItem -> OpenDetail(PolicyItem = PolicyItem) }
+    private val SessionAdapterObj = CaptureSessionAdapter { SessionRef ->
+        OpenSession(SessionRef = SessionRef)
+    }
 
     private var AllPolicies: List<CustomerPolicy> = emptyList()
+    private var SessionList: List<PolicyRepository.CaptureSessionReference> = emptyList()
+    private var SelectedSessionId: String = ""
     private var SearchQuery: String = ""
     private var StatusFilter: String = FILTER_ALL
 
@@ -50,10 +57,10 @@ class PoliciesFragment : Fragment() {
         val BindingObj = ViewBindingObj ?: return
 
         BindingObj.rvPolicies.layoutManager = LinearLayoutManager(requireContext())
-        BindingObj.rvPolicies.adapter = AdapterObj
         BindingObj.rvPolicies.addItemDecoration(
             DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL)
         )
+        BindingObj.btnSessionsBack.setOnClickListener { ShowSessions() }
 
         BindingObj.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -79,11 +86,29 @@ class PoliciesFragment : Fragment() {
         BindingObj.emptyState.btnEmptyAction.setOnClickListener {
             (activity as? MainActivity)?.GoToCaptureTab()
         }
+
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() {
+                    ShowSessions()
+                }
+            }.also { CallbackRef ->
+                SessionBackCallback = CallbackRef
+            }
+        )
     }
 
     override fun onResume() {
         super.onResume()
-        AllPolicies = PolicyRepository.GetCustomerPolicies(ContextRef = requireContext())
+        if (SelectedSessionId.isEmpty()) {
+            LoadSessions()
+        } else {
+            AllPolicies = PolicyRepository.GetCustomerPolicies(
+                ContextRef = requireContext(),
+                SessionId = SelectedSessionId
+            )
+        }
         RenderList()
     }
 
@@ -105,9 +130,44 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun RenderList() {
+        if (SelectedSessionId.isEmpty()) {
+            RenderSessions()
+        } else {
+            RenderPolicies()
+        }
+    }
+
+    private fun RenderSessions() {
+        val BindingObj = ViewBindingObj ?: return
+        BindingObj.rvPolicies.adapter = SessionAdapterObj
+        SessionAdapterObj.UpdateData(NewSessions = SessionList)
+        BindingObj.tvPoliciesHeading.setText(R.string.sessions_heading)
+        BindingObj.tvPolicyCount.text = getString(R.string.sessions_count_format, SessionList.size)
+        BindingObj.btnSessionsBack.visibility = View.GONE
+        BindingObj.policyTools.visibility = View.GONE
+        BindingObj.exportBar.visibility = View.GONE
+        SessionBackCallback?.isEnabled = false
+
+        val HasSessions = SessionList.isNotEmpty()
+        BindingObj.emptyState.emptyStateRoot.visibility = if (HasSessions) View.GONE else View.VISIBLE
+        if (HasSessions) return
+
+        BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_folder_open)
+        BindingObj.emptyState.tvEmptyTitle.setText(R.string.sessions_empty_title)
+        BindingObj.emptyState.tvEmptyBody.setText(R.string.sessions_empty_body)
+        BindingObj.emptyState.btnEmptyAction.setText(R.string.policies_empty_action)
+        BindingObj.emptyState.btnEmptyAction.visibility = View.VISIBLE
+    }
+
+    private fun RenderPolicies() {
         val BindingObj = ViewBindingObj ?: return
         val VisibleList = VisiblePolicies()
+        BindingObj.rvPolicies.adapter = AdapterObj
         AdapterObj.UpdateData(NewPolicies = VisibleList)
+        BindingObj.tvPoliciesHeading.setText(R.string.sessions_policies_heading)
+        BindingObj.btnSessionsBack.visibility = View.VISIBLE
+        BindingObj.policyTools.visibility = View.VISIBLE
+        SessionBackCallback?.isEnabled = true
 
         BindingObj.tvPolicyCount.text = getString(
             R.string.policies_count_format, VisibleList.size, AllPolicies.size
@@ -136,10 +196,38 @@ class PoliciesFragment : Fragment() {
         }
     }
 
+    private fun LoadSessions() {
+        SessionList = PolicyRepository.GetSessionHistory(
+            ContextRef = requireContext(),
+            ModeVal = com.bliss.screenreader.data.model.CaptureMode.POLICY
+        )
+    }
+
+    private fun OpenSession(SessionRef: PolicyRepository.CaptureSessionReference) {
+        SelectedSessionId = SessionRef.SessionId
+        SearchQuery = ""
+        StatusFilter = FILTER_ALL
+        ViewBindingObj?.etSearch?.setText("")
+        ViewBindingObj?.chipAll?.isChecked = true
+        AllPolicies = PolicyRepository.GetCustomerPolicies(
+            ContextRef = requireContext(),
+            SessionId = SelectedSessionId
+        )
+        RenderList()
+    }
+
+    private fun ShowSessions() {
+        SelectedSessionId = ""
+        AllPolicies = emptyList()
+        LoadSessions()
+        RenderList()
+    }
+
     private fun OpenDetail(PolicyItem: CustomerPolicy) {
         startActivity(
             Intent(requireContext(), PolicyDetailActivity::class.java).apply {
                 putExtra(PolicyDetailActivity.EXTRA_POLICY_NUMBER, PolicyItem.PolicyNumber)
+                putExtra(PolicyDetailActivity.EXTRA_SESSION_ID, SelectedSessionId)
             }
         )
     }
@@ -180,6 +268,7 @@ class PoliciesFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         ViewBindingObj = null
+        SessionBackCallback = null
     }
 
     companion object {
@@ -187,4 +276,6 @@ class PoliciesFragment : Fragment() {
         private const val FILTER_INFORCE = "inforce"
         private const val FILTER_LAPSED = "lapsed"
     }
+
+    private var SessionBackCallback: OnBackPressedCallback? = null
 }

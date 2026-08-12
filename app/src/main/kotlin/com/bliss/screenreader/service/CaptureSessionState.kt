@@ -39,13 +39,18 @@ object CaptureSessionState {
     var ActiveMode: CaptureMode = CaptureMode.POLICY
         private set
 
+    @Volatile
+    var ActiveSessionId: String = ""
+        private set
+
     /** Read directly by activities in onResume, before any observer fires. */
     @Volatile
     var PendingSession: CaptureSession? = null
         private set
 
-    fun OnSessionStarted(ModeVal: CaptureMode) {
+    fun OnSessionStarted(ModeVal: CaptureMode, SessionIdVal: String) {
         ActiveMode = ModeVal
+        ActiveSessionId = SessionIdVal
         MutableIsCapturing.postValue(true)
         MutableIsPaused.postValue(false)
         MutableRecordCount.postValue(0)

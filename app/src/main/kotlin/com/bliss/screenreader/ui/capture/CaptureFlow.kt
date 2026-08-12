@@ -2,17 +2,12 @@
 
 package com.bliss.screenreader.ui.capture
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.net.toUri
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
+import com.bliss.screenreader.utils.AppLauncherUtils
 import com.google.android.material.snackbar.Snackbar
 
 /**
@@ -20,27 +15,6 @@ import com.google.android.material.snackbar.Snackbar
  * only has to say which [CaptureMode] it wants.
  */
 object CaptureFlow {
-
-    @SuppressLint("ObsoleteSdkInt")
-    fun CanDrawOverlay(ContextRef: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(ContextRef)
-        } else {
-            true
-        }
-    }
-
-    fun RequestOverlayPermission(ActivityRef: AppCompatActivity) {
-        try {
-            ActivityRef.startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    "package:${ActivityRef.packageName}".toUri()
-                )
-            )
-        } catch (_: Exception) {
-        }
-    }
 
     /**
      * Starts a capture and hands control to the bubble. Returns false when a
@@ -50,20 +24,21 @@ object CaptureFlow {
         ActivityRef: AppCompatActivity,
         ModeVal: CaptureMode,
         LaunchTarget: Boolean = false,
+        CapturePolicyDetails: Boolean = false,
         OriginOverride: String = ""
     ): Boolean {
-        val ServiceInstance = ScreenReaderService.Instance
-        if (ServiceInstance == null) {
-            ShowMessage(ActivityRef = ActivityRef, MessageVal = ActivityRef.getString(R.string.capture_service_disabled))
+        val PendingSession = CaptureSessionState.PendingSession
+        if (PendingSession != null) {
+            ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = ActivityRef.getString(R.string.capture_review_pending)
+            )
             return false
         }
 
-        if (!CanDrawOverlay(ContextRef = ActivityRef)) {
-            ShowAction(
-                ActivityRef = ActivityRef,
-                MessageVal = ActivityRef.getString(R.string.capture_overlay_required),
-                ActionLabel = ActivityRef.getString(R.string.btn_settings)
-            ) { RequestOverlayPermission(ActivityRef = ActivityRef) }
+        val ServiceInstance = ScreenReaderService.Instance
+        if (ServiceInstance == null) {
+            ShowMessage(ActivityRef = ActivityRef, MessageVal = ActivityRef.getString(R.string.capture_service_disabled))
             return false
         }
 
@@ -71,11 +46,28 @@ object CaptureFlow {
         // come back to, or the service reopens a dead activity.
         ServiceInstance.StartCaptureSession(
             ModeVal = ModeVal,
+            CapturePolicyDetailsVal = CapturePolicyDetails,
             OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name }
         )
 
         if (LaunchTarget) {
-            com.bliss.screenreader.utils.AppLauncherUtils.LaunchTargetApp(ContextRef = ActivityRef)
+            val TargetPackage = if (ModeVal == CaptureMode.PS) {
+                AppLauncherUtils.PS_AGENT_APP_PACKAGE
+            } else {
+                AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+            }
+            val LaunchSucceeded = AppLauncherUtils.LaunchTargetApp(
+                ContextRef = ActivityRef,
+                PackageNameVal = TargetPackage,
+                FreshStartVal = true
+            )
+            if (!LaunchSucceeded) {
+                // StartCaptureSession runs first so accessibility events cannot
+                // be missed while Android switches applications. Roll it back
+                // when the requested target is unavailable.
+                ServiceInstance.DiscardCaptureSession()
+                return false
+            }
         }
         return true
     }
@@ -125,16 +117,4 @@ object CaptureFlow {
         ).show()
     }
 
-    private fun ShowAction(
-        ActivityRef: AppCompatActivity,
-        MessageVal: String,
-        ActionLabel: String,
-        ActionRef: () -> Unit
-    ) {
-        Snackbar.make(
-            ActivityRef.findViewById(android.R.id.content),
-            MessageVal,
-            Snackbar.LENGTH_LONG
-        ).setAction(ActionLabel) { ActionRef() }.show()
-    }
 }

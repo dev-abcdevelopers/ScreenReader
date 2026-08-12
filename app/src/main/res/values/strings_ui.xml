@@ -45,6 +45,17 @@
     <string name="policies_no_match_body">Nothing matches that search or filter.</string>
     <string name="policies_export_pdf">PDF</string>
     <string name="policies_export_excel">Excel</string>
+    <string name="sessions_heading">Capture sessions</string>
+    <string name="sessions_policies_heading">Session policies</string>
+    <string name="sessions_count_format">%1$d sessions</string>
+    <string name="sessions_title_format">%1$d policies · %2$s</string>
+    <string name="sessions_type_fast">Fast</string>
+    <string name="sessions_type_full">Full details</string>
+    <string name="sessions_created_format">Created %1$s</string>
+    <string name="sessions_id_format">ID: %1$s</string>
+    <string name="sessions_open">Open capture session</string>
+    <string name="sessions_empty_title">No capture sessions yet</string>
+    <string name="sessions_empty_body">Each saved capture will appear here as a separate group.</string>
 
     <!-- Policy detail -->
     <string name="detail_premium">Premium</string>

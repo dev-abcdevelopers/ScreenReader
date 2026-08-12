@@ -28,6 +28,9 @@ data class CustomerPolicy(
     var NomineeStatus: String = "",
     var MobileUpdateStatus: String = "",
     var AddressUpdateStatus: String = "",
+    var KycStatus: String = "",
+    var NeftStatus: String = "",
+    var RenewalType: String = "",
 
     var CommissionDateOfPremiumPayment: String = "",
     var CommissionDateOfPayment: String = "",

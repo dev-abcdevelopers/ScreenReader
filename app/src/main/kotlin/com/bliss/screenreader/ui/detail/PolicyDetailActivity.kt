@@ -47,7 +47,11 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.toolbar.setNavigationOnClickListener { finish() }
 
         val PolicyNumber = intent.getStringExtra(EXTRA_POLICY_NUMBER).orEmpty()
-        PolicyItem = PolicyRepository.GetCustomerPolicies(ContextRef = this)
+        val SessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
+        PolicyItem = PolicyRepository.GetCustomerPolicies(
+            ContextRef = this,
+            SessionId = SessionId
+        )
             .firstOrNull { it.PolicyNumber == PolicyNumber }
 
         val ResolvedPolicy = PolicyItem
@@ -210,7 +214,7 @@ class PolicyDetailActivity : AppCompatActivity() {
         val StartedOk = CaptureFlow.Start(
             ActivityRef = this,
             ModeVal = ModeVal,
-            LaunchTarget = ModeVal == CaptureMode.POLICY,
+            LaunchTarget = true,
             OriginOverride = MainActivity::class.java.name
         )
         if (StartedOk) finish()
@@ -264,5 +268,6 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_POLICY_NUMBER = "extra_policy_number"
+        const val EXTRA_SESSION_ID = "extra_session_id"
     }
 }

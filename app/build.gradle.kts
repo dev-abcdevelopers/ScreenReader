@@ -16,6 +16,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
@@ -56,4 +57,6 @@ dependencies {
 
     // Gson for JSON operations
     implementation("com.google.code.gson:gson:2.14.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

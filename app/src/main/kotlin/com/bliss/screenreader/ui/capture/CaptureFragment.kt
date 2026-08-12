@@ -16,9 +16,11 @@ import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.databinding.FragmentCaptureBinding
 import com.bliss.screenreader.databinding.PartialModeRowBinding
 import com.bliss.screenreader.databinding.PartialPreflightRowBinding
+import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.google.android.material.bottomsheet.BottomSheetDialog
 
 /**
  * Home. One mode picker, one button, and warnings that appear only when a
@@ -162,17 +164,6 @@ class CaptureFragment : Fragment() {
             ) { OpenAccessibilitySettings() }
         }
 
-        if (!CaptureFlow.CanDrawOverlay(ContextRef = ContextRef)) {
-            AddPreflightRow(
-                TitleRes = R.string.preflight_overlay_title,
-                BodyRes = R.string.preflight_overlay_body
-            ) {
-                (activity as? androidx.appcompat.app.AppCompatActivity)?.let {
-                    CaptureFlow.RequestOverlayPermission(ActivityRef = it)
-                }
-            }
-        }
-
         if (AppLauncherUtils.IsBatteryOptimized(ContextRef = ContextRef)) {
             AddPreflightRow(
                 TitleRes = R.string.preflight_battery_title,
@@ -250,15 +241,41 @@ class CaptureFragment : Fragment() {
             return
         }
 
-        // PS and FUP read a scrolling list, so the gesture kicks off with them.
+        if (SelectedMode == CaptureMode.POLICY) {
+            ShowPolicyCaptureModeSheet(ActivityRef = ActivityRef)
+            return
+        }
+
+        StartSelectedCapture(CapturePolicyDetails = false)
+    }
+
+    private fun ShowPolicyCaptureModeSheet(ActivityRef: androidx.appcompat.app.AppCompatActivity) {
+        val SheetBinding = SheetPolicyCaptureModeBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+        SheetBinding.cardFastCapture.setOnClickListener {
+            SheetDialog.dismiss()
+            StartSelectedCapture(CapturePolicyDetails = false)
+        }
+        SheetBinding.cardFullCapture.setOnClickListener {
+            SheetDialog.dismiss()
+            StartSelectedCapture(CapturePolicyDetails = true)
+        }
+        SheetBinding.btnCancelCaptureMode.setOnClickListener { SheetDialog.dismiss() }
+        SheetDialog.show()
+    }
+
+    private fun StartSelectedCapture(CapturePolicyDetails: Boolean) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+
+        // The accessibility service waits until the correct target screen is
+        // visible before starting any mode-specific automation.
         val StartedOk = CaptureFlow.Start(
             ActivityRef = ActivityRef,
             ModeVal = SelectedMode,
-            LaunchTarget = SelectedMode == CaptureMode.POLICY
+            LaunchTarget = true,
+            CapturePolicyDetails = CapturePolicyDetails
         )
-        if (StartedOk && SelectedMode != CaptureMode.POLICY) {
-            ScreenReaderService.Instance?.PerformAutoScrollGesture()
-        }
         if (!StartedOk) RenderPreflight()
     }
 

@@ -12,6 +12,7 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.databinding.SheetCaptureReviewBinding
+import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.ui.adapter.ReviewRecordAdapter
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
@@ -72,15 +73,31 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         }
 
         BindingObj.btnReviewSave.setOnClickListener {
+            val AppContext = requireContext().applicationContext
             val SavedCount = try {
                 CaptureParsers.Commit(
-                    ContextRef = requireContext().applicationContext,
+                    ContextRef = AppContext,
+                    SessionId = SessionObj.SessionId,
                     ModeVal = SessionObj.Mode,
-                    Nodes = SessionObj.RawNodes
+                    Nodes = SessionObj.RawNodes,
+                    PolicyRecords = SessionObj.PolicyRecords,
+                    CapturePolicyDetails = SessionObj.CapturePolicyDetails
                 )
-            } catch (_: Exception) {
+            } catch (ExceptionObj: Exception) {
+                CaptureDiagnostics.Log(
+                    ContextObj = AppContext,
+                    EventName = "SESSION_COMMIT_FAILED",
+                    MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
+                            "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+                )
                 0
             }
+            CaptureDiagnostics.Log(
+                ContextObj = AppContext,
+                EventName = "SESSION_COMMIT",
+                MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
+                        "saved=$SavedCount nodes=${SessionObj.NodeCount}"
+            )
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(SavedCount)
             dismissAllowingStateLoss()

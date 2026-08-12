@@ -9,6 +9,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ActivityMainBinding
 import com.bliss.screenreader.ui.capture.CaptureFragment
@@ -38,9 +39,7 @@ class MainActivity : AppCompatActivity() {
         }
         ViewBindingObj.bottomNav.setOnItemReselectedListener { }
 
-        // BottomNavigationView already has item 0 checked once the menu inflates,
-        // so assigning selectedItemId here dispatches nothing and the container
-        // stays empty. The first tab has to be committed explicitly.
+
         if (savedInstanceState == null) {
             ShowTab(ItemId = R.id.tabCapture)
         }
@@ -89,16 +88,19 @@ class MainActivity : AppCompatActivity() {
         val TransactionRef = ManagerRef.beginTransaction()
         for (ExistingFragment in ManagerRef.fragments) {
             TransactionRef.hide(ExistingFragment)
+            TransactionRef.setMaxLifecycle(ExistingFragment, Lifecycle.State.STARTED)
         }
 
         val TargetFragment = ManagerRef.findFragmentByTag(TagVal)
         if (TargetFragment == null) {
-            TransactionRef.add(R.id.navHost, BuildFragment(TagVal = TagVal), TagVal)
+            val NewFragment = BuildFragment(TagVal = TagVal)
+            TransactionRef.add(R.id.navHost, NewFragment, TagVal)
+            TransactionRef.setMaxLifecycle(NewFragment, Lifecycle.State.RESUMED)
         } else {
             TransactionRef.show(TargetFragment)
+            TransactionRef.setMaxLifecycle(TargetFragment, Lifecycle.State.RESUMED)
         }
-        // Synchronous so a following call sees this fragment and does not add a
-        // duplicate on top of it.
+
         TransactionRef.commitNow()
     }
 

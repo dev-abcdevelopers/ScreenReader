@@ -14,6 +14,7 @@
 
     <string name="section_system_service_status">SYSTEM SERVICE STATUS</string>
     <string name="title_accessibility_service">Accessibility Reader Service</string>
+    <string name="accessibility_service_description">Reads visible screen content and assists with navigating supported policy and servicing screens.</string>
     <string name="status_accessibility_checking">Checking service state...</string>
     <string name="status_accessibility_active">Active &amp; Ready for Automation</string>
     <string name="status_accessibility_disabled">Disabled - Action Required</string>
@@ -91,6 +92,7 @@
     <string name="bubble_pause">Pause</string>
     <string name="bubble_resume">Resume</string>
     <string name="bubble_finish">Finish</string>
+    <string name="bubble_share_log">Share diagnostic log</string>
     <string name="bubble_discard">Discard session</string>
     <string name="bubble_paused">Paused</string>
     <string name="bubble_meta_format">%1$s · %2$d fields</string>
@@ -109,6 +111,14 @@
     <string name="review_nothing_saved">Nothing was saved</string>
 
     <string name="capture_service_disabled">Accessibility service is off. Enable it to capture.</string>
+    <string name="capture_review_pending">Save or discard the previous capture before starting another session.</string>
+    <string name="policy_capture_depth_title">Capture policy details?</string>
+    <string name="policy_capture_depth_message">Full details opens every policy and expands available sections to collect Sum Assured, Term/PPT, commission and key-date information. This can be much slower—about 10 policy visits per page.</string>
+    <string name="policy_capture_full">Full details</string>
+    <string name="policy_capture_fast">Fast capture</string>
+    <string name="policy_capture_sheet_subtitle">Choose how much information this session should collect.</string>
+    <string name="policy_capture_fast_desc">Reads all dashboard cards and pages without opening individual policies. Best when speed matters.</string>
+    <string name="policy_capture_full_desc">Opens each policy and expands available sections for Sum Assured, Term/PPT, commissions and key dates. Slower but more complete.</string>
     <string name="capture_no_session">No capture is running</string>
     <string name="capture_overlay_required">Allow display over other apps so the capture bubble can appear</string>
     <string name="capture_started_format">Capturing %1$s. Finish from the bubble.</string>

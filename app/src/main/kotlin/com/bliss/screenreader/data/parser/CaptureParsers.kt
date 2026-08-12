@@ -37,11 +37,33 @@ object CaptureParsers {
     }
 
     /** Writes the parsed records to storage. Returns how many were saved. */
-    fun Commit(ContextRef: Context, ModeVal: CaptureMode, Nodes: List<String>): Int {
+    fun Commit(
+        ContextRef: Context,
+        SessionId: String,
+        ModeVal: CaptureMode,
+        Nodes: List<String>,
+        PolicyRecords: List<CustomerPolicy> = emptyList(),
+        CapturePolicyDetails: Boolean = false
+    ): Int {
+        require(SessionId.isNotBlank()) { "A capture session id is required" }
         return when (ModeVal) {
-            CaptureMode.POLICY -> CommitPolicy(ContextRef = ContextRef, Nodes = Nodes)
-            CaptureMode.PS -> CommitPs(ContextRef = ContextRef, Nodes = Nodes)
-            CaptureMode.FUP -> CommitFup(ContextRef = ContextRef, Nodes = Nodes)
+            CaptureMode.POLICY -> CommitPolicy(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Nodes = Nodes,
+                PolicyRecords = PolicyRecords,
+                CapturePolicyDetails = CapturePolicyDetails
+            )
+            CaptureMode.PS -> CommitPs(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Nodes = Nodes
+            )
+            CaptureMode.FUP -> CommitFup(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Nodes = Nodes
+            )
         }
     }
 
@@ -67,49 +89,96 @@ object CaptureParsers {
     }
 
     private fun PreviewPolicy(Nodes: List<String>): List<ParsedRecord> {
-        val PolicyItem = BuildPolicy(Nodes = Nodes)
-        val FieldCount = CountPolicyFields(PolicyItem = PolicyItem)
-        if (FieldCount == 0) return emptyList()
-
-        val WarningText = when {
-            PolicyItem.PolicyNumber.isEmpty() -> "No policy number found"
-            PolicyItem.HolderName.isEmpty() -> "No holder name found"
-            FieldCount < 3 -> "Only $FieldCount fields matched"
-            else -> ""
+        val DashboardPolicies = if (IsPolicyDashboardNodes(Nodes = Nodes)) {
+            ScreenDataParser.ParsePolicyDashboard(Nodes = Nodes)
+        } else {
+            emptyList()
+        }
+        val PolicyList = if (DashboardPolicies.isNotEmpty()) {
+            DashboardPolicies
+        } else {
+            listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
+                CountPolicyFields(PolicyItem = PolicyItem) > 0
+            }
         }
 
-        return listOf(
+        return PreviewPolicies(Policies = PolicyList)
+    }
+
+    fun PreviewPolicies(Policies: List<CustomerPolicy>): List<ParsedRecord> {
+        return Policies.map { PolicyItem ->
+            val FieldCount = CountPolicyFields(PolicyItem = PolicyItem)
             ParsedRecord(
                 PolicyNumber = PolicyItem.PolicyNumber.ifEmpty { "Unknown policy" },
                 PrimaryLine = PolicyItem.HolderName.ifEmpty { "No holder name" },
                 SecondaryLine = BuildPolicySummary(PolicyItem = PolicyItem),
                 FieldCount = FieldCount,
-                Warning = WarningText
+                Warning = when {
+                    PolicyItem.PolicyNumber.isEmpty() -> "No policy number found"
+                    PolicyItem.HolderName.isEmpty() -> "No holder name found"
+                    FieldCount < 3 -> "Only $FieldCount fields matched"
+                    else -> ""
+                }
             )
-        )
+        }
     }
 
-    private fun CommitPolicy(ContextRef: Context, Nodes: List<String>): Int {
-        val PolicyItem = BuildPolicy(Nodes = Nodes)
-        if (CountPolicyFields(PolicyItem = PolicyItem) == 0) return 0
-
-        val ExistingList = PolicyRepository.GetCustomerPolicies(ContextRef = ContextRef).toMutableList()
-        val MatchIndex = ExistingList.indexOfFirst {
-            PolicyItem.PolicyNumber.isNotEmpty() && it.PolicyNumber == PolicyItem.PolicyNumber
-        }
-        if (MatchIndex >= 0) {
-            ExistingList[MatchIndex] = MergePolicies(ExistingItem = ExistingList[MatchIndex], IncomingItem = PolicyItem)
+    private fun CommitPolicy(
+        ContextRef: Context,
+        SessionId: String,
+        Nodes: List<String>,
+        PolicyRecords: List<CustomerPolicy>,
+        CapturePolicyDetails: Boolean
+    ): Int {
+        val DashboardPolicies = if (PolicyRecords.isNotEmpty()) {
+            PolicyRecords
+        } else if (IsPolicyDashboardNodes(Nodes = Nodes)) {
+            ScreenDataParser.ParsePolicyDashboard(Nodes = Nodes)
         } else {
-            ExistingList.add(0, PolicyItem)
+            emptyList()
         }
-        PolicyRepository.SaveCustomerPolicies(ContextRef = ContextRef, Policies = ExistingList)
-        return 1
+        val ParsedPolicies = if (DashboardPolicies.isNotEmpty()) {
+            DashboardPolicies
+        } else {
+            listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
+                CountPolicyFields(PolicyItem = PolicyItem) > 0
+            }
+        }
+        if (ParsedPolicies.isEmpty()) return 0
+
+        val ExistingList = PolicyRepository.GetCustomerPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        ).toMutableList()
+        for (PolicyItem in ParsedPolicies.reversed()) {
+            val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
+                PolicyItem.PolicyNumber.isNotEmpty() && ExistingItem.PolicyNumber == PolicyItem.PolicyNumber
+            }
+            if (MatchIndex >= 0) {
+                ExistingList[MatchIndex] = MergePolicies(
+                    ExistingItem = ExistingList[MatchIndex],
+                    IncomingItem = PolicyItem
+                )
+            } else {
+                ExistingList.add(0, PolicyItem)
+            }
+        }
+        PolicyRepository.SaveCustomerPolicies(
+            ContextRef = ContextRef,
+            Policies = ExistingList,
+            SessionId = SessionId,
+            CapturePolicyDetails = CapturePolicyDetails
+        )
+        return ParsedPolicies.size
     }
 
     /** Keeps whatever the earlier capture found rather than overwriting it with blanks. */
     private fun MergePolicies(ExistingItem: CustomerPolicy, IncomingItem: CustomerPolicy): CustomerPolicy {
         return ExistingItem.copy(
             HolderName = IncomingItem.HolderName.ifEmpty { ExistingItem.HolderName },
+            PlanName = IncomingItem.PlanName.ifEmpty { ExistingItem.PlanName },
+            PlanCode = IncomingItem.PlanCode.ifEmpty { ExistingItem.PlanCode },
+            RenewalDueDate = IncomingItem.RenewalDueDate.ifEmpty { ExistingItem.RenewalDueDate },
             SumAssured = IncomingItem.SumAssured.ifEmpty { ExistingItem.SumAssured },
             TermPPT = IncomingItem.TermPPT.ifEmpty { ExistingItem.TermPPT },
             DateOfCommencement = IncomingItem.DateOfCommencement.ifEmpty { ExistingItem.DateOfCommencement },
@@ -117,7 +186,28 @@ object CaptureParsers {
             DateOfMaturity = IncomingItem.DateOfMaturity.ifEmpty { ExistingItem.DateOfMaturity },
             MobileNumber = IncomingItem.MobileNumber.ifEmpty { ExistingItem.MobileNumber },
             Dob = IncomingItem.Dob.ifEmpty { ExistingItem.Dob },
-            PremiumAmount = IncomingItem.PremiumAmount.ifEmpty { ExistingItem.PremiumAmount }
+            Address = IncomingItem.Address.ifEmpty { ExistingItem.Address },
+            PremiumAmount = IncomingItem.PremiumAmount.ifEmpty { ExistingItem.PremiumAmount },
+            PremiumFrequency = IncomingItem.PremiumFrequency.ifEmpty { ExistingItem.PremiumFrequency },
+            AutoPay = IncomingItem.AutoPay.ifEmpty { ExistingItem.AutoPay },
+            Status = IncomingItem.Status.ifEmpty { ExistingItem.Status },
+            NomineeStatus = IncomingItem.NomineeStatus.ifEmpty { ExistingItem.NomineeStatus },
+            MobileUpdateStatus = IncomingItem.MobileUpdateStatus.ifEmpty { ExistingItem.MobileUpdateStatus },
+            AddressUpdateStatus = IncomingItem.AddressUpdateStatus.ifEmpty { ExistingItem.AddressUpdateStatus },
+            KycStatus = IncomingItem.KycStatus.ifEmpty { ExistingItem.KycStatus },
+            NeftStatus = IncomingItem.NeftStatus.ifEmpty { ExistingItem.NeftStatus },
+            RenewalType = IncomingItem.RenewalType.ifEmpty { ExistingItem.RenewalType },
+            CommissionDateOfPremiumPayment = IncomingItem.CommissionDateOfPremiumPayment.ifEmpty {
+                ExistingItem.CommissionDateOfPremiumPayment
+            },
+            CommissionDateOfPayment = IncomingItem.CommissionDateOfPayment.ifEmpty {
+                ExistingItem.CommissionDateOfPayment
+            },
+            CommissionType = IncomingItem.CommissionType.ifEmpty { ExistingItem.CommissionType },
+            BonusCommission = IncomingItem.BonusCommission.ifEmpty { ExistingItem.BonusCommission },
+            CommissionPaidAmount = IncomingItem.CommissionPaidAmount.ifEmpty {
+                ExistingItem.CommissionPaidAmount
+            }
         )
     }
 
@@ -126,17 +216,39 @@ object CaptureParsers {
             PolicyItem.PolicyNumber, PolicyItem.HolderName, PolicyItem.SumAssured,
             PolicyItem.TermPPT, PolicyItem.DateOfCommencement, PolicyItem.EndOfPremiumPayingTerm,
             PolicyItem.DateOfMaturity, PolicyItem.MobileNumber, PolicyItem.Dob,
-            PolicyItem.PremiumAmount, PolicyItem.Status
+            PolicyItem.PremiumAmount, PolicyItem.Status, PolicyItem.PlanName,
+            PolicyItem.AutoPay, PolicyItem.RenewalDueDate, PolicyItem.KycStatus,
+            PolicyItem.NeftStatus, PolicyItem.Address,
+            PolicyItem.CommissionDateOfPremiumPayment, PolicyItem.CommissionDateOfPayment,
+            PolicyItem.CommissionType, PolicyItem.BonusCommission,
+            PolicyItem.CommissionPaidAmount
         )
         return Candidates.count { it.isNotEmpty() }
     }
 
     private fun BuildPolicySummary(PolicyItem: CustomerPolicy): String {
         val Parts = mutableListOf<String>()
+        if (PolicyItem.PlanName.isNotEmpty()) Parts.add(PolicyItem.PlanName)
+        if (PolicyItem.PremiumAmount.isNotEmpty()) {
+            val FrequencyText = PolicyItem.PremiumFrequency
+                .takeIf { ItValue -> ItValue.isNotEmpty() }
+                ?.let { ItValue -> "/$ItValue" }
+                .orEmpty()
+            Parts.add("${PolicyItem.PremiumAmount}$FrequencyText")
+        }
+        if (PolicyItem.RenewalDueDate.isNotEmpty()) Parts.add("Due ${PolicyItem.RenewalDueDate}")
         if (PolicyItem.SumAssured.isNotEmpty()) Parts.add("SA ${PolicyItem.SumAssured}")
         if (PolicyItem.TermPPT.isNotEmpty()) Parts.add("Term ${PolicyItem.TermPPT}")
         if (PolicyItem.DateOfMaturity.isNotEmpty()) Parts.add("Matures ${PolicyItem.DateOfMaturity}")
         return if (Parts.isEmpty()) "No plan details matched" else Parts.joinToString(" · ")
+    }
+
+    private fun IsPolicyDashboardNodes(Nodes: List<String>): Boolean {
+        return Nodes.any { NodeText ->
+            NodeText.contains("Policy Dashboard", ignoreCase = true) ||
+                    NodeText.contains("Based on selected filters", ignoreCase = true) ||
+                    NodeText.startsWith("Send Reminder", ignoreCase = true)
+        }
     }
 
     // -------------------------------------------------------------------- ps
@@ -165,11 +277,14 @@ object CaptureParsers {
         }
     }
 
-    private fun CommitPs(ContextRef: Context, Nodes: List<String>): Int {
+    private fun CommitPs(ContextRef: Context, SessionId: String, Nodes: List<String>): Int {
         val ParsedList = PsDataParser.ParsePsPolicies(Nodes = Nodes)
         if (ParsedList.isEmpty()) return 0
 
-        val ExistingList = PolicyRepository.GetPsPolicies(ContextRef = ContextRef).toMutableList()
+        val ExistingList = PolicyRepository.GetPsPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        ).toMutableList()
         val KnownNumbers = ExistingList.map { it.PolicyNumber }.toMutableSet()
         var AddedCount = 0
         for (PsItem in ParsedList) {
@@ -177,7 +292,11 @@ object CaptureParsers {
             ExistingList.add(AddedCount, PsItem)
             AddedCount++
         }
-        PolicyRepository.SavePsPolicies(ContextRef = ContextRef, Policies = ExistingList)
+        PolicyRepository.SavePsPolicies(
+            ContextRef = ContextRef,
+            Policies = ExistingList,
+            SessionId = SessionId
+        )
         return AddedCount
     }
 
@@ -203,11 +322,14 @@ object CaptureParsers {
         }
     }
 
-    private fun CommitFup(ContextRef: Context, Nodes: List<String>): Int {
+    private fun CommitFup(ContextRef: Context, SessionId: String, Nodes: List<String>): Int {
         val ParsedList = FupDataParser.ParseRenewalHistory(Nodes = Nodes)
         if (ParsedList.isEmpty()) return 0
 
-        val ExistingList = PolicyRepository.GetFupPolicies(ContextRef = ContextRef).toMutableList()
+        val ExistingList = PolicyRepository.GetFupPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        ).toMutableList()
         val KnownNumbers = ExistingList.map { it.PolicyNumber }.toMutableSet()
         var AddedCount = 0
         for (FupItem in ParsedList) {
@@ -215,7 +337,11 @@ object CaptureParsers {
             ExistingList.add(AddedCount, FupItem)
             AddedCount++
         }
-        PolicyRepository.SaveFupPolicies(ContextRef = ContextRef, Policies = ExistingList)
+        PolicyRepository.SaveFupPolicies(
+            ContextRef = ContextRef,
+            Policies = ExistingList,
+            SessionId = SessionId
+        )
         return AddedCount
     }
 

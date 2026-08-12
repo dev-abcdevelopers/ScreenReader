@@ -21,8 +21,13 @@ object ExcelExporter {
 
         val HeaderRow = SheetObj.createRow(0)
         val HeadersList = arrayOf(
-            "Policy Number", "Holder Name", "Plan Name", "Status",
-            "Premium Amount", "Sum Assured", "Renewal Due Date", "Mobile", "DOB"
+            "Policy Number", "Holder Name", "Plan Code", "Plan Name", "Status",
+            "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
+            "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
+            "Term/PPT", "Date of Commencement", "End of Premium Paying Term",
+            "Date of Maturity", "Mobile", "DOB", "Address",
+            "Date of Premium Payment", "Date of Commission Payment", "Commission Type",
+            "Bonus Commission", "Commission Paid Amount"
         )
 
         for (Idx in HeadersList.indices) {
@@ -34,13 +39,29 @@ object ExcelExporter {
             val DataRow = SheetObj.createRow(RowIdx++)
             DataRow.createCell(0).setCellValue(PolicyItem.PolicyNumber)
             DataRow.createCell(1).setCellValue(PolicyItem.HolderName)
-            DataRow.createCell(2).setCellValue(PolicyItem.PlanName)
-            DataRow.createCell(3).setCellValue(PolicyItem.NormalizedStatus)
-            DataRow.createCell(4).setCellValue(PolicyItem.PremiumAmount)
-            DataRow.createCell(5).setCellValue(PolicyItem.SumAssured)
-            DataRow.createCell(6).setCellValue(PolicyItem.RenewalDueDate)
-            DataRow.createCell(7).setCellValue(PolicyItem.MobileNumber)
-            DataRow.createCell(8).setCellValue(PolicyItem.Dob)
+            DataRow.createCell(2).setCellValue(PolicyItem.PlanCode)
+            DataRow.createCell(3).setCellValue(PolicyItem.PlanName)
+            DataRow.createCell(4).setCellValue(PolicyItem.NormalizedStatus)
+            DataRow.createCell(5).setCellValue(PolicyItem.PremiumAmount)
+            DataRow.createCell(6).setCellValue(PolicyItem.PremiumFrequency)
+            DataRow.createCell(7).setCellValue(PolicyItem.AutoPay)
+            DataRow.createCell(8).setCellValue(PolicyItem.RenewalType)
+            DataRow.createCell(9).setCellValue(PolicyItem.RenewalDueDate)
+            DataRow.createCell(10).setCellValue(PolicyItem.KycStatus)
+            DataRow.createCell(11).setCellValue(PolicyItem.NeftStatus)
+            DataRow.createCell(12).setCellValue(PolicyItem.SumAssured)
+            DataRow.createCell(13).setCellValue(PolicyItem.TermPPT)
+            DataRow.createCell(14).setCellValue(PolicyItem.DateOfCommencement)
+            DataRow.createCell(15).setCellValue(PolicyItem.EndOfPremiumPayingTerm)
+            DataRow.createCell(16).setCellValue(PolicyItem.DateOfMaturity)
+            DataRow.createCell(17).setCellValue(PolicyItem.MobileNumber)
+            DataRow.createCell(18).setCellValue(PolicyItem.Dob)
+            DataRow.createCell(19).setCellValue(PolicyItem.Address)
+            DataRow.createCell(20).setCellValue(PolicyItem.CommissionDateOfPremiumPayment)
+            DataRow.createCell(21).setCellValue(PolicyItem.CommissionDateOfPayment)
+            DataRow.createCell(22).setCellValue(PolicyItem.CommissionType)
+            DataRow.createCell(23).setCellValue(PolicyItem.BonusCommission)
+            DataRow.createCell(24).setCellValue(PolicyItem.CommissionPaidAmount)
         }
 
         val TimeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())

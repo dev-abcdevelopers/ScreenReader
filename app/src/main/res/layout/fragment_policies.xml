@@ -22,7 +22,21 @@
             android:paddingTop="@dimen/space_sm"
             android:paddingBottom="@dimen/space_md">
 
+            <ImageButton
+                android:id="@+id/btnSessionsBack"
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginStart="-12dp"
+                android:layout_marginEnd="@dimen/space_xs"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/cd_back"
+                android:padding="12dp"
+                android:src="@drawable/ic_arrow_back"
+                android:visibility="gone"
+                app:tint="@color/text_secondary" />
+
             <TextView
+                android:id="@+id/tvPoliciesHeading"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -37,6 +51,12 @@
                 android:textAppearance="@style/TextAppearance.App.Caption" />
 
         </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/policyTools"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilSearch"
@@ -92,6 +112,8 @@
                 android:text="@string/policies_filter_lapsed" />
 
         </com.google.android.material.chip.ChipGroup>
+
+        </LinearLayout>
 
     </LinearLayout>
 

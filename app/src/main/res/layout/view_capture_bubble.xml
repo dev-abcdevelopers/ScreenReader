@@ -104,6 +104,19 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/btnBubbleShareLog"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_bubble_action_outlined"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="@string/bubble_share_log"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/btnBubbleDiscard"
             android:layout_width="match_parent"
             android:layout_height="40dp"
