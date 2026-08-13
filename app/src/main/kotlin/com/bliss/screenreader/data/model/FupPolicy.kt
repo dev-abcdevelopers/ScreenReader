@@ -5,6 +5,7 @@ package com.bliss.screenreader.data.model
 data class FupPolicy(
     val PolicyNumber: String,
     val PlanName: String = "",
+    val PlanCode: String = "",
     val HolderName: String = "",
     val PremiumAmount: String = "",
     val DueDate: String = "",

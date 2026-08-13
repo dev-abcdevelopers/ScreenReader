@@ -20,6 +20,7 @@ import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 
 /**
@@ -47,7 +48,10 @@ class CaptureFragment : Fragment() {
         val BindingObj = ViewBindingObj ?: return
 
         savedInstanceState?.getString(KEY_MODE)?.let {
-            SelectedMode = CaptureMode.FromName(NameVal = it)
+            val RestoredMode = CaptureMode.FromName(NameVal = it)
+            // A state bundle saved before PS was hidden would otherwise restore
+            // a mode that no longer has a visible card to select.
+            SelectedMode = if (RestoredMode == CaptureMode.PS) CaptureMode.POLICY else RestoredMode
         }
 
         BindModeRow(
@@ -57,22 +61,23 @@ class CaptureFragment : Fragment() {
             DescRes = R.string.capture_mode_policy_desc
         )
         BindModeRow(
-            RowBinding = BindingObj.rowModePs,
-            IconRes = R.drawable.ic_history,
-            TitleRes = R.string.capture_mode_ps,
-            DescRes = R.string.capture_mode_ps_desc
-        )
-        BindModeRow(
             RowBinding = BindingObj.rowModeFup,
             IconRes = R.drawable.ic_calendar_repeat,
             TitleRes = R.string.capture_mode_fup,
             DescRes = R.string.capture_mode_fup_desc
         )
 
-        BindingObj.cardModePolicy.setOnClickListener { SelectMode(ModeVal = CaptureMode.POLICY) }
-        BindingObj.cardModePs.setOnClickListener { SelectMode(ModeVal = CaptureMode.PS) }
-        BindingObj.cardModeFup.setOnClickListener { SelectMode(ModeVal = CaptureMode.FUP) }
+        BindingObj.cardModePolicy.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SelectMode(ModeVal = CaptureMode.POLICY)
+        }
+        BindingObj.cardModeFup.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SelectMode(ModeVal = CaptureMode.FUP)
+        }
 
+        // The haptic lives in OnPrimaryAction, not here: this button either
+        // commits or opens a sheet, and those should not feel the same.
         BindingObj.btnPrimaryAction.setOnClickListener { OnPrimaryAction() }
 
         ObserveCaptureState()
@@ -122,9 +127,10 @@ class CaptureFragment : Fragment() {
         val TextDefault = ContextCompat.getColor(ContextRef, R.color.text_primary)
         val IconDefault = ContextCompat.getColor(ContextRef, R.color.text_secondary)
 
+        // PS is hidden from the picker for now; its card stays in the layout
+        // with visibility=gone so nothing else has to change to bring it back.
         val Entries = listOf(
             Triple(CaptureMode.POLICY, BindingObj.cardModePolicy, BindingObj.rowModePolicy),
-            Triple(CaptureMode.PS, BindingObj.cardModePs, BindingObj.rowModePs),
             Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup)
         )
 
@@ -179,7 +185,10 @@ class CaptureFragment : Fragment() {
         )
         RowBinding.tvPreflightTitle.setText(TitleRes)
         RowBinding.tvPreflightBody.setText(BodyRes)
-        RowBinding.btnPreflightFix.setOnClickListener { OnFix() }
+        RowBinding.btnPreflightFix.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            OnFix()
+        }
         BindingObj.preflightGroup.addView(RowBinding.root)
     }
 
@@ -214,7 +223,6 @@ class CaptureFragment : Fragment() {
         BindingObj.cardLiveState.visibility = if (IsRunning) View.VISIBLE else View.GONE
 
         BindingObj.cardModePolicy.isEnabled = !IsRunning
-        BindingObj.cardModePs.isEnabled = !IsRunning
         BindingObj.cardModeFup.isEnabled = !IsRunning
 
         if (IsRunning) RenderLiveState()
@@ -236,12 +244,17 @@ class CaptureFragment : Fragment() {
     private fun OnPrimaryAction() {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
 
+        val BindingObj = ViewBindingObj
+
         if (ScreenReaderService.IsCapturing) {
+            HapticFeedback.Confirm(ViewRef = BindingObj?.btnPrimaryAction)
             CaptureFlow.Finish(ActivityRef = ActivityRef)
             return
         }
 
         if (SelectedMode == CaptureMode.POLICY) {
+            // Opening the picker is not yet a commitment.
+            HapticFeedback.Tap(ViewRef = BindingObj?.btnPrimaryAction)
             ShowPolicyCaptureModeSheet(ActivityRef = ActivityRef)
             return
         }
@@ -261,12 +274,17 @@ class CaptureFragment : Fragment() {
             SheetDialog.dismiss()
             StartSelectedCapture(CapturePolicyDetails = true)
         }
-        SheetBinding.btnCancelCaptureMode.setOnClickListener { SheetDialog.dismiss() }
+        SheetBinding.btnCancelCaptureMode.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
         SheetDialog.show()
     }
 
     private fun StartSelectedCapture(CapturePolicyDetails: Boolean) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        // The single commit point for both the direct and the sheet path.
+        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnPrimaryAction)
 
         // The accessibility service waits until the correct target screen is
         // visible before starting any mode-specific automation.

@@ -5,6 +5,7 @@ package com.bliss.screenreader.ui.capture
 import androidx.appcompat.app.AppCompatActivity
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
@@ -25,7 +26,8 @@ object CaptureFlow {
         ModeVal: CaptureMode,
         LaunchTarget: Boolean = false,
         CapturePolicyDetails: Boolean = false,
-        OriginOverride: String = ""
+        OriginOverride: String = "",
+        ResumeSessionId: String = ""
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -42,12 +44,29 @@ object CaptureFlow {
             return false
         }
 
+        // Merging a renewal capture into a policy session, or vice versa, would
+        // write records the reader for that mode cannot parse.
+        if (ResumeSessionId.isNotBlank()) {
+            val SessionRef = PolicyRepository.GetSessionReference(
+                ContextRef = ActivityRef,
+                SessionId = ResumeSessionId
+            )
+            if (SessionRef == null || SessionRef.Mode != ModeVal) {
+                ShowMessage(
+                    ActivityRef = ActivityRef,
+                    MessageVal = ActivityRef.getString(R.string.capture_resume_mismatch)
+                )
+                return false
+            }
+        }
+
         // A screen that finishes itself on start must nominate somewhere else to
         // come back to, or the service reopens a dead activity.
         ServiceInstance.StartCaptureSession(
             ModeVal = ModeVal,
             CapturePolicyDetailsVal = CapturePolicyDetails,
-            OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name }
+            OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name },
+            ResumeSessionIdVal = ResumeSessionId
         )
 
         if (LaunchTarget) {

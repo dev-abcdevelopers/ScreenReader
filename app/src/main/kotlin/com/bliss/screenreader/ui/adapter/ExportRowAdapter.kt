@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ItemExportRowBinding
+import com.bliss.screenreader.utils.HapticFeedback
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,8 +56,14 @@ class ExportRowAdapter(
             DateLabel
         )
 
-        holder.BindingRef.exportRowRoot.setOnClickListener { OnOpen(FileRef) }
-        holder.BindingRef.btnExportShare.setOnClickListener { OnShare(FileRef) }
+        holder.BindingRef.exportRowRoot.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            OnOpen(FileRef)
+        }
+        holder.BindingRef.btnExportShare.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            OnShare(FileRef)
+        }
     }
 
     private fun FriendlyName(FileRef: File): String {

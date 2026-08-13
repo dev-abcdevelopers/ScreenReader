@@ -39,3 +39,7 @@ local.properties
 # OS specific files
 .DS_Store
 Thumbs.db
+
+tools/signing_key.pem
+tools/issued_licences.json
+_to_delete/

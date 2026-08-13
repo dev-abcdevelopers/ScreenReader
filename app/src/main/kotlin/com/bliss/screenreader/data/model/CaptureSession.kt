@@ -61,6 +61,7 @@ data class CaptureSession(
     val RawNodes: List<String>,
     val Records: List<ParsedRecord>,
     val PolicyRecords: List<CustomerPolicy> = emptyList(),
+    val FupRecords: List<FupPolicy> = emptyList(),
     val CapturePolicyDetails: Boolean = false,
     val TargetPackage: String = "",
     val OriginActivity: String = ""

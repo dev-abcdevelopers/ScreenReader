@@ -5,7 +5,9 @@ package com.bliss.screenreader.data.parser
 import android.content.Context
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
+import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
+import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.repository.PolicyRepository
 import java.util.regex.Pattern
 
@@ -18,6 +20,15 @@ import java.util.regex.Pattern
  * user has accepted the review sheet.
  */
 object CaptureParsers {
+
+    /**
+     * Set by the most recent [Commit]. The review sheet reads it to say how
+     * many records were added versus updated; a resumed capture that only
+     * filled gaps would otherwise report a bare total that reads as new work.
+     */
+    @Volatile
+    var LastCommitResult: CommitResult = CommitResult(AddedCount = 0, UpdatedCount = 0)
+        private set
 
     private val POLICY_NO_REGEX: Pattern = Pattern.compile("^\\d{9}$")
     private val HOLDER_NAME_REGEX = Regex("^[A-Z][A-Za-z.]+(?:\\s+[A-Z][A-Za-z.]+){1,3}$")
@@ -43,9 +54,11 @@ object CaptureParsers {
         ModeVal: CaptureMode,
         Nodes: List<String>,
         PolicyRecords: List<CustomerPolicy> = emptyList(),
+        FupRecords: List<FupPolicy> = emptyList(),
         CapturePolicyDetails: Boolean = false
     ): Int {
         require(SessionId.isNotBlank()) { "A capture session id is required" }
+        LastCommitResult = CommitResult(AddedCount = 0, UpdatedCount = 0)
         return when (ModeVal) {
             CaptureMode.POLICY -> CommitPolicy(
                 ContextRef = ContextRef,
@@ -62,7 +75,8 @@ object CaptureParsers {
             CaptureMode.FUP -> CommitFup(
                 ContextRef = ContextRef,
                 SessionId = SessionId,
-                Nodes = Nodes
+                Nodes = Nodes,
+                FupRecords = FupRecords
             )
         }
     }
@@ -123,6 +137,14 @@ object CaptureParsers {
         }
     }
 
+    /**
+     * How a commit changed the stored session. A resumed capture that only
+     * filled gaps adds nothing, so a bare total would read as "0 saved".
+     */
+    data class CommitResult(val AddedCount: Int, val UpdatedCount: Int) {
+        val TotalCount: Int get() = AddedCount + UpdatedCount
+    }
+
     private fun CommitPolicy(
         ContextRef: Context,
         SessionId: String,
@@ -150,65 +172,42 @@ object CaptureParsers {
             ContextRef = ContextRef,
             SessionId = SessionId
         ).toMutableList()
+        val ChangeLog = mutableListOf<RecordFieldChange>()
+        var AddedCount = 0
+        var UpdatedCount = 0
+
         for (PolicyItem in ParsedPolicies.reversed()) {
             val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
                 PolicyItem.PolicyNumber.isNotEmpty() && ExistingItem.PolicyNumber == PolicyItem.PolicyNumber
             }
             if (MatchIndex >= 0) {
-                ExistingList[MatchIndex] = MergePolicies(
+                val MergeOutcomeVal = RecordMerge.MergePolicy(
                     ExistingItem = ExistingList[MatchIndex],
                     IncomingItem = PolicyItem
                 )
+                if (MergeOutcomeVal.Record != ExistingList[MatchIndex]) UpdatedCount++
+                ExistingList[MatchIndex] = MergeOutcomeVal.Record
+                ChangeLog.addAll(MergeOutcomeVal.Changes)
             } else {
                 ExistingList.add(0, PolicyItem)
+                AddedCount++
             }
         }
+
+        PolicyRepository.SaveFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.POLICY,
+            SessionId = SessionId,
+            Changes = ChangeLog
+        )
         PolicyRepository.SaveCustomerPolicies(
             ContextRef = ContextRef,
             Policies = ExistingList,
             SessionId = SessionId,
             CapturePolicyDetails = CapturePolicyDetails
         )
-        return ParsedPolicies.size
-    }
-
-    /** Keeps whatever the earlier capture found rather than overwriting it with blanks. */
-    private fun MergePolicies(ExistingItem: CustomerPolicy, IncomingItem: CustomerPolicy): CustomerPolicy {
-        return ExistingItem.copy(
-            HolderName = IncomingItem.HolderName.ifEmpty { ExistingItem.HolderName },
-            PlanName = IncomingItem.PlanName.ifEmpty { ExistingItem.PlanName },
-            PlanCode = IncomingItem.PlanCode.ifEmpty { ExistingItem.PlanCode },
-            RenewalDueDate = IncomingItem.RenewalDueDate.ifEmpty { ExistingItem.RenewalDueDate },
-            SumAssured = IncomingItem.SumAssured.ifEmpty { ExistingItem.SumAssured },
-            TermPPT = IncomingItem.TermPPT.ifEmpty { ExistingItem.TermPPT },
-            DateOfCommencement = IncomingItem.DateOfCommencement.ifEmpty { ExistingItem.DateOfCommencement },
-            EndOfPremiumPayingTerm = IncomingItem.EndOfPremiumPayingTerm.ifEmpty { ExistingItem.EndOfPremiumPayingTerm },
-            DateOfMaturity = IncomingItem.DateOfMaturity.ifEmpty { ExistingItem.DateOfMaturity },
-            MobileNumber = IncomingItem.MobileNumber.ifEmpty { ExistingItem.MobileNumber },
-            Dob = IncomingItem.Dob.ifEmpty { ExistingItem.Dob },
-            Address = IncomingItem.Address.ifEmpty { ExistingItem.Address },
-            PremiumAmount = IncomingItem.PremiumAmount.ifEmpty { ExistingItem.PremiumAmount },
-            PremiumFrequency = IncomingItem.PremiumFrequency.ifEmpty { ExistingItem.PremiumFrequency },
-            AutoPay = IncomingItem.AutoPay.ifEmpty { ExistingItem.AutoPay },
-            Status = IncomingItem.Status.ifEmpty { ExistingItem.Status },
-            NomineeStatus = IncomingItem.NomineeStatus.ifEmpty { ExistingItem.NomineeStatus },
-            MobileUpdateStatus = IncomingItem.MobileUpdateStatus.ifEmpty { ExistingItem.MobileUpdateStatus },
-            AddressUpdateStatus = IncomingItem.AddressUpdateStatus.ifEmpty { ExistingItem.AddressUpdateStatus },
-            KycStatus = IncomingItem.KycStatus.ifEmpty { ExistingItem.KycStatus },
-            NeftStatus = IncomingItem.NeftStatus.ifEmpty { ExistingItem.NeftStatus },
-            RenewalType = IncomingItem.RenewalType.ifEmpty { ExistingItem.RenewalType },
-            CommissionDateOfPremiumPayment = IncomingItem.CommissionDateOfPremiumPayment.ifEmpty {
-                ExistingItem.CommissionDateOfPremiumPayment
-            },
-            CommissionDateOfPayment = IncomingItem.CommissionDateOfPayment.ifEmpty {
-                ExistingItem.CommissionDateOfPayment
-            },
-            CommissionType = IncomingItem.CommissionType.ifEmpty { ExistingItem.CommissionType },
-            BonusCommission = IncomingItem.BonusCommission.ifEmpty { ExistingItem.BonusCommission },
-            CommissionPaidAmount = IncomingItem.CommissionPaidAmount.ifEmpty {
-                ExistingItem.CommissionPaidAmount
-            }
-        )
+        LastCommitResult = CommitResult(AddedCount = AddedCount, UpdatedCount = UpdatedCount)
+        return AddedCount + UpdatedCount
     }
 
     private fun CountPolicyFields(PolicyItem: CustomerPolicy): Int {
@@ -297,52 +296,104 @@ object CaptureParsers {
             Policies = ExistingList,
             SessionId = SessionId
         )
+        LastCommitResult = CommitResult(AddedCount = AddedCount, UpdatedCount = 0)
         return AddedCount
     }
 
     // ------------------------------------------------------------------- fup
 
     private fun PreviewFup(Nodes: List<String>): List<ParsedRecord> {
-        return FupDataParser.ParseRenewalHistory(Nodes = Nodes).map { FupItem ->
+        return PreviewFupRecords(Records = FupDataParser.ParseRenewalHistory(Nodes = Nodes))
+    }
+
+    fun PreviewFupRecords(Records: List<FupPolicy>): List<ParsedRecord> {
+        return Records.map { FupItem ->
             val FieldCount = listOf(
                 FupItem.PolicyNumber, FupItem.PlanName, FupItem.HolderName,
-                FupItem.PremiumAmount, FupItem.DueDate, FupItem.Status
+                FupItem.PremiumAmount, FupItem.DueDate, FupItem.PaymentDate,
+                FupItem.ModeOfPayment, FupItem.Status
             ).count { it.isNotEmpty() }
 
             ParsedRecord(
-                PolicyNumber = FupItem.PolicyNumber,
+                PolicyNumber = FupItem.PolicyNumber.ifEmpty { "Unknown policy" },
                 PrimaryLine = FupItem.HolderName.ifEmpty { FupItem.PlanName.ifEmpty { "No holder name" } },
-                SecondaryLine = listOf(FupItem.PremiumAmount, FupItem.DueDate)
-                    .filter { it.isNotEmpty() }
-                    .joinToString(" · ")
-                    .ifEmpty { "No premium or due date matched" },
+                SecondaryLine = BuildFupSummary(FupItem = FupItem),
                 FieldCount = FieldCount,
-                Warning = if (FieldCount < 3) "Only $FieldCount fields matched" else ""
+                Warning = when {
+                    FupItem.PolicyNumber.isEmpty() -> "No policy number found"
+                    FupItem.PaymentDate.isEmpty() && FupItem.DueDate.isEmpty() ->
+                        "No due or payment date matched"
+                    FieldCount < 4 -> "Only $FieldCount fields matched"
+                    else -> ""
+                }
             )
         }
     }
 
-    private fun CommitFup(ContextRef: Context, SessionId: String, Nodes: List<String>): Int {
-        val ParsedList = FupDataParser.ParseRenewalHistory(Nodes = Nodes)
+    private fun BuildFupSummary(FupItem: FupPolicy): String {
+        val Parts = mutableListOf<String>()
+        if (FupItem.PremiumAmount.isNotEmpty()) Parts.add(FupItem.PremiumAmount)
+        if (FupItem.DueDate.isNotEmpty()) Parts.add("Due ${FupItem.DueDate}")
+        if (FupItem.PaymentDate.isNotEmpty()) Parts.add("Paid ${FupItem.PaymentDate}")
+        if (FupItem.ModeOfPayment.isNotEmpty()) Parts.add(FupItem.ModeOfPayment)
+        if (FupItem.Status.isNotEmpty()) Parts.add(FupItem.Status)
+        return if (Parts.isEmpty()) "No renewal details matched" else Parts.joinToString(" · ")
+    }
+
+    private fun CommitFup(
+        ContextRef: Context,
+        SessionId: String,
+        Nodes: List<String>,
+        FupRecords: List<FupPolicy>
+    ): Int {
+        val ParsedList = FupRecords.ifEmpty {
+            FupDataParser.ParseRenewalHistory(Nodes = Nodes)
+        }
         if (ParsedList.isEmpty()) return 0
 
         val ExistingList = PolicyRepository.GetFupPolicies(
             ContextRef = ContextRef,
             SessionId = SessionId
         ).toMutableList()
-        val KnownNumbers = ExistingList.map { it.PolicyNumber }.toMutableSet()
+        val ChangeLog = mutableListOf<RecordFieldChange>()
         var AddedCount = 0
+        var UpdatedCount = 0
+
+        // Previously this skipped anything whose key was already known, so a
+        // resumed capture could never fill in a field missed the first time.
         for (FupItem in ParsedList) {
-            if (FupItem.PolicyNumber.isNotEmpty() && !KnownNumbers.add(FupItem.PolicyNumber)) continue
-            ExistingList.add(AddedCount, FupItem)
-            AddedCount++
+            val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
+                FupItem.PolicyNumber.isNotEmpty() &&
+                        RecordMerge.RenewalKey(RecordItem = ExistingItem) ==
+                        RecordMerge.RenewalKey(RecordItem = FupItem)
+            }
+            if (MatchIndex >= 0) {
+                val MergeOutcomeVal = RecordMerge.MergeRenewal(
+                    ExistingItem = ExistingList[MatchIndex],
+                    IncomingItem = FupItem
+                )
+                if (MergeOutcomeVal.Record != ExistingList[MatchIndex]) UpdatedCount++
+                ExistingList[MatchIndex] = MergeOutcomeVal.Record
+                ChangeLog.addAll(MergeOutcomeVal.Changes)
+            } else {
+                ExistingList.add(AddedCount, FupItem)
+                AddedCount++
+            }
         }
+
+        PolicyRepository.SaveFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.FUP,
+            SessionId = SessionId,
+            Changes = ChangeLog
+        )
         PolicyRepository.SaveFupPolicies(
             ContextRef = ContextRef,
             Policies = ExistingList,
             SessionId = SessionId
         )
-        return AddedCount
+        LastCommitResult = CommitResult(AddedCount = AddedCount, UpdatedCount = UpdatedCount)
+        return AddedCount + UpdatedCount
     }
 
     // --------------------------------------------------------------- helpers

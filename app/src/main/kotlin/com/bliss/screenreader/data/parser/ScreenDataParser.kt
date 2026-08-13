@@ -156,11 +156,13 @@ object ScreenDataParser {
                 ForwardIdx++
             }
 
-            val PlanCode = PLAN_CODE_REGEX.find(PlanName)?.groupValues?.getOrNull(1).orEmpty()
+            // The label arrives as "945 - LIC'S JEEVAN UMANG PLAN"; the code
+            // and the name are stored apart so neither has to be re-parsed.
+            val (PlanCode, PlanNameOnly) = PlanIdentity.Split(RawLabel = PlanName)
             val IncomingPolicy = CustomerPolicy(
                 HolderName = HolderName,
                 PolicyNumber = PolicyNumber,
-                PlanName = PlanName,
+                PlanName = PlanNameOnly,
                 PlanCode = PlanCode,
                 RenewalDueDate = RenewalDate,
                 PremiumAmount = PremiumAmount,
@@ -358,8 +360,8 @@ object ScreenDataParser {
         return CustomerPolicy(
             HolderName = HolderName,
             PolicyNumber = PolicyNumber,
-            PlanName = PlanName,
-            PlanCode = PLAN_CODE_REGEX.find(PlanName)?.groupValues?.getOrNull(1).orEmpty(),
+            PlanName = PlanIdentity.Name(RawLabel = PlanName),
+            PlanCode = PlanIdentity.Code(RawLabel = PlanName),
             PremiumAmount = PremiumParts.firstOrNull().orEmpty(),
             PremiumFrequency = PremiumParts.getOrNull(1).orEmpty(),
             AutoPay = DetailsMap["autoPay"].orEmpty(),

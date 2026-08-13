@@ -9,13 +9,16 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bliss.screenreader.R
+import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.parser.CaptureParsers
+import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCaptureReviewBinding
 import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.ui.adapter.ReviewRecordAdapter
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
+import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
 /**
@@ -62,17 +65,22 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
 
         BindingObj.btnReviewRaw.text = getString(R.string.review_view_raw_format, SessionObj.NodeCount)
         BindingObj.btnReviewRaw.isEnabled = SessionObj.NodeCount > 0
-        BindingObj.btnReviewRaw.setOnClickListener {
+        BindingObj.btnReviewRaw.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
             startActivity(Intent(requireContext(), RawCaptureActivity::class.java))
         }
 
-        BindingObj.btnReviewDiscard.setOnClickListener {
+        BindingObj.btnReviewDiscard.setOnClickListener { ViewRef ->
+            // Discarding throws away the whole capture, so it gets the
+            // negative pattern rather than the same tick as saving.
+            HapticFeedback.Reject(ViewRef = ViewRef)
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(0)
             dismissAllowingStateLoss()
         }
 
-        BindingObj.btnReviewSave.setOnClickListener {
+        BindingObj.btnReviewSave.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
             val AppContext = requireContext().applicationContext
             val SavedCount = try {
                 CaptureParsers.Commit(
@@ -81,6 +89,7 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                     ModeVal = SessionObj.Mode,
                     Nodes = SessionObj.RawNodes,
                     PolicyRecords = SessionObj.PolicyRecords,
+                    FupRecords = SessionObj.FupRecords,
                     CapturePolicyDetails = SessionObj.CapturePolicyDetails
                 )
             } catch (ExceptionObj: Exception) {
@@ -92,11 +101,13 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                 )
                 0
             }
+            val CommitBreakdown = CaptureParsers.LastCommitResult
             CaptureDiagnostics.Log(
                 ContextObj = AppContext,
                 EventName = "SESSION_COMMIT",
                 MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
-                        "saved=$SavedCount nodes=${SessionObj.NodeCount}"
+                        "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +
+                        "updated=${CommitBreakdown.UpdatedCount} nodes=${SessionObj.NodeCount}"
             )
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(SavedCount)
@@ -139,11 +150,44 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
             SessionObj.DurationLabel
         )
         BindingObj.btnReviewSave.visibility = View.VISIBLE
-        BindingObj.btnReviewSave.text = getString(
-            R.string.review_save_format,
-            SessionObj.Mode.DescribeCount(CountVal = RecordCount)
-        )
+
+        // On a resumed session most records already exist, so a plain "Save 87
+        // policies" would overstate what this run actually contributed.
+        val ExistingCount = ExistingRecordCount(SessionObj = SessionObj)
+        BindingObj.btnReviewSave.text = if (ExistingCount > 0) {
+            val NewCount = (RecordCount - ExistingCount).coerceAtLeast(0)
+            getString(R.string.review_save_resume_format, NewCount, RecordCount - NewCount)
+        } else {
+            getString(
+                R.string.review_save_format,
+                SessionObj.Mode.DescribeCount(CountVal = RecordCount)
+            )
+        }
         BindingObj.btnReviewDiscard.setText(R.string.review_discard)
+    }
+
+    /**
+     * How many records this session already had before the current run. Zero
+     * for a fresh capture, so the normal wording is used.
+     */
+    private fun ExistingRecordCount(SessionObj: CaptureSession): Int {
+        val ContextRef = requireContext().applicationContext
+        return when (SessionObj.Mode) {
+            CaptureMode.POLICY -> PolicyRepository.GetCustomerPolicies(
+                ContextRef = ContextRef,
+                SessionId = SessionObj.SessionId
+            ).size
+
+            CaptureMode.FUP -> PolicyRepository.GetFupPolicies(
+                ContextRef = ContextRef,
+                SessionId = SessionObj.SessionId
+            ).size
+
+            CaptureMode.PS -> PolicyRepository.GetPsPolicies(
+                ContextRef = ContextRef,
+                SessionId = SessionObj.SessionId
+            ).size
+        }
     }
 
     override fun onDestroyView() {

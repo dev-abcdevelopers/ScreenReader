@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.databinding.ItemPolicyRowBinding
+import com.bliss.screenreader.utils.HapticFeedback
 
 class PolicyRowAdapter(
     private var PolicyList: List<CustomerPolicy> = emptyList(),
@@ -58,7 +59,10 @@ class PolicyRowAdapter(
 
         BindStatus(BindingRef = BindingRef, PolicyItem = PolicyItem)
 
-        BindingRef.rowRoot.setOnClickListener { OnRowClick(PolicyItem) }
+        BindingRef.rowRoot.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            OnRowClick(PolicyItem)
+        }
     }
 
     private fun BindStatus(BindingRef: ItemPolicyRowBinding, PolicyItem: CustomerPolicy) {

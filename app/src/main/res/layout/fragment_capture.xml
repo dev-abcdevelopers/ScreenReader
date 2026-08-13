@@ -53,6 +53,10 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!--
+            Servicing History is parked, not removed. The mode, parser and
+            storage all still work; only the picker entry is hidden.
+        -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardModePs"
             style="@style/Widget.App.Card"
@@ -61,7 +65,8 @@
             android:layout_marginBottom="@dimen/card_gap"
             android:clickable="true"
             android:focusable="true"
-            android:minHeight="@dimen/touch_min">
+            android:minHeight="@dimen/touch_min"
+            android:visibility="gone">
 
             <include
                 android:id="@+id/rowModePs"

@@ -37,10 +37,16 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.model.CustomerPolicy
+import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.parser.CaptureParsers
+import com.bliss.screenreader.data.parser.FupDataParser
+import com.bliss.screenreader.data.parser.PlanIdentity
+import com.bliss.screenreader.data.parser.RecordMerge
+import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.data.parser.ScreenDataParser
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.utils.HapticFeedback
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.UUID
 
@@ -65,6 +71,18 @@ class ScreenReaderService : AccessibilityService() {
         private const val POLICY_DETAIL_EXPAND_DELAY_MS = 2900L
         private const val POLICY_DETAIL_SECTION_STEP_MS = 900L
         private const val POLICY_DETAIL_EXPAND_RETRY_SETTLE_MS = 800L
+        private const val POLICY_SECTION_ATTEMPT_LIMIT = 6
+        private const val POLICY_SECTION_RETRY_ROUND_LIMIT = 3
+        private const val POLICY_SECTION_SCROLL_SETTLE_MS = 550L
+        private const val POLICY_DETAIL_SWEEP_LIMIT = 10
+        private const val POLICY_DETAIL_SWEEP_SETTLE_MS = 700L
+
+        // A collapsed section header must sit inside this band to be tappable.
+        // Below it the "Pay Premium" bar and the tab strip overlay the content,
+        // so a chevron that looks visible is not actually hittable.
+        private const val POLICY_SECTION_VIEWPORT_TOP_RATIO = 0.16f
+        private const val POLICY_SECTION_VIEWPORT_BOTTOM_RATIO = 0.72f
+        private const val POLICY_SECTION_CHEVRON_X_RATIO = 0.86f
         private const val POLICY_DETAIL_RETURN_DELAY_MS = 900L
         private const val POLICY_DETAIL_SCROLL_LIMIT = 10
         private const val POLICY_DETAIL_RETURN_LIMIT = 3
@@ -131,6 +149,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private var CurrentMode: CaptureMode = CaptureMode.POLICY
     private var CurrentSessionId: String = ""
+    private var IsResumedSession = false
     private var CapturePolicyDetailsEnabled = false
     private var OriginActivityName: String = ""
     private var SessionStartedAt: Long = 0L
@@ -147,6 +166,7 @@ class ScreenReaderService : AccessibilityService() {
     private var HasExpandedCurrentPolicyScreen = false
 
     private val CapturedPolicyMap = linkedMapOf<String, CustomerPolicy>()
+    private val CapturedFupMap = linkedMapOf<String, FupPolicy>()
     private var HasClickedPortfolioPolicies = false
     private var IsPolicyDashboardActive = false
     private var IsPolicyDashboardAutomationRunning = false
@@ -173,7 +193,16 @@ class ScreenReaderService : AccessibilityService() {
     private var IsPolicyDetailScreenActive = false
     private var IsPolicyDashboardScreenVisible = false
     private var LatestPolicyDetailNodes: List<String> = emptyList()
-    private var HasRetriedPolicySectionExpansion = false
+    private var PolicySectionRetryRounds = 0
+    private var PolicyDetailSweepCount = 0
+    private var LastPolicyDetailSweepSignature = 0
+
+    /**
+     * Sections with a seek/tap chain still running. A verification round that
+     * fired while a chain was mid-scroll would start a second chain for the
+     * same header, and the extra tap collapses what the first one opened.
+     */
+    private val PolicySectionsInFlight = linkedSetOf<String>()
     private val ProcessedPolicyDetailNumbers = linkedSetOf<String>()
     private var PortfolioPoliciesLastAttemptAt = 0L
     private var PortfolioPoliciesClickAttempts = 0
@@ -520,7 +549,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun StoreCapturedSnapshot(PackageNameVal: String, NodeList: List<String>) {
         if (CurrentMode == CaptureMode.FUP) {
             UpdateRenewalScreenState(VisibleNodes = NodeList)
-            AddCapturedNodes(PackageNameVal = PackageNameVal, NodeList = NodeList)
+            CaptureRenewalSnapshot(PackageNameVal = PackageNameVal, VisibleNodes = NodeList)
             return
         }
         val IsDetailSnapshot = CurrentMode == CaptureMode.POLICY &&
@@ -653,6 +682,133 @@ class ScreenReaderService : AccessibilityService() {
                     "detailFields=$DetailFieldCount sumAssured=${MergedPolicy.SumAssured} " +
                     "termPpt=${MergedPolicy.TermPPT}"
         )
+    }
+
+    /**
+     * Renewal cards repeat values across records - two customers can share a
+     * payment mode, an amount or a date - and [AddCapturedNodes] de-duplicates
+     * the flat node list, which would silently strip fields from every card
+     * after the first. So renewal rows are parsed per snapshot and merged into
+     * a policy-number keyed map instead, exactly as the policy dashboard does.
+     */
+    private fun CaptureRenewalSnapshot(PackageNameVal: String, VisibleNodes: List<String>) {
+        val VisibleRecords = try {
+            FupDataParser.ParseRenewalHistory(Nodes = VisibleNodes)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_PARSE_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            emptyList()
+        }
+        if (VisibleRecords.isEmpty()) {
+            AddCapturedNodes(PackageNameVal = PackageNameVal, NodeList = VisibleNodes)
+            return
+        }
+
+        var MapChanged = false
+        for (IncomingRecord in VisibleRecords) {
+            if (IncomingRecord.PolicyNumber.isEmpty()) continue
+
+            val ExistingKey = FindRenewalRecordKey(IncomingRecord = IncomingRecord)
+            val ExistingRecord = ExistingKey?.let { KeyText -> CapturedFupMap[KeyText] }
+            val MergedRecord = if (ExistingRecord == null) {
+                IncomingRecord
+            } else {
+                FupDataParser.MergeRenewalRecord(
+                    ExistingRecord = ExistingRecord,
+                    IncomingRecord = IncomingRecord
+                )
+            }
+            val MergedKey = RenewalRecordKey(RecordItem = MergedRecord)
+            if (ExistingRecord != MergedRecord || ExistingKey != MergedKey) {
+                // A card first seen mid-scroll can arrive without its payment
+                // date and gain one later, which changes its identity.
+                if (ExistingKey != null && ExistingKey != MergedKey) {
+                    CapturedFupMap.remove(ExistingKey)
+                }
+                CapturedFupMap[MergedKey] = MergedRecord
+                MapChanged = true
+            }
+        }
+
+        if (MapChanged) {
+            RebuildCapturedRenewalNodes()
+            LastPackageName = PackageNameVal
+            LastParsedNodeCount = -1
+            DiagnosticInfo(
+                EventName = "RENEWALS_CAPTURED",
+                MessageText = "visibleParsed=${VisibleRecords.size} " +
+                        "uniqueTotal=${CapturedFupMap.size} page=$RenewalCurrentPage/$RenewalTotalPages"
+            )
+        }
+    }
+
+    /**
+     * A policy can appear in renewal history more than once, so a record is
+     * identified by its policy number *and* the date the premium was paid.
+     */
+    private fun RenewalRecordKey(RecordItem: FupPolicy): String {
+        // Delegated so the capture-time key and the commit-time key cannot
+        // drift apart and start treating the same row as two records.
+        return RecordMerge.RenewalKey(RecordItem = RecordItem)
+    }
+
+    /**
+     * Finds the entry an incoming card belongs to. An exact key match wins;
+     * otherwise a same-policy entry whose payment date is still blank is
+     * treated as the same partially-read card.
+     */
+    private fun FindRenewalRecordKey(IncomingRecord: FupPolicy): String? {
+        val ExactKey = RenewalRecordKey(RecordItem = IncomingRecord)
+        if (CapturedFupMap.containsKey(ExactKey)) return ExactKey
+
+        return CapturedFupMap.entries.firstOrNull { MapEntry ->
+            MapEntry.value.PolicyNumber == IncomingRecord.PolicyNumber &&
+                    (MapEntry.value.PaymentDate.isEmpty() || IncomingRecord.PaymentDate.isEmpty())
+        }?.key
+    }
+
+    /**
+     * Re-emits the merged records in the card layout the parser expects, so the
+     * raw-node view and any re-parse of [CapturedNodes] stay consistent with
+     * the typed records carried on the session.
+     */
+    private fun RebuildCapturedRenewalNodes() {
+        CapturedNodes.clear()
+        for (RecordItem in CapturedFupMap.values) {
+            val PlanLabel = PlanIdentity.Combine(
+                CodeValue = RecordItem.PlanCode,
+                NameValue = RecordItem.PlanName
+            )
+            val AnchorLine = buildString {
+                append(RecordItem.PolicyNumber)
+                if (PlanLabel.isNotEmpty()) append(" | ").append(PlanLabel)
+            }
+            CapturedNodes.add(AnchorLine)
+            if (RecordItem.HolderName.isNotEmpty()) CapturedNodes.add(RecordItem.HolderName)
+            if (RecordItem.PremiumAmount.isNotEmpty()) {
+                CapturedNodes.add("Premium Amount (excl. GST)")
+                CapturedNodes.add(RecordItem.PremiumAmount)
+            }
+            if (RecordItem.DueDate.isNotEmpty()) {
+                CapturedNodes.add("Due Date")
+                CapturedNodes.add(RecordItem.DueDate)
+            }
+            if (RecordItem.PaymentDate.isNotEmpty()) {
+                CapturedNodes.add("Payment Date")
+                CapturedNodes.add(RecordItem.PaymentDate)
+            }
+            if (RecordItem.ModeOfPayment.isNotEmpty()) {
+                CapturedNodes.add("Mode of Payment")
+                CapturedNodes.add(RecordItem.ModeOfPayment)
+            }
+            if (RecordItem.Status.isNotEmpty()) {
+                CapturedNodes.add("Status at Time of Payment")
+                CapturedNodes.add(RecordItem.Status)
+            }
+            CapturedNodes.add("Call Customer")
+        }
     }
 
     private fun RebuildCapturedPolicyNodes() {
@@ -856,11 +1012,13 @@ class ScreenReaderService : AccessibilityService() {
     fun StartCaptureSession(
         ModeVal: CaptureMode,
         CapturePolicyDetailsVal: Boolean = false,
-        OriginActivityVal: String = ""
+        OriginActivityVal: String = "",
+        ResumeSessionIdVal: String = ""
     ) {
         CurrentMode = ModeVal
         CancelEventWindowCapture()
-        CurrentSessionId = UUID.randomUUID().toString()
+        IsResumedSession = ResumeSessionIdVal.isNotBlank()
+        CurrentSessionId = ResumeSessionIdVal.ifBlank { UUID.randomUUID().toString() }
         CapturePolicyDetailsEnabled = ModeVal == CaptureMode.POLICY && CapturePolicyDetailsVal
         OriginActivityName = OriginActivityVal
         SessionStartedAt = System.currentTimeMillis()
@@ -875,6 +1033,7 @@ class ScreenReaderService : AccessibilityService() {
         StopAutoScroll()
         StopPolicyDashboardAutomation(ResetStateVal = true)
         CapturedPolicyMap.clear()
+        CapturedFupMap.clear()
         LatestPolicyPageNumbers = emptyList()
         PolicyDetailQueue = emptyList()
         PolicyDetailQueueIndex = 0
@@ -888,7 +1047,10 @@ class ScreenReaderService : AccessibilityService() {
         IsPolicyDetailScreenActive = false
         IsPolicyDashboardScreenVisible = false
         LatestPolicyDetailNodes = emptyList()
-        HasRetriedPolicySectionExpansion = false
+        PolicySectionRetryRounds = 0
+        PolicyDetailSweepCount = 0
+        LastPolicyDetailSweepSignature = 0
+        PolicySectionsInFlight.clear()
         ProcessedPolicyDetailNumbers.clear()
         HasClickedPortfolioPolicies = false
         PortfolioPoliciesLastAttemptAt = 0L
@@ -918,6 +1080,7 @@ class ScreenReaderService : AccessibilityService() {
         DiagnosticInfo(
             EventName = "SESSION_START",
             MessageText = "session=$CurrentSessionId mode=${ModeVal.name} " +
+                    "resumed=$IsResumedSession " +
                     "capturePolicyDetails=$CapturePolicyDetailsEnabled " +
                     "expected=${ExpectedTargetPackage()} " +
                     "origin=$OriginActivityVal"
@@ -939,6 +1102,11 @@ class ScreenReaderService : AccessibilityService() {
                     "eventTypes=${ActiveServiceInfo?.eventTypes}"
         )
 
+        // Seeding must happen before the first capture tick: the Rebuild…Nodes
+        // helpers clear CapturedNodes, so anything loaded after a tick has
+        // already run would be wiped.
+        if (IsResumedSession) SeedFromStoredSession()
+
         CaptureSessionState.OnSessionStarted(
             ModeVal = ModeVal,
             SessionIdVal = CurrentSessionId
@@ -949,6 +1117,73 @@ class ScreenReaderService : AccessibilityService() {
 
         MainHandler.removeCallbacks(TickRunnable)
         MainHandler.post(TickRunnable)
+    }
+
+    /**
+     * Loads a previously saved session back into the in-memory maps so this
+     * run merges into it instead of starting empty. Without this a resumed
+     * capture would still commit correctly - the merge happens at save time -
+     * but the live counter and the review sheet would show only the new rows,
+     * and a full capture would re-open every policy it already collected.
+     */
+    private fun SeedFromStoredSession() {
+        when (CurrentMode) {
+            CaptureMode.POLICY -> {
+                val StoredPolicies = PolicyRepository.GetCustomerPolicies(
+                    ContextRef = this,
+                    SessionId = CurrentSessionId
+                )
+                for (PolicyItem in StoredPolicies) {
+                    if (PolicyItem.PolicyNumber.isEmpty()) continue
+                    CapturedPolicyMap[PolicyItem.PolicyNumber] = PolicyItem
+                }
+                RebuildCapturedPolicyNodes()
+
+                var SkippedDetailCount = 0
+                if (CapturePolicyDetailsEnabled) {
+                    for (PolicyItem in CapturedPolicyMap.values) {
+                        if (RecordMerge.HasCompletePolicyDetails(PolicyItem = PolicyItem)) {
+                            ProcessedPolicyDetailNumbers.add(PolicyItem.PolicyNumber)
+                            SkippedDetailCount++
+                        }
+                    }
+                }
+                DiagnosticInfo(
+                    EventName = "SESSION_RESUME",
+                    MessageText = "session=$CurrentSessionId mode=POLICY " +
+                            "seeded=${CapturedPolicyMap.size} " +
+                            "detailsAlreadyComplete=$SkippedDetailCount " +
+                            "nodes=${CapturedNodes.size}"
+                )
+            }
+
+            CaptureMode.FUP -> {
+                val StoredRenewals = PolicyRepository.GetFupPolicies(
+                    ContextRef = this,
+                    SessionId = CurrentSessionId
+                )
+                for (RenewalItem in StoredRenewals) {
+                    if (RenewalItem.PolicyNumber.isEmpty()) continue
+                    CapturedFupMap[RenewalRecordKey(RecordItem = RenewalItem)] = RenewalItem
+                }
+                RebuildCapturedRenewalNodes()
+                DiagnosticInfo(
+                    EventName = "SESSION_RESUME",
+                    MessageText = "session=$CurrentSessionId mode=FUP " +
+                            "seeded=${CapturedFupMap.size} nodes=${CapturedNodes.size}"
+                )
+            }
+
+            CaptureMode.PS -> {
+                // PS has no keyed map, so there is nothing safe to seed. The
+                // commit still merges by key, it just cannot show prior rows
+                // in the live count.
+                DiagnosticInfo(
+                    EventName = "SESSION_RESUME",
+                    MessageText = "session=$CurrentSessionId mode=PS seeded=0 (unsupported)"
+                )
+            }
+        }
     }
 
     fun SetPaused(PausedVal: Boolean) {
@@ -989,6 +1224,8 @@ class ScreenReaderService : AccessibilityService() {
         val RecordList = try {
             if (CurrentMode == CaptureMode.POLICY && CapturedPolicyMap.isNotEmpty()) {
                 CaptureParsers.PreviewPolicies(Policies = CapturedPolicyMap.values.toList())
+            } else if (CurrentMode == CaptureMode.FUP && CapturedFupMap.isNotEmpty()) {
+                CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
             } else {
                 CaptureParsers.Preview(ModeVal = CurrentMode, Nodes = NodeSnapshot)
             }
@@ -1005,6 +1242,7 @@ class ScreenReaderService : AccessibilityService() {
                 RawNodes = NodeSnapshot,
                 Records = RecordList,
                 PolicyRecords = CapturedPolicyMap.values.toList(),
+                FupRecords = CapturedFupMap.values.toList(),
                 CapturePolicyDetails = CapturePolicyDetailsEnabled,
                 TargetPackage = LastPackageName,
                 OriginActivity = OriginActivityName
@@ -1719,7 +1957,9 @@ class ScreenReaderService : AccessibilityService() {
                 IsPolicyDetailScreenActive = false
                 IsPolicyDashboardScreenVisible = false
                 LatestPolicyDetailNodes = emptyList()
-                HasRetriedPolicySectionExpansion = false
+                PolicySectionRetryRounds = 0
+                PolicyDetailSweepCount = 0
+                LastPolicyDetailSweepSignature = 0
                 HasExpandedCurrentPolicyScreen = false
                 DiagnosticInfo(
                     EventName = "POLICY_DETAIL_OPEN",
@@ -1790,21 +2030,36 @@ class ScreenReaderService : AccessibilityService() {
     private fun VerifyPolicySectionExpansionAndReturn() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         val MissingSections = MissingExpandedPolicySections(Nodes = LatestPolicyDetailNodes)
-        if (MissingSections.isNotEmpty() && !HasRetriedPolicySectionExpansion) {
-            HasRetriedPolicySectionExpansion = true
+
+        // Key Dates is the third accordion and sits below the fold, so its
+        // header only becomes tappable once the screen has been scrolled -
+        // and expanding the two sections above pushes it further down. Retry
+        // in rounds rather than once, letting each attempt scroll itself into
+        // view, instead of giving up on whatever was off-screen.
+        if (MissingSections.isNotEmpty() &&
+            PolicySectionRetryRounds < POLICY_SECTION_RETRY_ROUND_LIMIT
+        ) {
+            PolicySectionRetryRounds++
             DiagnosticWarning(
                 EventName = "POLICY_SECTION_CONTENT_MISSING",
-                MessageText = "policy=$PolicyDetailCurrentPolicyNumber retrying=" +
-                        MissingSections.joinToString()
+                MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
+                        "round=$PolicySectionRetryRounds retrying=" + MissingSections.joinToString()
             )
-            for ((SectionIndex, SectionLabel) in MissingSections.withIndex()) {
-                ScheduleSectionCoordinateRetry(
+            val SeekableSections = MissingSections.filter { SectionLabel ->
+                !PolicySectionsInFlight.contains(SectionLabel)
+            }
+            for ((SectionIndex, SectionLabel) in SeekableSections.withIndex()) {
+                ScheduleSectionExpansionAttempt(
                     LabelText = SectionLabel,
-                    DelayMs = SectionIndex * POLICY_DETAIL_SECTION_STEP_MS
+                    DelayMs = SectionIndex * POLICY_DETAIL_SECTION_STEP_MS,
+                    AttemptCount = 0
                 )
             }
+            // Wait past the worst-case seek chain so the next verification does
+            // not fire while a header is still being scrolled into view.
             val RetryVerificationDelay =
                 MissingSections.size * POLICY_DETAIL_SECTION_STEP_MS +
+                        POLICY_SECTION_ATTEMPT_LIMIT * POLICY_SECTION_SCROLL_SETTLE_MS +
                         POLICY_DETAIL_EXPAND_RETRY_SETTLE_MS
             SchedulePolicyAction(DelayMs = RetryVerificationDelay) {
                 VerifyPolicySectionExpansionAndReturn()
@@ -1814,9 +2069,61 @@ class ScreenReaderService : AccessibilityService() {
 
         DiagnosticInfo(
             EventName = "POLICY_SECTION_VERIFIED",
-            MessageText = "policy=$PolicyDetailCurrentPolicyNumber missingAfterRetry=" +
+            MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
+                    "rounds=$PolicySectionRetryRounds missingAfterRetry=" +
                     MissingSections.joinToString().ifEmpty { "none" }
         )
+
+        // Expanded values can extend past the bottom of the screen, so walk the
+        // whole detail page before leaving it.
+        PolicyDetailSweepCount = 0
+        LastPolicyDetailSweepSignature = 0
+        SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
+            SweepPolicyDetailScreen()
+        }
+    }
+
+    /**
+     * Scrolls the expanded detail page to the bottom, capturing at each step.
+     * Stops early once the visible content stops changing.
+     */
+    private fun SweepPolicyDetailScreen() {
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        val CurrentSignature = LatestPolicyDetailNodes
+            .joinToString(separator = "")
+            .hashCode()
+        val HasSettled = PolicyDetailSweepCount > 0 &&
+                CurrentSignature == LastPolicyDetailSweepSignature
+        val ReachedLimit = PolicyDetailSweepCount >= POLICY_DETAIL_SWEEP_LIMIT
+
+        if (HasSettled || ReachedLimit || !IsPolicyDetailScreenActive) {
+            DiagnosticInfo(
+                EventName = "POLICY_DETAIL_SWEEP_END",
+                MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
+                        "steps=$PolicyDetailSweepCount settled=$HasSettled limit=$ReachedLimit " +
+                        "detailActive=$IsPolicyDetailScreenActive"
+            )
+            FinishPolicyDetailAndReturn()
+            return
+        }
+
+        LastPolicyDetailSweepSignature = CurrentSignature
+        PolicyDetailSweepCount++
+        val ScrollAccepted = PerformPolicyScroll(
+            ForwardVal = true,
+            PreferAccessibilityAction = false
+        )
+        DiagnosticInfo(
+            EventName = "POLICY_DETAIL_SWEEP",
+            MessageText = "policy=$PolicyDetailCurrentPolicyNumber step=$PolicyDetailSweepCount " +
+                    "accepted=$ScrollAccepted"
+        )
+        SchedulePolicyAction(DelayMs = POLICY_DETAIL_SWEEP_SETTLE_MS) {
+            SweepPolicyDetailScreen()
+        }
+    }
+
+    private fun FinishPolicyDetailAndReturn() {
         ProcessedPolicyDetailNumbers.add(PolicyDetailCurrentPolicyNumber)
         PolicyDetailReturnAttempts = 0
         DiagnosticInfo(
@@ -1830,19 +2137,35 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
+    /**
+     * Judged against the merged record for this policy, not just the latest
+     * snapshot. Scrolling to reach a lower section pushes an earlier one out of
+     * view, and treating that as "missing" would re-tap its header and collapse
+     * a section that had already been read correctly.
+     */
     private fun MissingExpandedPolicySections(Nodes: List<String>): List<String> {
+        val MergedRecord = CapturedPolicyMap[PolicyDetailCurrentPolicyNumber]
+
+        val HasPolicyDetails = MergedRecord?.TermPPT?.isNotEmpty() == true ||
+                Nodes.any { NodeText ->
+                    Regex("Term\\s*/\\s*PPT", RegexOption.IGNORE_CASE).containsMatchIn(NodeText)
+                }
+        val HasCommissions = MergedRecord?.CommissionType?.isNotEmpty() == true ||
+                MergedRecord?.CommissionDateOfPayment?.isNotEmpty() == true ||
+                MergedRecord?.CommissionPaidAmount?.isNotEmpty() == true ||
+                Nodes.any { NodeText ->
+                    NodeText.contains("Commission Type", ignoreCase = true) ||
+                            NodeText.contains("Date of Premium Payment", ignoreCase = true)
+                }
+        val HasKeyDates = MergedRecord?.DateOfCommencement?.isNotEmpty() == true ||
+                MergedRecord?.DateOfMaturity?.isNotEmpty() == true ||
+                MergedRecord?.EndOfPremiumPayingTerm?.isNotEmpty() == true ||
+                Nodes.any { NodeText ->
+                    NodeText.contains("Date of Commencement", ignoreCase = true) ||
+                            NodeText.contains("Date of Maturity", ignoreCase = true)
+                }
+
         val MissingSections = mutableListOf<String>()
-        val HasPolicyDetails = Nodes.any { NodeText ->
-            Regex("Term\\s*/\\s*PPT", RegexOption.IGNORE_CASE).containsMatchIn(NodeText)
-        }
-        val HasCommissions = Nodes.any { NodeText ->
-            NodeText.contains("Commission Type", ignoreCase = true) ||
-                    NodeText.contains("Date of Premium Payment", ignoreCase = true)
-        }
-        val HasKeyDates = Nodes.any { NodeText ->
-            NodeText.contains("Date of Commencement", ignoreCase = true) ||
-                    NodeText.contains("Date of Maturity", ignoreCase = true)
-        }
         if (!HasPolicyDetails) MissingSections.add("Policy Details")
         if (!HasCommissions) MissingSections.add("Commissions")
         if (!HasKeyDates) MissingSections.add("Key Dates")
@@ -2196,6 +2519,9 @@ class ScreenReaderService : AccessibilityService() {
             EventName = "POLICY_AUTOMATION_COMPLETE",
             MessageText = "captured=${CapturedPolicyMap.size} page=$PolicyCurrentPage/$PolicyTotalPages"
         )
+        // The agent is looking at the target app, not this one, so the finish
+        // signal has to be felt rather than seen.
+        HapticFeedback.Success(ContextRef = this)
         Toast.makeText(
             this,
             "Captured ${CapturedPolicyMap.size} policies",
@@ -2234,6 +2560,7 @@ class ScreenReaderService : AccessibilityService() {
                     "expected=$PolicyExpectedPage total=$PolicyTotalPages " +
                     "selectorVisible=$IsPolicyPageSelectorVisible captured=${CapturedPolicyMap.size}"
         )
+        HapticFeedback.Failure(ContextRef = this)
         Toast.makeText(
             this,
             if (CanRetryAutomatically) {
@@ -2275,7 +2602,10 @@ class ScreenReaderService : AccessibilityService() {
             IsPolicyDetailScreenActive = false
             IsPolicyDashboardScreenVisible = false
             LatestPolicyDetailNodes = emptyList()
-            HasRetriedPolicySectionExpansion = false
+            PolicySectionRetryRounds = 0
+            PolicyDetailSweepCount = 0
+            LastPolicyDetailSweepSignature = 0
+            PolicySectionsInFlight.clear()
             ProcessedPolicyDetailNumbers.clear()
             PolicyAutomationRetryAfter = 0L
             PolicyAutomationFailureCount = 0
@@ -3436,16 +3766,13 @@ class ScreenReaderService : AccessibilityService() {
         RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         RenewalAutomationRunnable = null
 
-        val RecordCount = try {
-            CaptureParsers.Preview(ModeVal = CaptureMode.FUP, Nodes = CapturedNodes.toList()).size
-        } catch (_: Exception) {
-            0
-        }
+        val RecordCount = CapturedFupMap.size
         DiagnosticInfo(
             EventName = "RENEWAL_AUTOMATION_COMPLETE",
             MessageText = "records=$RecordCount nodes=${CapturedNodes.size} " +
                     "page=$RenewalCurrentPage/$RenewalTotalPages"
         )
+        HapticFeedback.Success(ContextRef = this)
         Toast.makeText(
             this,
             "Captured $RecordCount renewal records",
@@ -3484,6 +3811,7 @@ class ScreenReaderService : AccessibilityService() {
                     "expected=$RenewalExpectedPage total=$RenewalTotalPages " +
                     "nodes=${CapturedNodes.size}"
         )
+        HapticFeedback.Failure(ContextRef = this)
         Toast.makeText(
             this,
             if (CanRetryAutomatically) {
@@ -3809,54 +4137,158 @@ class ScreenReaderService : AccessibilityService() {
 
             val FreshRoot = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
                 ?: return@postDelayed
-            try {
-                val Expanded = ExpandSection(RootNode = FreshRoot, LabelText = LabelText)
-                DiagnosticInfo(
-                    EventName = "POLICY_SECTION_RESULT",
-                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
-                            "expanded=$Expanded"
-                )
+            val Expanded = try {
+                ExpandSection(RootNode = FreshRoot, LabelText = LabelText)
             } finally {
                 RecycleNode(NodeRef = FreshRoot)
+            }
+            DiagnosticInfo(
+                EventName = "POLICY_SECTION_RESULT",
+                MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
+                        "expanded=$Expanded"
+            )
+            if (!Expanded) {
+                // Usually means the header is below the fold. Hand over to the
+                // scroll-aware attempt rather than dropping the section.
+                ScheduleSectionExpansionAttempt(
+                    LabelText = LabelText,
+                    DelayMs = POLICY_SECTION_SCROLL_SETTLE_MS,
+                    AttemptCount = 0
+                )
             }
         }, DelayMs)
     }
 
-    private fun ScheduleSectionCoordinateRetry(LabelText: String, DelayMs: Long) {
+    /**
+     * Brings a section header into the tappable band and then taps its chevron,
+     * re-posting itself after each scroll. The previous version only looked for
+     * headers already on screen and abandoned anything below the fold, which is
+     * why Key Dates was never expanded.
+     */
+    private fun ScheduleSectionExpansionAttempt(
+        LabelText: String,
+        DelayMs: Long,
+        AttemptCount: Int
+    ) {
+        if (AttemptCount == 0 && !PolicySectionsInFlight.add(LabelText)) {
+            DiagnosticInfo(
+                EventName = "POLICY_SECTION_ALREADY_SEEKING",
+                MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText]"
+            )
+            return
+        }
+
         MainHandler.postDelayed({
-            if (!IsCapturing || IsPaused || !IsPolicyDetailScreenActive) return@postDelayed
+            if (!IsCapturing || IsPaused || !IsPolicyDetailScreenActive) {
+                PolicySectionsInFlight.remove(LabelText)
+                return@postDelayed
+            }
+            if (AttemptCount >= POLICY_SECTION_ATTEMPT_LIMIT) {
+                PolicySectionsInFlight.remove(LabelText)
+                DiagnosticWarning(
+                    EventName = "POLICY_SECTION_ATTEMPTS_EXHAUSTED",
+                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
+                            "attempts=$AttemptCount"
+                )
+                return@postDelayed
+            }
+
             val FreshRoot = FindReadableRoot(
                 ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
-            ) ?: return@postDelayed
+            ) ?: run {
+                PolicySectionsInFlight.remove(LabelText)
+                return@postDelayed
+            }
             val LabelBounds = try {
-                FindPolicySectionLabelBounds(
-                    TargetNode = FreshRoot,
-                    LabelText = LabelText
-                )
+                FindSectionLabelBounds(TargetNode = FreshRoot, LabelText = LabelText)
             } finally {
                 RecycleNode(NodeRef = FreshRoot)
             }
+
+            val ScreenHeight = resources.displayMetrics.heightPixels
+            val TopLimit = ScreenHeight * POLICY_SECTION_VIEWPORT_TOP_RATIO
+            val BottomLimit = ScreenHeight * POLICY_SECTION_VIEWPORT_BOTTOM_RATIO
+
+            // Not in the tree at all means it is further down the page.
             if (LabelBounds == null) {
-                DiagnosticWarning(
-                    EventName = "POLICY_SECTION_RETRY_MISSING",
-                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText]"
+                val ScrollAccepted = PerformPolicyScroll(
+                    ForwardVal = true,
+                    PreferAccessibilityAction = false
+                )
+                DiagnosticInfo(
+                    EventName = "POLICY_SECTION_SEEK",
+                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
+                            "reason=not-in-tree attempt=$AttemptCount accepted=$ScrollAccepted"
+                )
+                ScheduleSectionExpansionAttempt(
+                    LabelText = LabelText,
+                    DelayMs = POLICY_SECTION_SCROLL_SETTLE_MS,
+                    AttemptCount = AttemptCount + 1
+                )
+                return@postDelayed
+            }
+
+            val LabelCentreY = LabelBounds.centerY().toFloat()
+            if (LabelCentreY > BottomLimit || LabelCentreY < TopLimit) {
+                val ScrollForward = LabelCentreY > BottomLimit
+                val ScrollAccepted = PerformPolicyScroll(
+                    ForwardVal = ScrollForward,
+                    PreferAccessibilityAction = false
+                )
+                DiagnosticInfo(
+                    EventName = "POLICY_SECTION_SEEK",
+                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
+                            "reason=out-of-band bounds=$LabelBounds " +
+                            "direction=${if (ScrollForward) "down" else "up"} " +
+                            "attempt=$AttemptCount accepted=$ScrollAccepted"
+                )
+                ScheduleSectionExpansionAttempt(
+                    LabelText = LabelText,
+                    DelayMs = POLICY_SECTION_SCROLL_SETTLE_MS,
+                    AttemptCount = AttemptCount + 1
                 )
                 return@postDelayed
             }
 
             val TapAccepted = PerformTapGesture(
-                XPos = resources.displayMetrics.widthPixels * 0.86f,
-                YPos = LabelBounds.centerY().toFloat()
+                XPos = resources.displayMetrics.widthPixels * POLICY_SECTION_CHEVRON_X_RATIO,
+                YPos = LabelCentreY
             )
             DiagnosticInfo(
                 EventName = "POLICY_SECTION_COORDINATE_RETRY",
                 MessageText = "policy=$PolicyDetailCurrentPolicyNumber section=[$LabelText] " +
-                        "bounds=$LabelBounds accepted=$TapAccepted"
+                        "bounds=$LabelBounds attempt=$AttemptCount accepted=$TapAccepted"
             )
+            if (TapAccepted) {
+                PolicySectionsInFlight.remove(LabelText)
+            } else {
+                ScheduleSectionExpansionAttempt(
+                    LabelText = LabelText,
+                    DelayMs = POLICY_SECTION_SCROLL_SETTLE_MS,
+                    AttemptCount = AttemptCount + 1
+                )
+            }
         }, DelayMs)
     }
 
-    private fun FindPolicySectionLabelBounds(
+    /**
+     * On screen is not the same as reachable: the "Pay Premium" bar and the tab
+     * strip sit on top of the lower part of the page, so a chevron down there
+     * cannot be tapped even though its bounds are technically visible.
+     */
+    private fun IsSectionHeaderTappable(BoundsObj: Rect): Boolean {
+        if (!IsBoundsOnScreen(BoundsObj = BoundsObj)) return false
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val CentreY = BoundsObj.centerY().toFloat()
+        return CentreY >= ScreenHeight * POLICY_SECTION_VIEWPORT_TOP_RATIO &&
+                CentreY <= ScreenHeight * POLICY_SECTION_VIEWPORT_BOTTOM_RATIO
+    }
+
+    /**
+     * Unlike the on-screen lookup this reports the header wherever it sits, so
+     * the caller can decide how to scroll it into reach.
+     */
+    private fun FindSectionLabelBounds(
         TargetNode: AccessibilityNodeInfo,
         LabelText: String
     ): Rect? {
@@ -3864,12 +4296,12 @@ class ScreenReaderService : AccessibilityService() {
             if (NodeTextValue(NodeRef = TargetNode).equals(LabelText, ignoreCase = true)) {
                 val NodeBounds = Rect()
                 TargetNode.getBoundsInScreen(NodeBounds)
-                if (IsBoundsOnScreen(BoundsObj = NodeBounds)) return NodeBounds
+                if (!NodeBounds.isEmpty) return Rect(NodeBounds)
             }
             for (ChildIndex in 0 until TargetNode.childCount) {
                 val ChildNode = TargetNode.getChild(ChildIndex) ?: continue
                 try {
-                    val ChildBounds = FindPolicySectionLabelBounds(
+                    val ChildBounds = FindSectionLabelBounds(
                         TargetNode = ChildNode,
                         LabelText = LabelText
                     )
@@ -3944,9 +4376,10 @@ class ScreenReaderService : AccessibilityService() {
                             "clickable=${TargetNode.isClickable} visible=${TargetNode.isVisibleToUser} " +
                             "bounds=$NodeBounds"
                 )
-                if (IsBoundsOnScreen(BoundsObj = NodeBounds)) {
+                if (IsSectionHeaderTappable(BoundsObj = NodeBounds)) {
                     if (PerformTapGesture(
-                            XPos = resources.displayMetrics.widthPixels * 0.86f,
+                            XPos = resources.displayMetrics.widthPixels *
+                                    POLICY_SECTION_CHEVRON_X_RATIO,
                             YPos = NodeBounds.centerY().toFloat()
                         )
                     ) {
@@ -4076,12 +4509,22 @@ class ScreenReaderService : AccessibilityService() {
 
             AttachDragHandling(TargetView = PillContainer, LayoutParamsObj = LayoutParamsObj)
 
-            TvBubblePause?.setOnClickListener { SetPaused(PausedVal = !IsPaused) }
-            RootView.findViewById<TextView>(R.id.btnBubbleFinish).setOnClickListener { FinishCaptureSession() }
-            RootView.findViewById<TextView>(R.id.btnBubbleShareLog).setOnClickListener {
+            TvBubblePause?.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                SetPaused(PausedVal = !IsPaused)
+            }
+            RootView.findViewById<TextView>(R.id.btnBubbleFinish).setOnClickListener { ViewRef ->
+                HapticFeedback.Confirm(ViewRef = ViewRef)
+                FinishCaptureSession()
+            }
+            RootView.findViewById<TextView>(R.id.btnBubbleShareLog).setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
                 ShareDiagnosticLog()
             }
-            RootView.findViewById<TextView>(R.id.btnBubbleDiscard).setOnClickListener { DiscardCaptureSession() }
+            RootView.findViewById<TextView>(R.id.btnBubbleDiscard).setOnClickListener { ViewRef ->
+                HapticFeedback.Reject(ViewRef = ViewRef)
+                DiscardCaptureSession()
+            }
 
             WindowMgr?.addView(RootView, LayoutParamsObj)
             IsOverlayAdded = true

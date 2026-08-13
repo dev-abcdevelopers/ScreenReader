@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/authRootView"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_light">
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/authScroll"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="@dimen/screen_margin"
+            android:paddingTop="@dimen/space_xl"
+            android:paddingBottom="@dimen/space_xl">
+
+            <ImageView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginTop="@dimen/space_xl"
+                android:background="@drawable/bg_badge_blue"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_lock"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:text="@string/app_name"
+                android:textAppearance="@style/TextAppearance.App.Title" />
+
+            <TextView
+                android:id="@+id/txtSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs"
+                android:gravity="center"
+                android:text="@string/auth_subtitle_unlock"
+                android:textAppearance="@style/TextAppearance.App.Label" />
+
+            <TextView
+                android:id="@+id/txtClockWarning"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:background="@drawable/bg_warning_row"
+                android:padding="@dimen/card_padding"
+                android:text="@string/auth_warning_clock"
+                android:textAppearance="@style/TextAppearance.App.Label"
+                android:textColor="@color/status_amber_text"
+                android:visibility="gone" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardUnlock"
+                style="@style/Widget.App.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_lg">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/auth_otp_heading"
+                        android:textAppearance="@style/TextAppearance.App.Overline" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:text="@string/auth_otp_hint"
+                        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/inputOtp"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edtOtp"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:hint="@string/auth_otp_placeholder"
+                            android:importantForAutofill="no"
+                            android:inputType="number"
+                            android:letterSpacing="0.4"
+                            android:maxLength="6"
+                            android:textAppearance="@style/TextAppearance.App.Mono"
+                            android:textSize="26sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/txtUnlockError"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:textAppearance="@style/TextAppearance.App.Label"
+                        android:textColor="@color/status_red_text"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnUnlock"
+                        style="@style/Widget.App.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md"
+                        android:text="@string/auth_unlock" />
+
+                    <TextView
+                        android:id="@+id/txtLicenseFooter"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md"
+                        android:gravity="center"
+                        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearActivation"
+                        style="@style/Widget.App.Button.Text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="@string/auth_clear_action"
+                        android:textColor="@color/text_muted" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardActivate"
+                style="@style/Widget.App.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_lg">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/auth_device_id_label"
+                        android:textAppearance="@style/TextAppearance.App.Overline" />
+
+                    <TextView
+                        android:id="@+id/txtDeviceId"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:background="@drawable/bg_badge_neutral"
+                        android:gravity="center"
+                        android:padding="@dimen/space_md"
+                        android:textAppearance="@style/TextAppearance.App.Mono"
+                        android:textIsSelectable="true"
+                        tools:text="A3F1-9C22-7B04-D5E8" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:text="@string/auth_device_id_hint"
+                        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCopyDeviceId"
+                        style="@style/Widget.App.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md"
+                        android:text="@string/auth_copy_device_id"
+                        app:icon="@drawable/ic_copy" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginVertical="@dimen/space_lg"
+                        android:background="@color/divider" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/auth_activation_heading"
+                        android:textAppearance="@style/TextAppearance.App.Overline" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/inputActivation"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:hint="@string/auth_activation_hint">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edtActivation"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="top|start"
+                            android:importantForAutofill="no"
+                            android:inputType="textMultiLine|textNoSuggestions"
+                            android:minLines="3"
+                            android:textAppearance="@style/TextAppearance.App.Body"
+                            android:textSize="12sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/txtActivateError"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:textAppearance="@style/TextAppearance.App.Label"
+                        android:textColor="@color/status_red_text"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnPasteBlob"
+                        style="@style/Widget.App.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md"
+                        android:text="@string/auth_paste" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnActivate"
+                        style="@style/Widget.App.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_sm"
+                        android:text="@string/auth_activate" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

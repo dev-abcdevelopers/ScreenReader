@@ -6,6 +6,8 @@ import android.content.Context
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.PsPolicy
+import com.bliss.screenreader.service.CaptureDiagnostics
+import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.File
 import java.io.FileOutputStream
@@ -13,121 +15,196 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Every exported sheet follows one contract so importers never have to parse
+ * display text:
+ *
+ * - date columns hold ISO-8601 `yyyy-MM-dd` strings, or are empty
+ * - amount columns hold real numeric cells - no `₹`, no thousands separators,
+ *   no `/Month` suffix - with the frequency split into its own column
+ * - identifier columns (policy number, mobile) stay text, so leading zeros
+ *   survive and nothing turns into scientific notation
+ *
+ * A value that could not be normalised leaves its cell empty rather than
+ * writing a guess, and is logged so a parser gap is visible.
+ */
 object ExcelExporter {
 
     fun ExportCustomerPolicies(ContextRef: Context, Policies: List<CustomerPolicy>): File {
+        ExportFormat.ResetDiagnostics()
+
         val WorkbookObj = XSSFWorkbook()
         val SheetObj = WorkbookObj.createSheet("Customer Policies")
 
-        val HeaderRow = SheetObj.createRow(0)
-        val HeadersList = arrayOf(
-            "Policy Number", "Holder Name", "Plan Code", "Plan Name", "Status",
-            "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
-            "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
-            "Term/PPT", "Date of Commencement", "End of Premium Paying Term",
-            "Date of Maturity", "Mobile", "DOB", "Address",
-            "Date of Premium Payment", "Date of Commission Payment", "Commission Type",
-            "Bonus Commission", "Commission Paid Amount"
+        WriteHeaders(
+            RowRef = SheetObj.createRow(0),
+            HeadersList = arrayOf(
+                "Policy Number", "Holder Name", "Plan Code", "Plan Name", "Status",
+                "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
+                "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
+                "Term Years", "PPT Years", "Date of Commencement",
+                "End of Premium Paying Term", "Date of Maturity", "Mobile", "DOB",
+                "Address", "Date of Premium Payment", "Date of Commission Payment",
+                "Commission Type", "Bonus Commission", "Commission Paid Amount"
+            )
         )
-
-        for (Idx in HeadersList.indices) {
-            HeaderRow.createCell(Idx).setCellValue(HeadersList[Idx])
-        }
 
         var RowIdx = 1
         for (PolicyItem in Policies) {
             val DataRow = SheetObj.createRow(RowIdx++)
-            DataRow.createCell(0).setCellValue(PolicyItem.PolicyNumber)
-            DataRow.createCell(1).setCellValue(PolicyItem.HolderName)
-            DataRow.createCell(2).setCellValue(PolicyItem.PlanCode)
-            DataRow.createCell(3).setCellValue(PolicyItem.PlanName)
-            DataRow.createCell(4).setCellValue(PolicyItem.NormalizedStatus)
-            DataRow.createCell(5).setCellValue(PolicyItem.PremiumAmount)
-            DataRow.createCell(6).setCellValue(PolicyItem.PremiumFrequency)
-            DataRow.createCell(7).setCellValue(PolicyItem.AutoPay)
-            DataRow.createCell(8).setCellValue(PolicyItem.RenewalType)
-            DataRow.createCell(9).setCellValue(PolicyItem.RenewalDueDate)
-            DataRow.createCell(10).setCellValue(PolicyItem.KycStatus)
-            DataRow.createCell(11).setCellValue(PolicyItem.NeftStatus)
-            DataRow.createCell(12).setCellValue(PolicyItem.SumAssured)
-            DataRow.createCell(13).setCellValue(PolicyItem.TermPPT)
-            DataRow.createCell(14).setCellValue(PolicyItem.DateOfCommencement)
-            DataRow.createCell(15).setCellValue(PolicyItem.EndOfPremiumPayingTerm)
-            DataRow.createCell(16).setCellValue(PolicyItem.DateOfMaturity)
-            DataRow.createCell(17).setCellValue(PolicyItem.MobileNumber)
-            DataRow.createCell(18).setCellValue(PolicyItem.Dob)
-            DataRow.createCell(19).setCellValue(PolicyItem.Address)
-            DataRow.createCell(20).setCellValue(PolicyItem.CommissionDateOfPremiumPayment)
-            DataRow.createCell(21).setCellValue(PolicyItem.CommissionDateOfPayment)
-            DataRow.createCell(22).setCellValue(PolicyItem.CommissionType)
-            DataRow.createCell(23).setCellValue(PolicyItem.BonusCommission)
-            DataRow.createCell(24).setCellValue(PolicyItem.CommissionPaidAmount)
+            WriteText(DataRow, 0, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, 1, PolicyItem.HolderName)
+            WriteText(DataRow, 2, PolicyItem.PlanCode)
+            WriteText(DataRow, 3, PolicyItem.PlanName)
+            WriteText(DataRow, 4, PolicyItem.NormalizedStatus)
+            WriteNumber(DataRow, 5, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            WriteText(
+                DataRow, 6,
+                PolicyItem.PremiumFrequency.ifEmpty {
+                    ExportFormat.AmountFrequency(PolicyItem.PremiumAmount)
+                }
+            )
+            WriteText(DataRow, 7, PolicyItem.AutoPay)
+            WriteText(DataRow, 8, PolicyItem.RenewalType)
+            WriteText(DataRow, 9, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
+            WriteText(DataRow, 10, PolicyItem.KycStatus)
+            WriteText(DataRow, 11, PolicyItem.NeftStatus)
+            WriteNumber(DataRow, 12, ExportFormat.PlainNumber(PolicyItem.SumAssured))
+            WriteNumber(DataRow, 13, ExportFormat.TermYears(PolicyItem.TermPPT))
+            WriteNumber(DataRow, 14, ExportFormat.PptYears(PolicyItem.TermPPT))
+            WriteText(DataRow, 15, ExportFormat.IsoDate(PolicyItem.DateOfCommencement))
+            WriteText(DataRow, 16, ExportFormat.IsoDate(PolicyItem.EndOfPremiumPayingTerm))
+            WriteText(DataRow, 17, ExportFormat.IsoDate(PolicyItem.DateOfMaturity))
+            WriteText(DataRow, 18, ExportFormat.Identifier(PolicyItem.MobileNumber))
+            WriteText(DataRow, 19, ExportFormat.IsoDate(PolicyItem.Dob))
+            WriteText(DataRow, 20, PolicyItem.Address)
+            WriteText(DataRow, 21, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPremiumPayment))
+            WriteText(DataRow, 22, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPayment))
+            WriteText(DataRow, 23, PolicyItem.CommissionType)
+            WriteNumber(DataRow, 24, ExportFormat.PlainNumber(PolicyItem.BonusCommission))
+            WriteNumber(DataRow, 25, ExportFormat.PlainNumber(PolicyItem.CommissionPaidAmount))
         }
 
-        val TimeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val TargetFile = File(ContextRef.getExternalFilesDir(null), "Policy_Export_$TimeStamp.xlsx")
-        FileOutputStream(TargetFile).use { OutStream ->
-            WorkbookObj.write(OutStream)
-        }
-        WorkbookObj.close()
-        return TargetFile
+        return FinishWorkbook(
+            ContextRef = ContextRef,
+            WorkbookObj = WorkbookObj,
+            FilePrefix = "Policy_Export"
+        )
     }
 
     fun ExportFupPolicies(ContextRef: Context, Policies: List<FupPolicy>): File {
+        ExportFormat.ResetDiagnostics()
+
         val WorkbookObj = XSSFWorkbook()
         val SheetObj = WorkbookObj.createSheet("FUP Renewal History")
 
-        val HeaderRow = SheetObj.createRow(0)
-        val HeadersList = arrayOf("Policy Number", "Plan Name", "Holder Name", "Premium Amount", "Due Date", "Status")
-
-        for (Idx in HeadersList.indices) {
-            HeaderRow.createCell(Idx).setCellValue(HeadersList[Idx])
-        }
+        WriteHeaders(
+            RowRef = SheetObj.createRow(0),
+            HeadersList = arrayOf(
+                "Policy Number", "Plan Code", "Plan Name", "Holder Name",
+                "Premium Amount", "Premium Frequency", "Due Date", "Payment Date",
+                "Mode of Payment", "Status at Time of Payment"
+            )
+        )
 
         var RowIdx = 1
         for (PolicyItem in Policies) {
             val DataRow = SheetObj.createRow(RowIdx++)
-            DataRow.createCell(0).setCellValue(PolicyItem.PolicyNumber)
-            DataRow.createCell(1).setCellValue(PolicyItem.PlanName)
-            DataRow.createCell(2).setCellValue(PolicyItem.HolderName)
-            DataRow.createCell(3).setCellValue(PolicyItem.PremiumAmount)
-            DataRow.createCell(4).setCellValue(PolicyItem.DueDate)
-            DataRow.createCell(5).setCellValue(PolicyItem.Status)
+            WriteText(DataRow, 0, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PlanCode))
+            WriteText(DataRow, 2, PolicyItem.PlanName)
+            WriteText(DataRow, 3, PolicyItem.HolderName)
+            // The capture carries amount and frequency in one string
+            // ("₹1,221/Month"), so the export splits them.
+            WriteNumber(DataRow, 4, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 5, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 6, ExportFormat.IsoDate(PolicyItem.DueDate))
+            WriteText(DataRow, 7, ExportFormat.IsoDate(PolicyItem.PaymentDate))
+            WriteText(DataRow, 8, PolicyItem.ModeOfPayment)
+            WriteText(DataRow, 9, PolicyItem.Status)
         }
 
-        val TimeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val TargetFile = File(ContextRef.getExternalFilesDir(null), "FUP_Export_$TimeStamp.xlsx")
-        FileOutputStream(TargetFile).use { OutStream ->
-            WorkbookObj.write(OutStream)
-        }
-        WorkbookObj.close()
-        return TargetFile
+        return FinishWorkbook(
+            ContextRef = ContextRef,
+            WorkbookObj = WorkbookObj,
+            FilePrefix = "FUP_Export"
+        )
     }
 
     fun ExportPsPolicies(ContextRef: Context, Policies: List<PsPolicy>): File {
+        ExportFormat.ResetDiagnostics()
+
         val WorkbookObj = XSSFWorkbook()
         val SheetObj = WorkbookObj.createSheet("PS Servicing Data")
 
-        val HeaderRow = SheetObj.createRow(0)
-        val HeadersList = arrayOf("Policy Number", "Holder Name", "DOC", "Premium Amount", "FUP", "Status")
-
-        for (Idx in HeadersList.indices) {
-            HeaderRow.createCell(Idx).setCellValue(HeadersList[Idx])
-        }
+        WriteHeaders(
+            RowRef = SheetObj.createRow(0),
+            HeadersList = arrayOf(
+                "Policy Number", "Holder Name", "Date of Commencement", "Premium Amount",
+                "Premium Frequency", "FUP", "Status"
+            )
+        )
 
         var RowIdx = 1
         for (PolicyItem in Policies) {
             val DataRow = SheetObj.createRow(RowIdx++)
-            DataRow.createCell(0).setCellValue(PolicyItem.PolicyNumber)
-            DataRow.createCell(1).setCellValue(PolicyItem.HolderName)
-            DataRow.createCell(2).setCellValue(PolicyItem.Doc)
-            DataRow.createCell(3).setCellValue(PolicyItem.PremiumAmount)
-            DataRow.createCell(4).setCellValue(PolicyItem.Fup)
-            DataRow.createCell(5).setCellValue(PolicyItem.Status)
+            WriteText(DataRow, 0, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, 1, PolicyItem.HolderName)
+            WriteText(DataRow, 2, ExportFormat.IsoDate(PolicyItem.Doc))
+            WriteNumber(DataRow, 3, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 4, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 5, ExportFormat.IsoDate(PolicyItem.Fup))
+            WriteText(DataRow, 6, PolicyItem.Status)
+        }
+
+        return FinishWorkbook(
+            ContextRef = ContextRef,
+            WorkbookObj = WorkbookObj,
+            FilePrefix = "PS_Export"
+        )
+    }
+
+    // ---------------------------------------------------------------- writing
+
+    private fun WriteHeaders(RowRef: Row, HeadersList: Array<String>) {
+        for (Idx in HeadersList.indices) {
+            RowRef.createCell(Idx).setCellValue(HeadersList[Idx])
+        }
+    }
+
+    private fun WriteText(RowRef: Row, ColumnIdx: Int, ValueText: String) {
+        RowRef.createCell(ColumnIdx).setCellValue(ValueText)
+    }
+
+    /**
+     * A null value leaves the cell blank rather than writing zero. Zero is a
+     * real amount - a commission of nothing is meaningful - and must not stand
+     * in for "not captured".
+     */
+    private fun WriteNumber(RowRef: Row, ColumnIdx: Int, ValueNumber: Double?) {
+        val CellRef = RowRef.createCell(ColumnIdx)
+        if (ValueNumber != null) CellRef.setCellValue(ValueNumber)
+    }
+
+    private fun FinishWorkbook(
+        ContextRef: Context,
+        WorkbookObj: XSSFWorkbook,
+        FilePrefix: String
+    ): File {
+        if (ExportFormat.UnparsedValues.isNotEmpty()) {
+            CaptureDiagnostics.Log(
+                ContextObj = ContextRef,
+                EventName = "EXPORT_UNPARSED_VALUES",
+                MessageText = "file=$FilePrefix count=${ExportFormat.UnparsedValues.size} " +
+                        "samples=${ExportFormat.UnparsedValues.take(10)}"
+            )
         }
 
         val TimeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val TargetFile = File(ContextRef.getExternalFilesDir(null), "PS_Export_$TimeStamp.xlsx")
+        val TargetFile = File(
+            ContextRef.getExternalFilesDir(null),
+            "${FilePrefix}_$TimeStamp.xlsx"
+        )
         FileOutputStream(TargetFile).use { OutStream ->
             WorkbookObj.write(OutStream)
         }

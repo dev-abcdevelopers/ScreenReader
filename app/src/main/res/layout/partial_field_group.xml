@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One capture source. The header carries its own completeness, so a group that
+  is missing reads as a specific job rather than as blank space, and the whole
+  row becomes the capture affordance when there is something to go and fetch.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/groupRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/space_md"
+    android:paddingBottom="@dimen/space_sm">
+
+    <LinearLayout
+        android:id="@+id/groupHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvGroupTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.App.Overline" />
+
+        <TextView
+            android:id="@+id/tvGroupCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        <TextView
+            android:id="@+id/tvGroupAction"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:text="@string/detail_capture_action"
+            android:textAppearance="@style/TextAppearance.App.Label"
+            android:textColor="@color/text_accent"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/ivGroupChevron"
+            android:layout_width="@dimen/icon_sm"
+            android:layout_height="@dimen/icon_sm"
+            android:layout_marginStart="@dimen/space_xs"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_chevron_right"
+            android:visibility="gone"
+            app:tint="@color/text_accent" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/groupFields"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/tvGroupEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="@dimen/space_sm"
+        android:textAppearance="@style/TextAppearance.App.Caption"
+        android:visibility="gone" />
+
+</LinearLayout>

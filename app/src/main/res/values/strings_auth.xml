@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="auth_subtitle_unlock">Enter the 6-digit code from your authenticator app</string>
+    <string name="auth_subtitle_activate">This device needs to be activated before it can be used</string>
+
+    <string name="auth_otp_heading">VERIFICATION CODE</string>
+    <string name="auth_otp_hint">The code changes every 30 seconds.</string>
+    <string name="auth_otp_placeholder">000000</string>
+    <string name="auth_unlock">Unlock</string>
+    <string name="auth_locked_countdown">Try again in %1$s</string>
+    <string name="auth_licence_footer">%1$s • %2$s</string>
+
+    <string name="auth_clear_action">Remove activation</string>
+    <string name="auth_clear_title">Remove activation?</string>
+    <string name="auth_clear_message">This device will need a new activation code before the app can be opened again. Captured data is not deleted.</string>
+    <string name="auth_clear_confirm">Remove</string>
+    <string name="auth_cancel">Cancel</string>
+
+    <string name="auth_device_id_label">DEVICE ID</string>
+    <string name="auth_device_id_hint">Send this ID to the administrator. They will reply with an activation code for this phone only.</string>
+    <string name="auth_copy_device_id">Copy device ID</string>
+    <string name="auth_device_id_copied">Device ID copied.</string>
+
+    <string name="auth_activation_heading">ACTIVATION CODE</string>
+    <string name="auth_activation_hint">Paste the code you were sent</string>
+    <string name="auth_paste">Paste from clipboard</string>
+    <string name="auth_activate">Activate this device</string>
+    <string name="auth_activated">Activated. Enter the code from your authenticator app.</string>
+    <string name="auth_clipboard_empty">Clipboard is empty.</string>
+
+    <string name="auth_warning_clock">Automatic date &amp; time is off on this phone. Codes will not match until you turn it on in Settings.</string>
+
+    <string name="auth_error_blob_empty">Paste the activation code first.</string>
+    <string name="auth_error_wrong_device">This activation code was issued for a different phone.</string>
+    <string name="auth_error_expired_blob">This activation code has already expired.</string>
+    <string name="auth_error_bad_signature">This activation code is not genuine.</string>
+    <string name="auth_error_malformed">That does not look like an activation code. Check it was copied in full.</string>
+    <string name="auth_error_no_signing_key">This build has no signing key configured. Contact the developer.</string>
+
+    <string name="auth_error_code_length">Enter all 6 digits.</string>
+    <string name="auth_error_code_used">That code was already used. Wait for the next one.</string>
+    <string name="auth_error_locked_out">Too many wrong codes.</string>
+    <string name="auth_error_licence_expired">This device\'s access has expired. Ask for a new activation code.</string>
+    <string name="auth_error_clock">The phone\'s clock has moved backwards. Turn on automatic date &amp; time, then re-activate.</string>
+    <string name="auth_error_tampered">This copy of the app was not signed by its developer and will not run.</string>
+    <string name="auth_error_tampered_subtitle">Installation blocked</string>
+
+    <plurals name="auth_error_wrong_code">
+        <item quantity="one">Wrong code. %1$d attempt left.</item>
+        <item quantity="other">Wrong code. %1$d attempts left.</item>
+    </plurals>
+
+</resources>

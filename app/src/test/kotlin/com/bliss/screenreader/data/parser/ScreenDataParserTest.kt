@@ -40,6 +40,8 @@ class ScreenDataParserTest {
         assertEquals("146345511", ParsedList[0].PolicyNumber)
         assertEquals("Pushpender Khulbe", ParsedList[0].HolderName)
         assertEquals("945", ParsedList[0].PlanCode)
+        // The code is stripped from the name so the two are never re-parsed.
+        assertEquals("LIC'S JEEVAN UMANG PLAN", ParsedList[0].PlanName)
         assertEquals("₹5,641", ParsedList[0].PremiumAmount)
         assertEquals("Month", ParsedList[0].PremiumFrequency)
         assertEquals("25 Sep 2026", ParsedList[0].RenewalDueDate)

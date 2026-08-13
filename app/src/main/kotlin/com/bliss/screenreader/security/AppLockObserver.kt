@@ -1,0 +1,54 @@
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+
+package com.bliss.screenreader.security
+
+import android.app.Activity
+import android.app.Application
+import android.content.Intent
+import android.os.Bundle
+import android.view.WindowManager
+import com.bliss.screenreader.ui.auth.AuthActivity
+
+class AppLockObserver : Application.ActivityLifecycleCallbacks {
+    private var StartedCount = 0
+
+    private val SecureWindow = false
+
+    override fun onActivityCreated(ActivityRef: Activity, SavedState: Bundle?) {
+        if (SecureWindow && ActivityRef !is AuthActivity) {
+            ActivityRef.window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
+    }
+
+    override fun onActivityStarted(ActivityRef: Activity) {
+        StartedCount++
+
+        AuthManager.NoteForegrounded()
+
+        if (ActivityRef is AuthActivity) return
+        if (AuthManager.IsUnlocked()) return
+
+        ActivityRef.startActivity(
+            Intent(ActivityRef, AuthActivity::class.java).addFlags(
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+        )
+        ActivityRef.finish()
+    }
+
+    override fun onActivityStopped(ActivityRef: Activity) {
+        StartedCount--
+        if (StartedCount <= 0) {
+            StartedCount = 0
+            AuthManager.NoteBackgrounded()
+        }
+    }
+
+    override fun onActivityResumed(ActivityRef: Activity) = Unit
+    override fun onActivityPaused(ActivityRef: Activity) = Unit
+    override fun onActivitySaveInstanceState(ActivityRef: Activity, OutState: Bundle) = Unit
+    override fun onActivityDestroyed(ActivityRef: Activity) = Unit
+}

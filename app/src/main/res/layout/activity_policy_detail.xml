@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Completeness-led. Fields are grouped by the screen they were captured from,
+  so a gap names the exact thing to go back and fetch. The old 2x2 metric grid
+  is gone: it duplicated values that now live in their own groups, and on a
+  fast capture it rendered as four grey dashes.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/detailRoot"
@@ -44,14 +50,14 @@
                     android:textAppearance="@style/TextAppearance.App.Mono"
                     android:textSize="22sp" />
 
-                <TextView
-                    android:id="@+id/tvDetailStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_badge_inforce"
-                    android:textAppearance="@style/TextAppearance.App.Caption"
-                    android:textColor="@color/status_green_text"
-                    android:textStyle="bold" />
+                <ImageButton
+                    android:id="@+id/btnCopyNumber"
+                    android:layout_width="@dimen/touch_min"
+                    android:layout_height="@dimen/touch_min"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/detail_copy_number"
+                    android:src="@drawable/ic_copy"
+                    app:tint="@color/text_secondary" />
 
             </LinearLayout>
 
@@ -59,7 +65,6 @@
                 android:id="@+id/tvDetailHolder"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_xs"
                 android:textAppearance="@style/TextAppearance.App.Body"
                 android:textStyle="bold" />
 
@@ -69,91 +74,173 @@
                 android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.App.Caption" />
 
-            <!-- Headline figures, two up. Fixed set, so no dynamic grid. -->
+            <!-- Status plus any "not updated" markers the capture flagged. -->
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupFlags"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                app:chipSpacingVertical="@dimen/space_xs"
+                app:singleLine="false" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_lg"
+                android:layout_marginTop="@dimen/space_md"
                 android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <include
-                    android:id="@+id/cellPremium"
-                    layout="@layout/partial_metric_cell"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCallCustomer"
+                    style="@style/Widget.App.Button.Outlined"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:layout_marginEnd="@dimen/space_xs"
+                    android:layout_weight="1"
+                    android:text="@string/detail_action_call"
+                    app:icon="@drawable/ic_phone" />
 
-                <include
-                    android:id="@+id/cellSumAssured"
-                    layout="@layout/partial_metric_cell"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMessageCustomer"
+                    style="@style/Widget.App.Button.Outlined"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:layout_marginEnd="@dimen/space_xs"
+                    android:layout_weight="1"
+                    android:text="@string/detail_action_message"
+                    app:icon="@drawable/ic_message" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnExportPolicy"
+                    style="@style/Widget.App.Button.Outlined"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/detail_action_export"
+                    app:icon="@drawable/ic_export" />
+
+            </LinearLayout>
+
+            <!-- Only shown for a lapsed policy with a revival date. -->
+            <LinearLayout
+                android:id="@+id/revivalBlock"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:background="@drawable/bg_badge_lapsed"
+                android:orientation="vertical"
+                android:padding="@dimen/space_md"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvRevivalLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.App.Caption"
+                    android:textColor="@color/status_red_text" />
+
+                <TextView
+                    android:id="@+id/tvRevivalDate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.App.Heading"
+                    android:textColor="@color/status_red_text" />
 
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap"
                 android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <include
-                    android:id="@+id/cellNextDue"
-                    layout="@layout/partial_metric_cell"
+                <TextView
+                    android:id="@+id/tvCompletenessLabel"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:layout_weight="1"
+                    android:textAppearance="@style/TextAppearance.App.Label" />
 
-                <include
-                    android:id="@+id/cellTermPpt"
-                    layout="@layout/partial_metric_cell"
-                    android:layout_width="0dp"
+                <TextView
+                    android:id="@+id/tvCompletenessPercent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1" />
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textStyle="bold" />
 
             </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/section_gap"
-                android:layout_marginBottom="@dimen/space_sm"
-                android:text="@string/detail_sections"
-                android:textAppearance="@style/TextAppearance.App.Overline" />
-
-            <!-- One row per data area, each either a count or a capture prompt. -->
-            <LinearLayout
-                android:id="@+id/sectionGroup"
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/progressCompleteness"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
-
-            <TextView
-                android:id="@+id/tvMoreHeading"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/section_gap"
-                android:layout_marginBottom="@dimen/space_sm"
-                android:text="@string/detail_section_more"
-                android:textAppearance="@style/TextAppearance.App.Overline"
-                android:visibility="gone" />
-
-            <LinearLayout
-                android:id="@+id/moreFieldsGroup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:layout_marginTop="@dimen/space_xs"
+                app:trackCornerRadius="3dp"
+                app:trackThickness="5dp" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnExportPolicy"
+                android:id="@+id/btnCaptureMissing"
                 style="@style/Widget.App.Button.Outlined"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:visibility="gone"
+                app:icon="@drawable/ic_record" />
+
+            <!-- One block per capture source. -->
+            <LinearLayout
+                android:id="@+id/groupContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical" />
+
+            <LinearLayout
+                android:id="@+id/rowRenewalHistory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:minHeight="@dimen/touch_min"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/icon_sm"
+                    android:layout_height="@dimen/icon_sm"
+                    android:layout_marginEnd="@dimen/space_md"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_calendar_repeat"
+                    app:tint="@color/text_secondary" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/detail_section_renewals"
+                    android:textAppearance="@style/TextAppearance.App.Body" />
+
+                <TextView
+                    android:id="@+id/tvRenewalMeta"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+                <ImageView
+                    android:layout_width="@dimen/icon_sm"
+                    android:layout_height="@dimen/icon_sm"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_chevron_right"
+                    app:tint="@color/text_faint" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvProvenance"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/section_gap"
-                android:text="@string/detail_export_one"
-                app:icon="@drawable/ic_export" />
+                android:textAppearance="@style/TextAppearance.App.Caption" />
 
         </LinearLayout>
 
