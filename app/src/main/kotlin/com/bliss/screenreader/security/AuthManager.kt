@@ -1,5 +1,5 @@
 @file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName", "unused",
-    "SpellCheckingInspection"
+    "SpellCheckingInspection", "SimplifyBooleanWithConstants"
 )
 
 package com.bliss.screenreader.security
@@ -8,6 +8,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.edit
+import com.bliss.screenreader.BuildConfig
 import com.bliss.screenreader.service.CaptureSessionState
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -15,17 +16,13 @@ import java.util.Locale
 
 object AuthManager {
     private const val PREFS_NAME = "screenreader_auth"
-
     private const val KEY_LICENSE = "license_blob"
     private const val KEY_LAST_COUNTER = "otp_last_counter"
     private const val KEY_FAIL_COUNT = "otp_fail_count"
     private const val KEY_LOCK_UNTIL = "otp_lock_until"
     private const val KEY_MAX_SEEN_TIME = "clock_max_seen"
-
     private const val IDLE_LOCK_MS = 5L * 60L * 1000L
-
     private const val FREE_ATTEMPTS = 5
-
     private const val CLOCK_SLACK_MS = 24L * 60L * 60L * 1000L
 
     @Volatile
@@ -192,7 +189,11 @@ object AuthManager {
         return if (RemainingMillis > 0L) (RemainingMillis + 999L) / 1000L else 0L
     }
 
+    val BypassActive: Boolean
+        get() = BuildConfig.DEBUG && BuildConfig.BYPASS_AUTH
+
     fun IsUnlocked(): Boolean {
+        if (BypassActive) return true
         if (!UnlockedFlag) return false
         if (BackgroundedAtElapsed == 0L) return true
 

@@ -46,6 +46,12 @@ class AuthActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (AuthManager.BypassActive) {
+            GoToApp()
+            return
+        }
+
         enableEdgeToEdge()
         ViewBindingObj = ActivityAuthBinding.inflate(layoutInflater)
         setContentView(ViewBindingObj.root)
