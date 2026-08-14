@@ -2,13 +2,14 @@
 
 package com.bliss.screenreader.utils
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
+import androidx.core.net.toUri
 
 object AppLauncherUtils {
 
@@ -22,13 +23,10 @@ object AppLauncherUtils {
     ): Boolean {
         return try {
             val PackageManagerObj = ContextRef.packageManager
-            var LaunchIntentObj = PackageManagerObj.getLaunchIntentForPackage(PackageNameVal)
+            val LaunchIntentObj = PackageManagerObj.getLaunchIntentForPackage(PackageNameVal)
             if (LaunchIntentObj != null) {
                 LaunchIntentObj.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (FreshStartVal) {
-                    // A normal launcher intent resumes the external app's last
-                    // activity/route. Rebuild its launcher task so every
-                    // capture begins from the same main entry screen.
                     LaunchIntentObj.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 }
                 ContextRef.startActivity(LaunchIntentObj)
@@ -53,6 +51,7 @@ object AppLauncherUtils {
         }
     }
 
+    @SuppressLint("ObsoleteSdkInt")
     fun IsBatteryOptimized(ContextRef: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val PowerMgr = ContextRef.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -61,17 +60,18 @@ object AppLauncherUtils {
         return false
     }
 
+    @SuppressLint("BatteryLife", "ObsoleteSdkInt")
     fun RequestBatteryOptimizationExemption(ContextRef: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val PowerMgr = ContextRef.getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!PowerMgr.isIgnoringBatteryOptimizations(ContextRef.packageName)) {
                 try {
                     val RequestIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:${ContextRef.packageName}")
+                        data = "package:${ContextRef.packageName}".toUri()
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     ContextRef.startActivity(RequestIntent)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     Toast.makeText(ContextRef, "Unable to open battery optimization settings", Toast.LENGTH_SHORT).show()
                 }
             }
