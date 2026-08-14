@@ -7,7 +7,6 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.bliss.screenreader"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
@@ -16,10 +15,34 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "brand"
+
+    productFlavors {
+        create("bliss") {
+            dimension = "brand"
+            applicationId = "com.bliss.screenreader"
+            resValue("string", "app_name", "BLISS Reader")
+            buildConfigField("boolean", "URL_LICENCE", "true")
+            buildConfigField("String", "LICENCE_URL", "\"https://blissmis.com/mregister1\"")
+            buildConfigField("String", "LICENCE_ARGS", "\"1!1!1!1!COMBO!1!1\"")
+            buildConfigField("String", "SUPPORT_PHONE", "\"+919716720049\"")
+            buildConfigField("String", "SUPPORT_PHONE_DISPLAY", "\"+91 97167 20049\"")
+        }
+        create("digi") {
+            dimension = "brand"
+            applicationId = "com.digi.screenreader"
+            resValue("string", "app_name", "Digi Reader")
+            buildConfigField("boolean", "URL_LICENCE", "false")
+            buildConfigField("String", "LICENCE_URL", "\"\"")
+            buildConfigField("String", "LICENCE_ARGS", "\"\"")
+            buildConfigField("String", "SUPPORT_PHONE", "\"\"")
+            buildConfigField("String", "SUPPORT_PHONE_DISPLAY", "\"\"")
+        }
+    }
 
     buildTypes {
         getByName("debug") {
-            buildConfigField("boolean", "BYPASS_AUTH", "true")
+            buildConfigField("boolean", "BYPASS_AUTH", "false")
         }
         getByName("release") {
             buildConfigField("boolean", "BYPASS_AUTH", "false")

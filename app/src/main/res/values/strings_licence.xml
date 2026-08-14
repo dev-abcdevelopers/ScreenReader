@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="licence_checking_title">Checking your licence</string>
+    <string name="licence_checking_body">Verifying this device with BLISS. This takes a moment.</string>
+
+    <string name="licence_valid_title">Licence verified</string>
+    <string name="licence_valid_body">This device is registered to BLISS.</string>
+
+    <string name="licence_blocked_title">No valid BLISS licence</string>
+    <string name="licence_blocked_body">This device is not registered. Please contact customer support to get a licence for it.</string>
+
+    <string name="licence_no_device_id_title">Device ID unavailable</string>
+    <string name="licence_no_device_id_body">This phone did not report a usable device ID, so it cannot be licensed. Please contact customer support.</string>
+
+    <string name="licence_offline_title">Can\'t reach BLISS</string>
+    <string name="licence_offline_body_never">Check your connection and try again. This device has not been verified yet.</string>
+    <string name="licence_offline_body_today">Check your connection and try again. Your licence was last confirmed today.</string>
+    <plurals name="licence_offline_body_days">
+        <item quantity="one">Check your connection and try again. Your licence was last confirmed %1$d day ago.</item>
+        <item quantity="other">Check your connection and try again. Your licence was last confirmed %1$d days ago.</item>
+    </plurals>
+
+    <string name="licence_call_support">Call customer support</string>
+    <string name="licence_copy_device_id">Copy device ID</string>
+    <string name="licence_device_id_copied">Device ID copied.</string>
+    <string name="licence_retry">Retry</string>
+    <plurals name="licence_continue_offline">
+        <item quantity="one">Continue offline (%1$d day left)</item>
+        <item quantity="other">Continue offline (%1$d days left)</item>
+    </plurals>
+
+    <string name="licence_tampered_title">Installation blocked</string>
+    <string name="licence_tampered_body">This copy of the app was not signed by its developer and will not run.</string>
+
+</resources>

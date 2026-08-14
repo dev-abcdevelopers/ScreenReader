@@ -7,7 +7,6 @@ import android.app.Application
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
-import com.bliss.screenreader.ui.auth.AuthActivity
 
 class AppLockObserver : Application.ActivityLifecycleCallbacks {
     private var StartedCount = 0
@@ -15,7 +14,7 @@ class AppLockObserver : Application.ActivityLifecycleCallbacks {
     private val SecureWindow = false
 
     override fun onActivityCreated(ActivityRef: Activity, SavedState: Bundle?) {
-        if (SecureWindow && ActivityRef !is AuthActivity) {
+        if (SecureWindow && !LicenceGate.IsGateActivity(CandidateRef = ActivityRef)) {
             ActivityRef.window.setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE
@@ -26,13 +25,13 @@ class AppLockObserver : Application.ActivityLifecycleCallbacks {
     override fun onActivityStarted(ActivityRef: Activity) {
         StartedCount++
 
-        AuthManager.NoteForegrounded()
+        LicenceGate.NoteForegrounded()
 
-        if (ActivityRef is AuthActivity) return
-        if (AuthManager.IsUnlocked()) return
+        if (LicenceGate.IsGateActivity(CandidateRef = ActivityRef)) return
+        if (LicenceGate.IsUnlocked(ContextRef = ActivityRef)) return
 
         ActivityRef.startActivity(
-            Intent(ActivityRef, AuthActivity::class.java).addFlags(
+            Intent(ActivityRef, LicenceGate.EntryActivity()).addFlags(
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             )
         )
@@ -43,7 +42,7 @@ class AppLockObserver : Application.ActivityLifecycleCallbacks {
         StartedCount--
         if (StartedCount <= 0) {
             StartedCount = 0
-            AuthManager.NoteBackgrounded()
+            LicenceGate.NoteBackgrounded()
         }
     }
 

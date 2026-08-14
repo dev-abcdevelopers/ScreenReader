@@ -13,16 +13,21 @@ object DeviceIdentity {
     @Volatile
     private var CachedBytes: ByteArray? = null
 
+    @Volatile
+    private var CachedRegistrationId: String? = null
+
     @SuppressLint("HardwareIds")
+    private fun AndroidId(ContextRef: Context): String = Settings.Secure.getString(
+        ContextRef.contentResolver,
+        Settings.Secure.ANDROID_ID
+    ).orEmpty().trim()
+
     fun RawBytes(ContextRef: Context): ByteArray {
         CachedBytes?.let { return it.copyOf() }
         synchronized(this) {
             CachedBytes?.let { return it.copyOf() }
 
-            val AndroidIdText = Settings.Secure.getString(
-                ContextRef.contentResolver,
-                Settings.Secure.ANDROID_ID
-            ).orEmpty()
+            val AndroidIdText = AndroidId(ContextRef = ContextRef)
 
             val SourceText = AndroidIdText + "|" + ContextRef.packageName
             val DigestBytes = MessageDigest.getInstance("SHA-256")
@@ -50,5 +55,25 @@ object DeviceIdentity {
             Difference = Difference or (OwnBytes[Index].toInt() xor CandidateBytes[Index].toInt())
         }
         return Difference == 0
+    }
+
+    fun RegistrationId(ContextRef: Context): String {
+        CachedRegistrationId?.let { return it }
+        synchronized(this) {
+            CachedRegistrationId?.let { return it }
+            val ResultText = AndroidId(ContextRef = ContextRef).lowercase()
+            CachedRegistrationId = ResultText
+            return ResultText
+        }
+    }
+
+    fun GroupForDisplay(IdText: String): String {
+        if (IdText.isEmpty()) return ""
+        val Builder = StringBuilder()
+        for ((Index, CharVal) in IdText.uppercase().withIndex()) {
+            if (Index > 0 && Index % 4 == 0) Builder.append('-')
+            Builder.append(CharVal)
+        }
+        return Builder.toString()
     }
 }
