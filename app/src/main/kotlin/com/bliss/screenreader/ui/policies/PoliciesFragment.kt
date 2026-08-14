@@ -27,6 +27,7 @@ import com.bliss.screenreader.databinding.FragmentPoliciesBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
+import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
@@ -46,7 +47,8 @@ class PoliciesFragment : Fragment() {
     private val SessionAdapterObj = CaptureSessionAdapter(
         OnRowClick = { SessionRef -> OpenSession(SessionRef = SessionRef) },
         OnResumeClick = { SessionRef -> ResumeSession(SessionRef = SessionRef) },
-        OnDeleteClick = { SessionRef -> ConfirmDeleteSession(SessionRef = SessionRef) }
+        OnDeleteClick = { SessionRef -> ConfirmDeleteSession(SessionRef = SessionRef) },
+        OnShareLogClick = { SessionRef -> ShareSessionLog(SessionRef = SessionRef) }
     )
     private val SessionSwipeHelper = ItemTouchHelper(SessionSwipeCallback(SessionAdapterObj))
     private val RenewalAdapterObj = RenewalRowAdapter()
@@ -372,6 +374,10 @@ class PoliciesFragment : Fragment() {
             SessionId = SessionRef.SessionId,
             ModeVal = SessionRef.Mode
         )
+        CaptureDiagnostics.DeleteSessionLogs(
+            ContextObj = requireContext().applicationContext,
+            SessionId = SessionRef.SessionId
+        )
 
         if (SelectedSessionId == SessionRef.SessionId) {
             SelectedSessionId = ""
@@ -437,6 +443,29 @@ class PoliciesFragment : Fragment() {
         ShareFile(
             FileRef = ExportedFile,
             MimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    }
+
+    private fun ShareSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
+        SessionAdapterObj.CloseOpenRow()
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val ContextRef = requireContext().applicationContext
+        val ShareIntent = CaptureDiagnostics.BuildShareIntent(
+            ContextObj = ContextRef,
+            LogFiles = CaptureDiagnostics.GetSessionLogFiles(
+                ContextObj = ContextRef,
+                SessionId = SessionRef.SessionId
+            )
+        )
+        if (ShareIntent == null) {
+            CaptureFlow.ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = getString(R.string.sessions_share_log_missing)
+            )
+            return
+        }
+        startActivity(
+            Intent.createChooser(ShareIntent, getString(R.string.sessions_share_log_title))
         )
     }
 

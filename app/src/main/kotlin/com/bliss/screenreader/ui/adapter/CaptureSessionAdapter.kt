@@ -19,7 +19,8 @@ class CaptureSessionAdapter(
     private var SessionList: List<PolicyRepository.CaptureSessionReference> = emptyList(),
     private val OnRowClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
     private val OnResumeClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
-    private val OnDeleteClick: (PolicyRepository.CaptureSessionReference) -> Unit = {}
+    private val OnDeleteClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
+    private val OnShareLogClick: (PolicyRepository.CaptureSessionReference) -> Unit = {}
 ) : RecyclerView.Adapter<CaptureSessionAdapter.SessionViewHolder>() {
 
     class SessionViewHolder(val BindingRef: ItemCaptureSessionBinding) :
@@ -120,11 +121,15 @@ class CaptureSessionAdapter(
             HapticFeedback.Reject(ViewRef = ViewRef)
             OnDeleteClick(SessionRef)
         }
+        BindingRef.btnSessionShareLog.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            OnShareLogClick(SessionRef)
+        }
     }
 
     private fun RevealWidthPx(holder: SessionViewHolder): Float {
         val ResourcesRef = holder.BindingRef.root.resources
-        return ResourcesRef.getDimensionPixelSize(R.dimen.touch_min).toFloat()
+        return ResourcesRef.getDimensionPixelSize(R.dimen.session_reveal_width).toFloat()
     }
 
     @SuppressLint("NotifyDataSetChanged")

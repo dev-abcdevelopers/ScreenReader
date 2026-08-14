@@ -14,7 +14,7 @@
         android:id="@+id/sessionDeleteLayer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/status_red_bg"
+        android:background="@color/surface_sunken"
         android:gravity="center_vertical|start"
         android:orientation="horizontal">
 
@@ -26,6 +26,15 @@
             android:contentDescription="@string/sessions_delete"
             android:src="@drawable/ic_delete"
             app:tint="@color/status_red_text" />
+
+        <ImageButton
+            android:id="@+id/btnSessionShareLog"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/sessions_share_log"
+            android:src="@drawable/ic_share"
+            app:tint="@color/text_secondary" />
 
     </LinearLayout>
 

@@ -86,8 +86,9 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                     CapturePolicyDetails = SessionObj.CapturePolicyDetails
                 )
             } catch (ExceptionObj: Exception) {
-                CaptureDiagnostics.Log(
+                CaptureDiagnostics.LogForSession(
                     ContextObj = AppContext,
+                    SessionId = SessionObj.SessionId,
                     EventName = "SESSION_COMMIT_FAILED",
                     MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
                             "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
@@ -95,8 +96,9 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                 0
             }
             val CommitBreakdown = CaptureParsers.LastCommitResult
-            CaptureDiagnostics.Log(
+            CaptureDiagnostics.LogForSession(
                 ContextObj = AppContext,
+                SessionId = SessionObj.SessionId,
                 EventName = "SESSION_COMMIT",
                 MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
                         "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +

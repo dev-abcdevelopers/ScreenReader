@@ -52,7 +52,7 @@ class SessionSwipeCallback(
         }
 
         val MaxRevealPx = ForegroundView.resources
-            .getDimensionPixelSize(R.dimen.touch_min)
+            .getDimensionPixelSize(R.dimen.session_reveal_width)
             .toFloat()
         val ClampedDx = dX.coerceIn(0f, MaxRevealPx)
 

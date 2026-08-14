@@ -66,6 +66,9 @@
     <string name="sessions_open">Open capture session</string>
     <string name="sessions_resume">Resume</string>
     <string name="sessions_delete">Delete session</string>
+    <string name="sessions_share_log">Share session log</string>
+    <string name="sessions_share_log_title">Share session log</string>
+    <string name="sessions_share_log_missing">No diagnostic log is stored for this session</string>
     <string name="sessions_delete_title">Delete this session?</string>
     <string name="sessions_delete_body">%1$s will be removed permanently. This cannot be undone.</string>
     <string name="sessions_delete_confirm">Delete</string>

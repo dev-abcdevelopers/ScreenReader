@@ -11,7 +11,6 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.ClipData
 import android.content.Intent
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -34,7 +33,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.view.ContextThemeWrapper
-import androidx.core.content.FileProvider
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
@@ -1074,7 +1072,8 @@ class ScreenReaderService : AccessibilityService() {
             ContextObj = this,
             SessionId = CurrentSessionId,
             ModeVal = ModeVal,
-            ExpectedPackage = ExpectedTargetPackage()
+            ExpectedPackage = ExpectedTargetPackage(),
+            IsResumedVal = IsResumedSession
         )
         DiagnosticInfo(
             EventName = "SESSION_START",
@@ -4593,22 +4592,17 @@ class ScreenReaderService : AccessibilityService() {
                 EventName = "LOG_SHARE",
                 MessageText = "User requested the latest capture diagnostic log"
             )
-            val LogFile = CaptureDiagnostics.GetLogFile(ContextObj = this)
-            if (!LogFile.exists()) {
-                Toast.makeText(this, "No diagnostic log is available yet", Toast.LENGTH_SHORT).show()
-                return
-            }
-            val LogUri = FileProvider.getUriForFile(
-                this,
-                "$packageName.fileprovider",
-                LogFile
+            val LogFiles = CaptureDiagnostics
+                .GetSessionLogFiles(ContextObj = this, SessionId = CurrentSessionId)
+                .ifEmpty { CaptureDiagnostics.GetActiveLogFiles(ContextObj = this) }
+            val ShareIntent = CaptureDiagnostics.BuildShareIntent(
+                ContextObj = this,
+                LogFiles = LogFiles
             )
-            val ShareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "Screen Reader capture diagnostics")
-                putExtra(Intent.EXTRA_STREAM, LogUri)
-                clipData = ClipData.newRawUri("capture diagnostics", LogUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (ShareIntent == null) {
+                Toast.makeText(this, "No diagnostic log is available yet", Toast.LENGTH_SHORT)
+                    .show()
+                return
             }
             val ChooserIntent = Intent.createChooser(
                 ShareIntent,
