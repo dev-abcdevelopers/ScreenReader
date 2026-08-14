@@ -1,4 +1,6 @@
-@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
+    "SpellCheckingInspection"
+)
 
 package com.bliss.screenreader.ui.policies
 
@@ -145,7 +147,6 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    // -------------------------------------------------------------- listing
 
     private fun VisiblePolicies(): List<CustomerPolicy> {
         val QueryLower = SearchQuery.trim().lowercase(Locale.ROOT)
@@ -179,10 +180,7 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    /**
-     * Renewal history has no Inforce/Lapsed split and no detail screen, so the
-     * status chips and the PDF export are hidden rather than left inert.
-     */
+
     private fun RenderRenewals() {
         val BindingObj = ViewBindingObj ?: return
         val VisibleList = VisibleRenewals()
@@ -200,7 +198,8 @@ class PoliciesFragment : Fragment() {
         )
 
         val HasVisible = VisibleList.isNotEmpty()
-        BindingObj.emptyState.emptyStateRoot.visibility = if (HasVisible) View.GONE else View.VISIBLE
+        BindingObj.emptyState.emptyStateRoot.visibility =
+            if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
         BindingObj.btnExportPdf.visibility = View.GONE
         if (HasVisible) return
@@ -231,7 +230,8 @@ class PoliciesFragment : Fragment() {
         SessionBackCallback?.isEnabled = false
 
         val HasSessions = SessionList.isNotEmpty()
-        BindingObj.emptyState.emptyStateRoot.visibility = if (HasSessions) View.GONE else View.VISIBLE
+        BindingObj.emptyState.emptyStateRoot.visibility =
+            if (HasSessions) View.GONE else View.VISIBLE
         if (HasSessions) return
 
         BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_folder_open)
@@ -249,7 +249,6 @@ class PoliciesFragment : Fragment() {
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_policies_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
-        // Undo whatever the renewal view hid, in case that was shown first.
         BindingObj.chipGroupStatus.visibility = View.VISIBLE
         BindingObj.btnExportPdf.visibility = View.VISIBLE
         BindingObj.tilSearch.hint = getString(R.string.policies_search_hint)
@@ -262,12 +261,13 @@ class PoliciesFragment : Fragment() {
         val HasAny = AllPolicies.isNotEmpty()
         val HasVisible = VisibleList.isNotEmpty()
 
-        BindingObj.emptyState.emptyStateRoot.visibility = if (HasVisible) View.GONE else View.VISIBLE
+        BindingObj.emptyState.emptyStateRoot.visibility =
+            if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
 
         if (HasVisible) return
 
-        // Two different empty states: nothing captured, versus nothing matching.
+
         if (HasAny) {
             BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_search)
             BindingObj.emptyState.tvEmptyTitle.setText(R.string.policies_no_match_title)
@@ -282,10 +282,7 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    /**
-     * Both capture modes write session history, so both are listed. PS is
-     * excluded while its picker entry is hidden.
-     */
+
     private fun LoadSessions() {
         SessionList = PolicyRepository.GetSessionHistory(ContextRef = requireContext())
             .filter { SessionRef ->
@@ -305,11 +302,7 @@ class PoliciesFragment : Fragment() {
         RenderList()
     }
 
-    /**
-     * Continues an existing session rather than starting a new one, so the
-     * capture merges into what is already stored. A full-detail policy capture
-     * skips policies whose sections were all read last time.
-     */
+
     private fun ResumeSession(SessionRef: PolicyRepository.CaptureSessionReference) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
 
@@ -351,11 +344,7 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    /**
-     * Deleting a session removes every record it holds and cannot be undone,
-     * so the revealed icon asks before acting. The record count is named in
-     * the prompt - "12 policies" is a very different decision to "1 policy".
-     */
+
     private fun ConfirmDeleteSession(SessionRef: PolicyRepository.CaptureSessionReference) {
         val ContextRef = context ?: return
         AlertDialog.Builder(ContextRef)
@@ -377,15 +366,13 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun DeleteSession(SessionRef: PolicyRepository.CaptureSessionReference) {
-        // Fires on the committed delete, not on the dialog appearing, so the
-        // pattern only ever means "records are gone".
         HapticFeedback.Reject(ViewRef = ViewBindingObj?.root)
         PolicyRepository.DeleteSession(
             ContextRef = requireContext().applicationContext,
             SessionId = SessionRef.SessionId,
             ModeVal = SessionRef.Mode
         )
-        // The open session could be the one just removed.
+
         if (SelectedSessionId == SessionRef.SessionId) {
             SelectedSessionId = ""
             AllPolicies = emptyList()
@@ -422,15 +409,13 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    // -------------------------------------------------------------- exports
 
     private fun ExportPdf() {
         val VisibleList = VisiblePolicies()
         if (VisibleList.isEmpty()) return
-        // Fired after the empty guard, so a tap that produces no file stays
-        // silent rather than signalling success.
         HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportPdf)
-        val ExportedFile = PdfExporter.GeneratePolicyPdf(ContextRef = requireContext(), Policies = VisibleList)
+        val ExportedFile =
+            PdfExporter.GeneratePolicyPdf(ContextRef = requireContext(), Policies = VisibleList)
         ShareFile(FileRef = ExportedFile, MimeType = "application/pdf")
     }
 
@@ -444,7 +429,10 @@ class PoliciesFragment : Fragment() {
             val VisibleList = VisiblePolicies()
             if (VisibleList.isEmpty()) return
             HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportExcel)
-            ExcelExporter.ExportCustomerPolicies(ContextRef = requireContext(), Policies = VisibleList)
+            ExcelExporter.ExportCustomerPolicies(
+                ContextRef = requireContext(),
+                Policies = VisibleList
+            )
         }
         ShareFile(
             FileRef = ExportedFile,

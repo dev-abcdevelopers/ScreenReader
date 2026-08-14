@@ -10,11 +10,6 @@ import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.ui.SetupEdgeToEdge
 
-/**
- * The evidence trail behind a parse. Prefers the capture that is currently
- * waiting in the review sheet, so "view raw nodes" shows the session the user
- * is actually judging rather than whatever the service happens to hold.
- */
 class RawCaptureActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityRawCaptureBinding
@@ -28,7 +23,8 @@ class RawCaptureActivity : AppCompatActivity() {
         ViewBindingObj.toolbar.setNavigationOnClickListener { finish() }
 
         val PendingSession = CaptureSessionState.PendingSession
-        val NodesList: List<String> = PendingSession?.RawNodes ?: ScreenReaderService.CapturedNodes.toList()
+        val NodesList: List<String> =
+            PendingSession?.RawNodes ?: ScreenReaderService.CapturedNodes.toList()
         val SourceLabel = getString(
             if (PendingSession != null) R.string.raw_header_pending else R.string.raw_header_live
         )
