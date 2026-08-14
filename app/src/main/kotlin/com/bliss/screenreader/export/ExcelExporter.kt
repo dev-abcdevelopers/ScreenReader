@@ -17,7 +17,11 @@ import java.util.Locale
 
 object ExcelExporter {
 
-    fun ExportCustomerPolicies(ContextRef: Context, Policies: List<CustomerPolicy>): File {
+    fun ExportCustomerPolicies(
+        ContextRef: Context,
+        Policies: List<CustomerPolicy>,
+        AgencyCode: String = ""
+    ): File {
         ExportFormat.ResetDiagnostics()
 
         val WorkbookObj = XSSFWorkbook()
@@ -26,50 +30,60 @@ object ExcelExporter {
         WriteHeaders(
             RowRef = SheetObj.createRow(0),
             HeadersList = arrayOf(
-                "Policy Number", "Holder Name", "Plan Code", "Plan Name", "Status",
+                "Agency Code", "Policy Number", "Holder Name", "Plan Code", "Plan Name",
+                "Status",
                 "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
                 "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
                 "Term Years", "PPT Years", "Date of Commencement",
                 "End of Premium Paying Term", "Date of Maturity", "Mobile", "DOB",
-                "Address", "Date of Premium Payment", "Date of Commission Payment",
-                "Commission Type", "Bonus Commission", "Commission Paid Amount"
+                "Address", "Email", "Gender", "Education", "Occupation",
+                "Marital Status", "Annual Income", "Date of Premium Payment",
+                "Date of Commission Payment", "Commission Type", "Bonus Commission",
+                "Commission Paid Amount"
             )
         )
 
         var RowIdx = 1
         for (PolicyItem in Policies) {
             val DataRow = SheetObj.createRow(RowIdx++)
-            WriteText(DataRow, 0, ExportFormat.Identifier(PolicyItem.PolicyNumber))
-            WriteText(DataRow, 1, PolicyItem.HolderName)
-            WriteText(DataRow, 2, PolicyItem.PlanCode)
-            WriteText(DataRow, 3, PolicyItem.PlanName)
-            WriteText(DataRow, 4, PolicyItem.NormalizedStatus)
-            WriteNumber(DataRow, 5, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 0, AgencyCode)
+            WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, 2, PolicyItem.HolderName)
+            WriteText(DataRow, 3, PolicyItem.PlanCode)
+            WriteText(DataRow, 4, PolicyItem.PlanName)
+            WriteText(DataRow, 5, PolicyItem.NormalizedStatus)
+            WriteNumber(DataRow, 6, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
             WriteText(
-                DataRow, 6,
+                DataRow, 7,
                 PolicyItem.PremiumFrequency.ifEmpty {
                     ExportFormat.AmountFrequency(PolicyItem.PremiumAmount)
                 }
             )
-            WriteText(DataRow, 7, PolicyItem.AutoPay)
-            WriteText(DataRow, 8, PolicyItem.RenewalType)
-            WriteText(DataRow, 9, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
-            WriteText(DataRow, 10, PolicyItem.KycStatus)
-            WriteText(DataRow, 11, PolicyItem.NeftStatus)
-            WriteNumber(DataRow, 12, ExportFormat.PlainNumber(PolicyItem.SumAssured))
-            WriteNumber(DataRow, 13, ExportFormat.TermYears(PolicyItem.TermPPT))
-            WriteNumber(DataRow, 14, ExportFormat.PptYears(PolicyItem.TermPPT))
-            WriteText(DataRow, 15, ExportFormat.IsoDate(PolicyItem.DateOfCommencement))
-            WriteText(DataRow, 16, ExportFormat.IsoDate(PolicyItem.EndOfPremiumPayingTerm))
-            WriteText(DataRow, 17, ExportFormat.IsoDate(PolicyItem.DateOfMaturity))
-            WriteText(DataRow, 18, ExportFormat.Identifier(PolicyItem.MobileNumber))
-            WriteText(DataRow, 19, ExportFormat.IsoDate(PolicyItem.Dob))
-            WriteText(DataRow, 20, PolicyItem.Address)
-            WriteText(DataRow, 21, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPremiumPayment))
-            WriteText(DataRow, 22, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPayment))
-            WriteText(DataRow, 23, PolicyItem.CommissionType)
-            WriteNumber(DataRow, 24, ExportFormat.PlainNumber(PolicyItem.BonusCommission))
-            WriteNumber(DataRow, 25, ExportFormat.PlainNumber(PolicyItem.CommissionPaidAmount))
+            WriteText(DataRow, 8, PolicyItem.AutoPay)
+            WriteText(DataRow, 9, PolicyItem.RenewalType)
+            WriteText(DataRow, 10, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
+            WriteText(DataRow, 11, PolicyItem.KycStatus)
+            WriteText(DataRow, 12, PolicyItem.NeftStatus)
+            WriteNumber(DataRow, 13, ExportFormat.PlainNumber(PolicyItem.SumAssured))
+            WriteNumber(DataRow, 14, ExportFormat.TermYears(PolicyItem.TermPPT))
+            WriteNumber(DataRow, 15, ExportFormat.PptYears(PolicyItem.TermPPT))
+            WriteText(DataRow, 16, ExportFormat.IsoDate(PolicyItem.DateOfCommencement))
+            WriteText(DataRow, 17, ExportFormat.IsoDate(PolicyItem.EndOfPremiumPayingTerm))
+            WriteText(DataRow, 18, ExportFormat.IsoDate(PolicyItem.DateOfMaturity))
+            WriteText(DataRow, 19, ExportFormat.Identifier(PolicyItem.MobileNumber))
+            WriteText(DataRow, 20, ExportFormat.IsoDate(PolicyItem.Dob))
+            WriteText(DataRow, 21, PolicyItem.Address)
+            WriteText(DataRow, 22, PolicyItem.Email)
+            WriteText(DataRow, 23, PolicyItem.Gender)
+            WriteText(DataRow, 24, PolicyItem.Education)
+            WriteText(DataRow, 25, PolicyItem.Occupation)
+            WriteText(DataRow, 26, PolicyItem.MaritalStatus)
+            WriteText(DataRow, 27, PolicyItem.AnnualIncome)
+            WriteText(DataRow, 28, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPremiumPayment))
+            WriteText(DataRow, 29, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPayment))
+            WriteText(DataRow, 30, PolicyItem.CommissionType)
+            WriteNumber(DataRow, 31, ExportFormat.PlainNumber(PolicyItem.BonusCommission))
+            WriteNumber(DataRow, 32, ExportFormat.PlainNumber(PolicyItem.CommissionPaidAmount))
         }
 
         return FinishWorkbook(
@@ -79,7 +93,11 @@ object ExcelExporter {
         )
     }
 
-    fun ExportFupPolicies(ContextRef: Context, Policies: List<FupPolicy>): File {
+    fun ExportFupPolicies(
+        ContextRef: Context,
+        Policies: List<FupPolicy>,
+        AgencyCode: String = ""
+    ): File {
         ExportFormat.ResetDiagnostics()
 
         val WorkbookObj = XSSFWorkbook()
@@ -88,7 +106,7 @@ object ExcelExporter {
         WriteHeaders(
             RowRef = SheetObj.createRow(0),
             HeadersList = arrayOf(
-                "Policy Number", "Plan Code", "Plan Name", "Holder Name",
+                "Agency Code", "Policy Number", "Plan Code", "Plan Name", "Holder Name",
                 "Premium Amount", "Premium Frequency", "Due Date", "Payment Date",
                 "Mode of Payment", "Status at Time of Payment"
             )
@@ -97,16 +115,17 @@ object ExcelExporter {
         var RowIdx = 1
         for (PolicyItem in Policies) {
             val DataRow = SheetObj.createRow(RowIdx++)
-            WriteText(DataRow, 0, ExportFormat.Identifier(PolicyItem.PolicyNumber))
-            WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PlanCode))
-            WriteText(DataRow, 2, PolicyItem.PlanName)
-            WriteText(DataRow, 3, PolicyItem.HolderName)
-            WriteNumber(DataRow, 4, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
-            WriteText(DataRow, 5, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
-            WriteText(DataRow, 6, ExportFormat.IsoDate(PolicyItem.DueDate))
-            WriteText(DataRow, 7, ExportFormat.IsoDate(PolicyItem.PaymentDate))
-            WriteText(DataRow, 8, PolicyItem.ModeOfPayment)
-            WriteText(DataRow, 9, PolicyItem.Status)
+            WriteText(DataRow, 0, AgencyCode)
+            WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, 2, ExportFormat.Identifier(PolicyItem.PlanCode))
+            WriteText(DataRow, 3, PolicyItem.PlanName)
+            WriteText(DataRow, 4, PolicyItem.HolderName)
+            WriteNumber(DataRow, 5, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 6, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
+            WriteText(DataRow, 7, ExportFormat.IsoDate(PolicyItem.DueDate))
+            WriteText(DataRow, 8, ExportFormat.IsoDate(PolicyItem.PaymentDate))
+            WriteText(DataRow, 9, PolicyItem.ModeOfPayment)
+            WriteText(DataRow, 10, PolicyItem.Status)
         }
 
         return FinishWorkbook(

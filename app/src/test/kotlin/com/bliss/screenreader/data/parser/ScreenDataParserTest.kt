@@ -130,4 +130,42 @@ class ScreenDataParserTest {
         assertEquals("Renewal", ParsedPolicy.CommissionType)
         assertEquals("₹282", ParsedPolicy.CommissionPaidAmount)
     }
+
+    @Test
+    fun ParsePolicyDashboard_NeverTakesAnIconDescriptionAsTheHolderName() {
+        val NodeList = listOf(
+            "Policy Dashboard",
+            "40", "Policy(ies)", "Page", "01", "of 04",
+            "Inforce",
+            "166251050 | 932 - LIC'S NEW CHILDREN'S MONEY BACK PLAN",
+            "card right arrow icon",
+            "Auto Pay", "Disabled",
+            "Premium Amount (excl. GST)", "12,142/Month",
+            "Send Reminder"
+        )
+
+        val PolicyList = ScreenDataParser.ParsePolicyDashboard(Nodes = NodeList)
+
+        assertEquals(1, PolicyList.size)
+        assertEquals("166251050", PolicyList.first().PolicyNumber)
+        assertEquals("", PolicyList.first().HolderName)
+    }
+
+    @Test
+    fun ParsePolicyDashboard_StillTakesARealHolderNameAfterTheNumber() {
+        val NodeList = listOf(
+            "Policy Dashboard",
+            "40", "Policy(ies)", "Page", "01", "of 04",
+            "Inforce",
+            "166251050 | 932 - LIC'S NEW CHILDREN'S MONEY BACK PLAN",
+            "Rahul Pal",
+            "card right arrow icon",
+            "Auto Pay", "Disabled",
+            "Send Reminder"
+        )
+
+        val PolicyList = ScreenDataParser.ParsePolicyDashboard(Nodes = NodeList)
+
+        assertEquals("Rahul Pal", PolicyList.first().HolderName)
+    }
 }

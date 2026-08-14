@@ -79,6 +79,18 @@ object RecordMerge {
             ),
             Dob = Resolve("Date of birth", ExistingItem.Dob, IncomingItem.Dob),
             Address = Resolve("Address", ExistingItem.Address, IncomingItem.Address),
+            Email = Resolve("Email", ExistingItem.Email, IncomingItem.Email),
+            Gender = Resolve("Gender", ExistingItem.Gender, IncomingItem.Gender),
+            Education = Resolve("Education", ExistingItem.Education, IncomingItem.Education),
+            Occupation = Resolve(
+                "Occupation", ExistingItem.Occupation, IncomingItem.Occupation
+            ),
+            MaritalStatus = Resolve(
+                "Marital status", ExistingItem.MaritalStatus, IncomingItem.MaritalStatus
+            ),
+            AnnualIncome = Resolve(
+                "Annual income", ExistingItem.AnnualIncome, IncomingItem.AnnualIncome
+            ),
             PremiumAmount = Resolve(
                 "Premium amount", ExistingItem.PremiumAmount, IncomingItem.PremiumAmount
             ),
@@ -170,6 +182,14 @@ object RecordMerge {
 
     fun RenewalKey(RecordItem: FupPolicy): String {
         return "${RecordItem.PolicyNumber}|${RecordItem.PaymentDate}"
+    }
+
+    fun HasPersonalDetails(PolicyItem: CustomerPolicy): Boolean {
+        val HasContact = PolicyItem.MobileNumber.isNotEmpty() ||
+                PolicyItem.Email.isNotEmpty() ||
+                PolicyItem.Address.isNotEmpty()
+        val HasIdentity = PolicyItem.Dob.isNotEmpty() || PolicyItem.Gender.isNotEmpty()
+        return HasContact && HasIdentity
     }
 
     fun HasCompletePolicyDetails(PolicyItem: CustomerPolicy): Boolean {

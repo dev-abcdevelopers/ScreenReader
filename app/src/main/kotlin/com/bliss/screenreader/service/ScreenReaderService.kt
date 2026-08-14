@@ -36,6 +36,9 @@ import androidx.appcompat.view.ContextThemeWrapper
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
+import com.bliss.screenreader.data.model.CustomerProfile
+import com.bliss.screenreader.data.model.SessionGap
+import com.bliss.screenreader.data.parser.CustomerProfileParser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
@@ -49,6 +52,7 @@ import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.UUID
+import java.util.Locale
 import kotlin.math.abs
 
 @SuppressLint("AccessibilityPolicy")
@@ -97,6 +101,9 @@ class ScreenReaderService : AccessibilityService() {
         private const val HOME_NAV_TRANSITION_TIMEOUT_MS = 4000L
         private const val HOME_NAV_TAB_Y_RATIO = 0.952f
         private const val HOME_BOTTOM_NAV_TOP_RATIO = 0.85f
+        private const val HOME_BOTTOM_NAV_BAND_DP = 180f
+        private const val HOME_NAV_REVEAL_RETRY_MS = 1200L
+        private const val HOME_NAV_REVEAL_LIMIT = 2
         private const val HOME_CUSTOMERS_TAB_X_RATIO = 0.30f
         private const val HOME_RENEWALS_TAB_X_RATIO = 0.707f
         private const val HOME_TAB_CUSTOMERS = "Customers"
@@ -114,6 +121,46 @@ class ScreenReaderService : AccessibilityService() {
         private const val RENEWAL_AUTOMATION_RECOVERY_LIMIT = 3
         private const val RENEWAL_FAILURE_RETRY_MS = 5000L
         private const val RENEWAL_SECTION_ROW_TOLERANCE_RATIO = 0.06f
+        private const val CUSTOMER_NAVIGATION_DELAY_MS = 400L
+        private const val CUSTOMER_SCROLL_SETTLE_MS = 900L
+        private const val CUSTOMER_PAGE_LOAD_DELAY_MS = 2000L
+        private const val CUSTOMER_DETAIL_OPEN_DELAY_MS = 1400L
+        private const val CUSTOMER_PROFILE_TAB_DELAY_MS = 1200L
+        private const val CUSTOMER_PROFILE_SWEEP_SETTLE_MS = 700L
+        private const val CUSTOMER_SHEET_OPEN_DELAY_MS = 1100L
+        private const val CUSTOMER_SHEET_CLOSE_DELAY_MS = 800L
+        private const val CUSTOMER_RETURN_DELAY_MS = 1000L
+        private const val CUSTOMER_FAILURE_RETRY_MS = 5000L
+        private const val CUSTOMER_DASHBOARD_SCROLL_LIMIT = 14
+        private const val CUSTOMER_PROFILE_SCROLL_LIMIT = 10
+        private const val CUSTOMER_SCROLL_STALL_LIMIT = 2
+        private const val CUSTOMER_RETURN_TO_TOP_LIMIT = 20
+        private const val CUSTOMER_OPEN_RETRY_LIMIT = 3
+        private const val CUSTOMER_PAGE_RETRY_LIMIT = 3
+        private const val CUSTOMER_STEP_RETRY_LIMIT = 4
+        private const val CUSTOMER_SHEET_CLOSE_LIMIT = 2
+        private const val CUSTOMER_SHEET_SETTLE_MS = 2500L
+        private const val CUSTOMER_EMPTY_SHEET_LIMIT = 2
+        private const val CUSTOMER_RETURN_ATTEMPT_LIMIT = 8
+        private const val CUSTOMER_BACK_LIMIT = 2
+        private const val CUSTOMER_PAGE_WAIT_LIMIT = 5
+        private const val CUSTOMER_DETAIL_TOP_LIMIT = 12
+        private const val CUSTOMER_SHEET_LINK_RETRY_LIMIT = 6
+        private const val SHEET_SCRIM_Y_RATIO = 0.08f
+        private const val CUSTOMER_AUTOMATION_RECOVERY_LIMIT = 3
+        private const val PORTFOLIO_CUSTOMERS_ARROW_X_RATIO = 0.85f
+        private const val CUSTOMER_ROW_ARROW_X_MIN_RATIO = 0.75f
+        private const val CUSTOMER_ROW_ARROW_X_FALLBACK_RATIO = 0.84f
+        private const val CUSTOMER_ROW_ARROW_Y_OFFSET_RATIO = 0.085f
+        private const val CUSTOMER_NAME_GAP_RATIO = 0.075f
+        private const val PROFILE_TAP_MAX_X_RATIO = 0.6f
+        private const val CUSTOMER_TITLE_DASHBOARD = "Customer Dashboard"
+        private const val CUSTOMER_TITLE_DETAIL = "Detailed Customer View"
+        private const val CUSTOMER_TAB_PROFILE = "Profile"
+        private const val CUSTOMER_CALL_LABEL = "Call Customer"
+        private const val SHEET_TITLE_EMAIL = "Email ID(s)"
+        private const val SHEET_TITLE_ADDRESS = "Address(es)"
+        private const val SHEET_TITLE_MOBILE = "Mobile Number(s)"
         private const val PORTFOLIO_POLICIES_ARROW_X_RATIO = 0.42f
         private const val PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO = 0.245f
         private const val POLICY_FAILURE_RETRY_MS = 5000L
@@ -173,6 +220,47 @@ class ScreenReaderService : AccessibilityService() {
     private var IsPolicyDashboardAutomationRunning = false
     private var IsPolicyDashboardComplete = false
     private var PolicyAutomationRunnable: Runnable? = null
+    private var CustomerAutomationRunnable: Runnable? = null
+    private var IsCustomerAutomationRunning = false
+    private var IsCustomerAutomationComplete = false
+    private var IsCustomerDashboardActive = false
+    private var HasClickedPortfolioCustomers = false
+    private var PortfolioCustomersLastAttemptAt = 0L
+    private var PortfolioCustomersClickAttempts = 0
+    private var CustomerCurrentPage = 0
+    private var CustomerTotalPages = 0
+    private var TargetCustomerPage = 0
+    private var CustomerScrollAttempts = 0
+    private var CustomerScrollStallCount = 0
+    private var CustomerPageRetryCount = 0
+    private var CustomerPageWaitCount = 0
+    private var CustomerOpenAttempts = 0
+    private var CustomerStepAttempts = 0
+    private var CustomerAutomationFailureCount = 0
+    private var CustomerAutomationRetryAfter = 0L
+    private var LatestCustomerVisibleSignature = 0
+    private var ActiveCustomerName = ""
+    private var ActiveCustomerPolicyNumbers: List<String> = emptyList()
+    private var ActiveCustomerRelevantNumbers: List<String> = emptyList()
+    private var ActiveSheetKind: CustomerProfileParser.ContactKind? = null
+    private var SheetReadRetryCount = 0
+    private var SheetLinkRetryCount = 0
+    private var SheetOpenedAt = 0L
+    private var SheetsEverYieldedValues = false
+    private var EmptySheetReadCount = 0
+    private var ProfileSweepCount = 0
+    private var LastProfileSweepSignature = 0
+    private var CustomerStageValue = CustomerStage.IDLE
+    private val ProfilePaneNodes = linkedSetOf<String>()
+    private val PendingSheetKinds = mutableListOf<CustomerProfileParser.ContactKind>()
+    private val ProcessedCustomerKeys = mutableSetOf<String>()
+    private val SessionPolicyNumbers = mutableSetOf<String>()
+    private val FilledPolicyNumbers = mutableSetOf<String>()
+    private val VisitedCustomerNames = mutableSetOf<String>()
+    private val ProfilePatchMap = linkedMapOf<String, CustomerPolicy>()
+    private val ProfilePatchNames = mutableMapOf<String, String>()
+    private val SessionGapMap = linkedMapOf<String, SessionGap>()
+    private var ActiveProfile: CustomerProfile? = null
     private var PolicyCurrentPage = 0
     private var PolicyTotalPages = 0
     private var PolicyExpectedPage = 0
@@ -209,6 +297,8 @@ class ScreenReaderService : AccessibilityService() {
     private var PortfolioPoliciesClickAttempts = 0
     private var HasClickedHomeNavTab = false
     private var HomeNavLastAttemptAt = 0L
+    private var HomeNavRevealAt = 0L
+    private var HomeNavRevealCount = 0
     private var HomeNavClickAttempts = 0
 
     private var IsRenewalAutomationRunning = false
@@ -938,6 +1028,8 @@ class ScreenReaderService : AccessibilityService() {
         SourceName: String
     ) {
         val ScreenName = when {
+            IsCustomerDetailScreen(VisibleNodes = VisibleNodes) -> "Detailed Customer View"
+            IsCustomerDashboardScreen(VisibleNodes = VisibleNodes) -> "Customer Dashboard"
             IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes) -> "Customer Portfolio"
             IsAgentHomeScreen(VisibleNodes = VisibleNodes) -> "Agent Home"
             IsRenewalsDashboardScreen(VisibleNodes = VisibleNodes) -> "Renewals Dashboard"
@@ -1055,7 +1147,10 @@ class ScreenReaderService : AccessibilityService() {
         HasClickedHomeNavTab = false
         HomeNavLastAttemptAt = 0L
         HomeNavClickAttempts = 0
+        HomeNavRevealAt = 0L
+        HomeNavRevealCount = 0
         StopRenewalAutomation(ResetStateVal = true)
+        StopCustomerAutomation(ResetStateVal = true)
         PolicyAutomationRetryAfter = 0L
         PolicyAutomationFailureCount = 0
         LastDiagnosticScreenSignature = 0
@@ -1166,6 +1261,36 @@ class ScreenReaderService : AccessibilityService() {
                 )
             }
 
+            CaptureMode.CUSTOMER -> {
+                val StoredPolicies = PolicyRepository.GetCustomerPolicies(
+                    ContextRef = this,
+                    SessionId = CurrentSessionId
+                )
+                for (PolicyItem in StoredPolicies) {
+                    if (PolicyItem.PolicyNumber.isEmpty()) continue
+                    CapturedPolicyMap[PolicyItem.PolicyNumber] = PolicyItem
+                    SessionPolicyNumbers.add(PolicyItem.PolicyNumber)
+                    if (RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem)) {
+                        FilledPolicyNumbers.add(PolicyItem.PolicyNumber)
+                    }
+                }
+                VisitedCustomerNames.addAll(
+                    PolicyRepository.GetVisitedCustomers(
+                        ContextRef = this,
+                        SessionId = CurrentSessionId
+                    )
+                )
+                RebuildCapturedPolicyNodes()
+                DiagnosticInfo(
+                    EventName = "SESSION_RESUME",
+                    MessageText = "session=$CurrentSessionId mode=CUSTOMER " +
+                            "scopePolicies=${SessionPolicyNumbers.size} " +
+                            "alreadyFilled=${FilledPolicyNumbers.size} " +
+                            "visitedCustomers=${VisitedCustomerNames.size} " +
+                            "nodes=${CapturedNodes.size}"
+                )
+            }
+
             CaptureMode.PS -> {
                 // PS has no keyed map, so there is nothing safe to seed. The
                 // commit still merges by key, it just cannot show prior rows
@@ -1221,6 +1346,13 @@ class ScreenReaderService : AccessibilityService() {
                 CaptureMode.FUP if CapturedFupMap.isNotEmpty() -> {
                     CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
                 }
+
+                CaptureMode.CUSTOMER -> {
+                    CaptureParsers.PreviewProfilePatches(
+                        Patches = ProfilePatchMap.values.toList(),
+                        NameMap = ProfilePatchNames
+                    )
+                }
                 else -> {
                     CaptureParsers.Preview(ModeVal = CurrentMode, Nodes = NodeSnapshot)
                 }
@@ -1237,8 +1369,13 @@ class ScreenReaderService : AccessibilityService() {
                 EndedAt = EndedAt - PausedTotalMs,
                 RawNodes = NodeSnapshot,
                 Records = RecordList,
-                PolicyRecords = CapturedPolicyMap.values.toList(),
+                PolicyRecords = if (CurrentMode == CaptureMode.CUSTOMER) {
+                    ProfilePatchMap.values.toList()
+                } else {
+                    CapturedPolicyMap.values.toList()
+                },
                 FupRecords = CapturedFupMap.values.toList(),
+                GapRecords = SessionGapMap.values.toList(),
                 CapturePolicyDetails = CapturePolicyDetailsEnabled,
                 TargetPackage = LastPackageName,
                 OriginActivity = OriginActivityName
@@ -1265,6 +1402,7 @@ class ScreenReaderService : AccessibilityService() {
         StopAutoScroll()
         StopPolicyDashboardAutomation(ResetStateVal = false)
         StopRenewalAutomation(ResetStateVal = false)
+        StopCustomerAutomation(ResetStateVal = false)
         CancelEventWindowCapture()
         HasExpandedCurrentPolicyScreen = false
         StopParseThread()
@@ -1300,13 +1438,21 @@ class ScreenReaderService : AccessibilityService() {
     ) {
         // Both the policy and renewal flows begin on the agent app's Home
         // dashboard and branch apart at the bottom navigation bar.
-        if (CurrentMode == CaptureMode.POLICY || CurrentMode == CaptureMode.FUP) {
+        if (CurrentMode == CaptureMode.POLICY ||
+            CurrentMode == CaptureMode.FUP ||
+            CurrentMode == CaptureMode.CUSTOMER
+        ) {
             if (PackageNameVal != AppLauncherUtils.LIC_SUPER_APP_PACKAGE) return
 
             if (IsAgentHomeScreen(VisibleNodes = VisibleNodes)) {
                 HandleAgentHomeScreen(RootNode = RootNode)
                 return
             }
+        }
+
+        if (CurrentMode == CaptureMode.CUSTOMER) {
+            HandleCustomerScreenAutomation(RootNode = RootNode, VisibleNodes = VisibleNodes)
+            return
         }
 
         if (CurrentMode == CaptureMode.FUP) {
@@ -1408,6 +1554,8 @@ class ScreenReaderService : AccessibilityService() {
                             NodeText.equals("FUP", ignoreCase = true)
 
                 CaptureMode.POLICY -> false
+
+                CaptureMode.CUSTOMER -> false
             }
         }
     }
@@ -1454,13 +1602,11 @@ class ScreenReaderService : AccessibilityService() {
                     NodeText.contains("Quick Links", ignoreCase = true) ||
                     NodeText.contains("Total Commission Earnings", ignoreCase = true)
         }
-        val HasHomeTab = VisibleNodes.any { NodeText ->
-            NodeText.trim().equals("Home", ignoreCase = true)
-        }
-        val HasCustomersTab = VisibleNodes.any { NodeText ->
-            NodeText.trim().equals("Customers", ignoreCase = true)
-        }
-        return HasHomeMarker && HasHomeTab && HasCustomersTab
+        return HasHomeMarker
+    }
+
+    private fun HasBottomNavLabel(VisibleNodes: List<String>, TabLabel: String): Boolean {
+        return VisibleNodes.any { NodeText -> NodeText.trim().equals(TabLabel, ignoreCase = true) }
     }
 
     /**
@@ -1491,18 +1637,36 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         val RetryDelayPassed = CurrentTime - HomeNavLastAttemptAt >= HOME_NAV_CLICK_RETRY_MS
-        if (!HasClickedHomeNavTab && RetryDelayPassed) {
-            HomeNavClickAttempts++
-            HomeNavLastAttemptAt = CurrentTime
+        if (HasClickedHomeNavTab || !RetryDelayPassed) return
+
+        val VisibleLabels = CollectVisibleTextNodes(RootNode = RootNode)
+            .map { NodePair -> NodePair.first }
+        val HasTabLabel = HasBottomNavLabel(VisibleNodes = VisibleLabels, TabLabel = TabLabel)
+
+        if (!HasTabLabel && HomeNavRevealCount < HOME_NAV_REVEAL_LIMIT) {
+            if (CurrentTime - HomeNavRevealAt < HOME_NAV_REVEAL_RETRY_MS) return
+            HomeNavRevealAt = CurrentTime
+            HomeNavRevealCount++
+            val NudgeAccepted = PerformPolicyRevealNudge()
             DiagnosticInfo(
-                EventName = "HOME_NAV_CLICK_ATTEMPT",
-                MessageText = "tab=$TabLabel attempt=$HomeNavClickAttempts"
+                EventName = "HOME_NAV_REVEAL",
+                MessageText = "tab=$TabLabel is not in the tree yet; nudging the page so the " +
+                        "bottom bar renders attempt=$HomeNavRevealCount accepted=$NudgeAccepted"
             )
-            HasClickedHomeNavTab = ClickHomeBottomNavTab(
-                RootNode = RootNode,
-                TabLabel = TabLabel
-            )
+            return
         }
+
+        HomeNavClickAttempts++
+        HomeNavLastAttemptAt = CurrentTime
+        DiagnosticInfo(
+            EventName = "HOME_NAV_CLICK_ATTEMPT",
+            MessageText = "tab=$TabLabel attempt=$HomeNavClickAttempts labelInTree=$HasTabLabel " +
+                    "nudges=$HomeNavRevealCount"
+        )
+        HasClickedHomeNavTab = ClickHomeBottomNavTab(
+            RootNode = RootNode,
+            TabLabel = TabLabel
+        )
     }
 
     private fun ClickHomeBottomNavTab(
@@ -1543,11 +1707,7 @@ class ScreenReaderService : AccessibilityService() {
 
                 // Flutter tab bars often report the label as non-clickable, so
                 // tap the visible tab rectangle before the semantic fallback.
-                if (PerformTapGesture(
-                        XPos = MatchBounds.centerX().toFloat(),
-                        YPos = MatchBounds.centerY().toFloat()
-                    )
-                ) {
+                if (TapBottomNavTab(TabLabel = TabLabel, RowCenterY = MatchBounds.centerY())) {
                     DiagnosticInfo(
                         EventName = "HOME_NAV_CLICKED",
                         MessageText = "tab=$TabLabel coordinate tap accepted for " +
@@ -1606,11 +1766,7 @@ class ScreenReaderService : AccessibilityService() {
                         MessageText = "tab=$TabLabel text=[$MatchText] class=${TargetNode.className} " +
                                 "clickable=${TargetNode.isClickable} bounds=$MatchBounds"
                     )
-                    if (PerformTapGesture(
-                            XPos = MatchBounds.centerX().toFloat(),
-                            YPos = MatchBounds.centerY().toFloat()
-                        )
-                    ) {
+                    if (TapBottomNavTab(TabLabel = TabLabel, RowCenterY = MatchBounds.centerY())) {
                         return true
                     }
                     if (ClickNodeOrParent(StartNode = TargetNode)) return true
@@ -1637,13 +1793,29 @@ class ScreenReaderService : AccessibilityService() {
         return false
     }
 
-    private fun TapHomeBottomNavTabFallback(TabLabel: String): Boolean {
-        val DisplayMetricsObj = resources.displayMetrics
-        val TabXRatio = if (TabLabel.equals(HOME_TAB_RENEWALS, ignoreCase = true)) {
+    private fun BottomNavTabXRatio(TabLabel: String): Float {
+        return if (TabLabel.equals(HOME_TAB_RENEWALS, ignoreCase = true)) {
             HOME_RENEWALS_TAB_X_RATIO
         } else {
             HOME_CUSTOMERS_TAB_X_RATIO
         }
+    }
+
+    private fun TapBottomNavTab(TabLabel: String, RowCenterY: Int): Boolean {
+        val DisplayMetricsObj = resources.displayMetrics
+        val TargetX = DisplayMetricsObj.widthPixels * BottomNavTabXRatio(TabLabel = TabLabel)
+        val TapAccepted = PerformTapGesture(XPos = TargetX, YPos = RowCenterY.toFloat())
+        DiagnosticInfo(
+            EventName = "HOME_NAV_TAB_TAP",
+            MessageText = "tab=$TabLabel x=$TargetX y=$RowCenterY accepted=$TapAccepted " +
+                    "source=nav-row"
+        )
+        return TapAccepted
+    }
+
+    private fun TapHomeBottomNavTabFallback(TabLabel: String): Boolean {
+        val DisplayMetricsObj = resources.displayMetrics
+        val TabXRatio = BottomNavTabXRatio(TabLabel = TabLabel)
         val TargetX = DisplayMetricsObj.widthPixels * TabXRatio
         val TargetY = DisplayMetricsObj.heightPixels * HOME_NAV_TAB_Y_RATIO
         val TapAccepted = PerformTapGesture(XPos = TargetX, YPos = TargetY)
@@ -1656,9 +1828,13 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun IsBottomNavigationBounds(BoundsObj: Rect): Boolean {
-        return IsBoundsOnScreen(BoundsObj = BoundsObj) &&
-                BoundsObj.centerY() >= resources.displayMetrics.heightPixels *
-                HOME_BOTTOM_NAV_TOP_RATIO
+        if (!IsBoundsOnScreen(BoundsObj = BoundsObj)) return false
+
+        val DisplayMetricsObj = resources.displayMetrics
+        val RatioThreshold = DisplayMetricsObj.heightPixels * HOME_BOTTOM_NAV_TOP_RATIO
+        val BandThreshold = DisplayMetricsObj.heightPixels -
+                HOME_BOTTOM_NAV_BAND_DP * DisplayMetricsObj.density
+        return BoundsObj.centerY() >= minOf(RatioThreshold, BandThreshold)
     }
 
     private fun IsPolicyDashboardScreen(VisibleNodes: List<String>): Boolean {
@@ -4715,10 +4891,1490 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
+    // -------------------------------------------------- customer profiles
+
+    private enum class CustomerStage {
+        IDLE, DASHBOARD, OPENING_CUSTOMER, READING_POLICIES, OPENING_PROFILE,
+        READING_PROFILE, OPENING_SHEET, READING_SHEET, RETURNING
+    }
+
+    private fun IsCustomerDashboardScreen(VisibleNodes: List<String>): Boolean {
+        if (VisibleNodes.any { NodeText ->
+                NodeText.contains(CUSTOMER_TITLE_DETAIL, ignoreCase = true)
+            }
+        ) {
+            return false
+        }
+        if (VisibleNodes.any { NodeText ->
+                NodeText.contains(CUSTOMER_TITLE_DASHBOARD, ignoreCase = true)
+            }
+        ) {
+            return true
+        }
+        val HasCustomerCount = VisibleNodes.any { NodeText ->
+            NodeText.trim().equals("Customers", ignoreCase = true)
+        }
+        val HasCallAction = VisibleNodes.any { NodeText ->
+            NodeText.contains(CUSTOMER_CALL_LABEL, ignoreCase = true)
+        }
+        return HasCustomerCount && HasCallAction
+    }
+
+    private fun IsCustomerDetailScreen(VisibleNodes: List<String>): Boolean {
+        return VisibleNodes.any { NodeText ->
+            NodeText.contains(CUSTOMER_TITLE_DETAIL, ignoreCase = true)
+        }
+    }
+
+    private fun VisibleSheetKind(VisibleNodes: List<String>): CustomerProfileParser.ContactKind? {
+        for (NodeText in VisibleNodes) {
+            val Trimmed = NodeText.trim()
+            if (Trimmed.equals(SHEET_TITLE_EMAIL, ignoreCase = true)) {
+                return CustomerProfileParser.ContactKind.EMAIL
+            }
+            if (Trimmed.equals(SHEET_TITLE_ADDRESS, ignoreCase = true)) {
+                return CustomerProfileParser.ContactKind.ADDRESS
+            }
+            if (Trimmed.equals(SHEET_TITLE_MOBILE, ignoreCase = true) ||
+                Trimmed.startsWith("Mobile Number(", ignoreCase = true)
+            ) {
+                return CustomerProfileParser.ContactKind.MOBILE
+            }
+        }
+        return null
+    }
+
+    private fun HandleCustomerScreenAutomation(
+        RootNode: AccessibilityNodeInfo,
+        VisibleNodes: List<String>
+    ) {
+        if (IsCustomerAutomationComplete) return
+
+        val SheetKind = VisibleSheetKind(VisibleNodes = VisibleNodes)
+        if (SheetKind != null) {
+            HandleContactSheet(SheetKind = SheetKind, VisibleNodes = VisibleNodes)
+            return
+        }
+
+        if (IsCustomerDetailScreen(VisibleNodes = VisibleNodes)) {
+            IsCustomerDashboardActive = false
+            HandleCustomerDetailScreen(RootNode = RootNode, VisibleNodes = VisibleNodes)
+            return
+        }
+
+        if (IsCustomerDashboardScreen(VisibleNodes = VisibleNodes)) {
+            OnCustomerDashboardVisible(VisibleNodes = VisibleNodes)
+            return
+        }
+
+        if (IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes)) {
+            HandleCustomerPortfolioScreen(RootNode = RootNode)
+        }
+    }
+
+    private fun HandleCustomerPortfolioScreen(RootNode: AccessibilityNodeInfo) {
+        IsCustomerDashboardActive = false
+        HasClickedHomeNavTab = true
+        HomeNavClickAttempts = 0
+        HomeNavLastAttemptAt = 0L
+
+        val CurrentTime = System.currentTimeMillis()
+        if (HasClickedPortfolioCustomers &&
+            CurrentTime - PortfolioCustomersLastAttemptAt >= PORTFOLIO_TRANSITION_TIMEOUT_MS
+        ) {
+            DiagnosticWarning(
+                EventName = "CUSTOMERS_TRANSITION_TIMEOUT",
+                MessageText = "Customers click did not leave Customer Portfolio after " +
+                        "${PORTFOLIO_TRANSITION_TIMEOUT_MS}ms; allowing another attempt"
+            )
+            HasClickedPortfolioCustomers = false
+        }
+        if (HasClickedPortfolioCustomers) return
+        if (CurrentTime - PortfolioCustomersLastAttemptAt < PORTFOLIO_CLICK_RETRY_MS) return
+
+        PortfolioCustomersClickAttempts++
+        PortfolioCustomersLastAttemptAt = CurrentTime
+        DiagnosticInfo(
+            EventName = "CUSTOMERS_CLICK_ATTEMPT",
+            MessageText = "attempt=$PortfolioCustomersClickAttempts"
+        )
+        HasClickedPortfolioCustomers = ClickPortfolioCustomersCard(RootNode = RootNode)
+    }
+
+    private fun ClickPortfolioCustomersCard(RootNode: AccessibilityNodeInfo): Boolean {
+        val ScreenWidth = resources.displayMetrics.widthPixels
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val LabelBoundsList = mutableListOf<Rect>()
+
+        for (NodePair in CollectVisibleTextNodes(RootNode = RootNode)) {
+            val LabelText = NodePair.first.trim()
+            val IsCustomersLabel = LabelText.equals("Customers", ignoreCase = true) ||
+                    LabelText.matches(Regex("(?i)^\\d+\\s+Customers$"))
+            if (!IsCustomersLabel) continue
+            if (NodePair.second.centerY() > ScreenHeight * 0.65f) continue
+            LabelBoundsList.add(NodePair.second)
+        }
+
+        DiagnosticInfo(
+            EventName = "CUSTOMERS_CANDIDATES",
+            MessageText = "labelCandidates=${LabelBoundsList.size}"
+        )
+
+        val TapY = LabelBoundsList.firstOrNull()?.centerY()?.toFloat()
+            ?: (ScreenHeight * PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO)
+        val TapX = ScreenWidth * PORTFOLIO_CUSTOMERS_ARROW_X_RATIO
+
+        val TapAccepted = PerformTapGesture(XPos = TapX, YPos = TapY)
+        DiagnosticInfo(
+            EventName = if (TapAccepted) "CUSTOMERS_CLICKED" else "CUSTOMERS_CLICK_REJECTED",
+            MessageText = "x=$TapX y=$TapY labelDriven=${LabelBoundsList.isNotEmpty()}"
+        )
+        return TapAccepted
+    }
+
+    private fun OnCustomerDashboardVisible(VisibleNodes: List<String>) {
+        IsCustomerDashboardActive = true
+        HasClickedPortfolioCustomers = true
+        PortfolioCustomersClickAttempts = 0
+        PortfolioCustomersLastAttemptAt = 0L
+
+        val PageInfo = ParsePolicyPageInfo(VisibleNodes = VisibleNodes)
+        if (PageInfo != null) {
+            CustomerCurrentPage = PageInfo.first
+            CustomerTotalPages = PageInfo.second
+            if (TargetCustomerPage == 0) TargetCustomerPage = PageInfo.first
+        }
+        StartCustomerAutomation()
+    }
+
+    private fun StartCustomerAutomation() {
+        if (IsCustomerAutomationRunning || IsCustomerAutomationComplete) return
+        if (CurrentMode != CaptureMode.CUSTOMER) return
+        if (System.currentTimeMillis() < CustomerAutomationRetryAfter) return
+
+        IsCustomerAutomationRunning = true
+        CustomerStageValue = CustomerStage.DASHBOARD
+        DiagnosticInfo(
+            EventName = "CUSTOMER_AUTOMATION_START",
+            MessageText = "page=$CustomerCurrentPage/$CustomerTotalPages " +
+                    "scopePolicies=${SessionPolicyNumbers.size} " +
+                    "processed=${ProcessedCustomerKeys.size}"
+        )
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { RunCustomerDashboardStep() }
+    }
+
+    private fun ScheduleCustomerAction(DelayMs: Long, ActionRef: () -> Unit) {
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+
+        lateinit var WrappedRunnable: Runnable
+        WrappedRunnable = Runnable {
+            if (!IsCustomerAutomationRunning ||
+                !IsCapturing ||
+                CurrentMode != CaptureMode.CUSTOMER
+            ) {
+                return@Runnable
+            }
+            if (IsPaused) {
+                CustomerAutomationRunnable = WrappedRunnable
+                MainHandler.postDelayed(WrappedRunnable, TICK_INTERVAL_MS)
+                return@Runnable
+            }
+            CustomerAutomationRunnable = null
+            ActionRef()
+        }
+        CustomerAutomationRunnable = WrappedRunnable
+        MainHandler.postDelayed(WrappedRunnable, DelayMs)
+    }
+
+    private data class CustomerRow(
+        val NameText: String,
+        val NameBounds: Rect,
+        val CallBounds: Rect?
+    )
+
+    private fun NormalisedName(NameText: String): String {
+        return NameText.trim().lowercase(Locale.US).replace(Regex("\\s+"), " ")
+    }
+
+    private fun CustomerKey(NameText: String): String {
+        return "$TargetCustomerPage|${NormalisedName(NameText = NameText)}"
+    }
+
+    private fun MarkCustomerVisited(NameText: String) {
+        if (NameText.isBlank()) return
+        if (!VisitedCustomerNames.add(NormalisedName(NameText = NameText))) return
+        PolicyRepository.SaveVisitedCustomers(
+            ContextRef = this,
+            SessionId = CurrentSessionId,
+            Names = VisitedCustomerNames
+        )
+    }
+
+    private fun CollectCustomerRows(TextNodes: List<Pair<String, Rect>>): List<CustomerRow> {
+        val AgeRegex = Regex("^\\d{1,3}\\s+Years$", RegexOption.IGNORE_CASE)
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val CallBoundsList = TextNodes
+            .filter { NodePair -> NodePair.first.trim().startsWith(CUSTOMER_CALL_LABEL, true) }
+            .map { NodePair -> NodePair.second }
+
+        val RowList = mutableListOf<CustomerRow>()
+        for (NodePair in TextNodes) {
+            if (!AgeRegex.matches(NodePair.first.trim())) continue
+            val AgeBounds = NodePair.second
+            val NameCandidate = TextNodes
+                .filter { CandidatePair ->
+                    val CandidateBounds = CandidatePair.second
+                    val CandidateText = CandidatePair.first.trim()
+                    CandidateBounds.bottom <= AgeBounds.top + 8 &&
+                            AgeBounds.top - CandidateBounds.bottom <=
+                            ScreenHeight * CUSTOMER_NAME_GAP_RATIO &&
+                            abs(CandidateBounds.left - AgeBounds.left) <= 32 &&
+                            CandidateText.length in 2..60 &&
+                            !AgeRegex.matches(CandidateText)
+                }
+                .maxByOrNull { CandidatePair -> CandidatePair.second.bottom }
+                ?: continue
+            val RowCallBounds = CallBoundsList
+                .filter { BoundsObj -> BoundsObj.top > AgeBounds.top }
+                .minByOrNull { BoundsObj -> BoundsObj.top }
+            RowList.add(
+                CustomerRow(
+                    NameText = NameCandidate.first.trim(),
+                    NameBounds = Rect(NameCandidate.second),
+                    CallBounds = RowCallBounds?.let { BoundsObj -> Rect(BoundsObj) }
+                )
+            )
+        }
+        return RowList.sortedBy { RowItem -> RowItem.NameBounds.top }
+    }
+
+    private fun CollectCustomerArrowBounds(
+        TargetNode: AccessibilityNodeInfo,
+        ArrowBoundsList: MutableList<Rect>
+    ) {
+        try {
+            val NodeText = NodeTextValue(NodeRef = TargetNode)
+            val IsCallRow = NodeText.contains(CUSTOMER_CALL_LABEL, ignoreCase = true)
+            val IsRowArrow = NodeText.trim().equals("arrow-right", ignoreCase = true) ||
+                    NodeText.contains("card right arrow", ignoreCase = true) ||
+                    NodeText.equals("right arrow icon", ignoreCase = true)
+            if (IsRowArrow && !IsCallRow) {
+                val NodeBounds = Rect()
+                TargetNode.getBoundsInScreen(NodeBounds)
+                if (!NodeBounds.isEmpty) ArrowBoundsList.add(NodeBounds)
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIndex) ?: continue
+                try {
+                    CollectCustomerArrowBounds(
+                        TargetNode = ChildNode,
+                        ArrowBoundsList = ArrowBoundsList
+                    )
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_ARROW_SCAN_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun CurrentScreenNodes(): List<String> {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return emptyList()
+        return try {
+            val NodeList = mutableListOf<String>()
+            TraverseNode(TargetNode = RootNode, ResultList = NodeList)
+            NodeList
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun TraverseNodeWithDescriptions(
+        TargetNode: AccessibilityNodeInfo?,
+        ResultList: MutableList<String>
+    ) {
+        if (TargetNode == null) return
+        try {
+            val TextContent = TargetNode.text?.toString()?.trim().orEmpty()
+            val DescContent = TargetNode.contentDescription?.toString()?.trim().orEmpty()
+            if (TextContent.isNotEmpty()) ResultList.add(TextContent)
+            if (DescContent.isNotEmpty() && !DescContent.equals(TextContent, ignoreCase = true)) {
+                ResultList.add(DescContent)
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIndex) ?: continue
+                try {
+                    TraverseNodeWithDescriptions(TargetNode = ChildNode, ResultList = ResultList)
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while reading descriptions", ExceptionObj)
+        }
+    }
+
+    private fun CurrentScreenNodesWithDescriptions(): List<String> {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return emptyList()
+        return try {
+            val NodeList = mutableListOf<String>()
+            TraverseNodeWithDescriptions(TargetNode = RootNode, ResultList = NodeList)
+            NodeList
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun CurrentBoundsNodes(): List<Pair<String, Rect>> {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return emptyList()
+        return try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun ProfileTabBounds(TextNodes: List<Pair<String, Rect>>): Rect? {
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val ProfileNodes = TextNodes
+            .filter { NodePair -> NodePair.first.trim().equals(CUSTOMER_TAB_PROFILE, true) }
+            .filter { NodePair -> NodePair.second.centerY() < ScreenHeight * 0.85f }
+        val PoliciesNodes = TextNodes
+            .filter { NodePair -> NodePair.first.trim().equals("Policies", true) }
+
+        val PairedTab = ProfileNodes.firstOrNull { ProfilePair ->
+            PoliciesNodes.any { PoliciesPair ->
+                abs(PoliciesPair.second.centerY() - ProfilePair.second.centerY()) <= 40 &&
+                        PoliciesPair.second.centerX() < ProfilePair.second.centerX()
+            }
+        }
+        return (PairedTab ?: ProfileNodes.minByOrNull { NodePair -> NodePair.second.top })?.second
+    }
+
+    private fun ScrollDetailToTop(AttemptCount: Int, OnReady: () -> Unit) {
+        val BoundsNodes = CurrentBoundsNodes()
+        val HasAnchor = ProfileTabBounds(TextNodes = BoundsNodes) != null ||
+                BoundsNodes.any { NodePair ->
+                    NodePair.first.contains(CUSTOMER_TITLE_DETAIL, ignoreCase = true)
+                }
+        if (HasAnchor || AttemptCount >= CUSTOMER_DETAIL_TOP_LIMIT) {
+            if (!HasAnchor) {
+                DiagnosticWarning(
+                    EventName = "CUSTOMER_DETAIL_TOP_GIVEUP",
+                    MessageText = "customer=$ActiveCustomerName could not scroll back to the tab " +
+                            "strip after $AttemptCount attempts"
+                )
+            }
+            OnReady()
+            return
+        }
+        PerformPolicyScroll(ForwardVal = false, PreferAccessibilityAction = false)
+        ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_SWEEP_SETTLE_MS) {
+            ScrollDetailToTop(AttemptCount = AttemptCount + 1, OnReady = OnReady)
+        }
+    }
+
+    private fun RunCustomerDashboardStep() {
+        if (!IsCustomerAutomationRunning) return
+        CustomerStageValue = CustomerStage.DASHBOARD
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (RootNode == null) {
+            RetryCustomerStep(ReasonText = "dashboard root unavailable")
+            return
+        }
+        try {
+            val TextNodes = CollectVisibleTextNodes(RootNode = RootNode)
+            if (!EnsureCustomerPageKnown(TextNodes = TextNodes)) return
+            if (CustomerCurrentPage != TargetCustomerPage) {
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_PAGE_RESET",
+                    MessageText = "the app came back on page $CustomerCurrentPage but the run is " +
+                            "working page $TargetCustomerPage; jumping straight to it " +
+                            "processed=${ProcessedCustomerKeys.size}"
+                )
+                ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                    ReturnToCustomerPageSelector(ScrollCount = 0)
+                }
+                return
+            }
+            val RowList = CollectCustomerRows(TextNodes = TextNodes)
+            val NextRow = RowList.firstOrNull { RowItem ->
+                !ProcessedCustomerKeys.contains(CustomerKey(NameText = RowItem.NameText)) &&
+                        !VisitedCustomerNames.contains(NormalisedName(NameText = RowItem.NameText))
+            }
+            if (NextRow != null) {
+                CustomerStepAttempts = 0
+                OpenCustomerRow(RootNode = RootNode, RowItem = NextRow)
+                return
+            }
+            AdvanceCustomerDashboard(TextNodes = TextNodes, VisibleRowCount = RowList.size)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun EnsureCustomerPageKnown(TextNodes: List<Pair<String, Rect>>): Boolean {
+        val PageInfo = ParsePolicyPageInfo(
+            VisibleNodes = TextNodes.map { NodePair -> NodePair.first }
+        )
+        if (PageInfo != null) {
+            CustomerCurrentPage = PageInfo.first
+            CustomerTotalPages = PageInfo.second
+            if (TargetCustomerPage == 0) {
+                if (ProcessedCustomerKeys.isNotEmpty()) {
+                    DiagnosticWarning(
+                        EventName = "CUSTOMER_PAGE_TARGET_LOST",
+                        MessageText = "the working page was cleared mid-run with " +
+                                "${ProcessedCustomerKeys.size} customers already processed; " +
+                                "adopting the visible page ${PageInfo.first}"
+                    )
+                }
+                TargetCustomerPage = PageInfo.first
+            }
+            CustomerPageWaitCount = 0
+            return true
+        }
+        if (CustomerCurrentPage > 0) return true
+
+        CustomerPageWaitCount++
+        if (CustomerPageWaitCount <= CUSTOMER_PAGE_WAIT_LIMIT) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_PAGE_UNKNOWN",
+                MessageText = "attempt=$CustomerPageWaitCount nodes=${TextNodes.size}; " +
+                        "holding off until the page number renders"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_SCROLL_SETTLE_MS) {
+                RunCustomerDashboardStep()
+            }
+            return false
+        }
+
+        DiagnosticWarning(
+            EventName = "CUSTOMER_PAGE_ASSUMED",
+            MessageText = "page number never rendered after $CustomerPageWaitCount checks; " +
+                    "treating the list as a single page"
+        )
+        CustomerCurrentPage = 1
+        if (CustomerTotalPages <= 0) CustomerTotalPages = 1
+        if (TargetCustomerPage == 0) TargetCustomerPage = 1
+        CustomerPageWaitCount = 0
+        return true
+    }
+
+    private fun OpenCustomerRow(RootNode: AccessibilityNodeInfo, RowItem: CustomerRow) {
+        val ScreenWidth = resources.displayMetrics.widthPixels
+        val ScreenHeight = resources.displayMetrics.heightPixels
+
+        val ArrowBoundsList = mutableListOf<Rect>()
+        CollectCustomerArrowBounds(TargetNode = RootNode, ArrowBoundsList = ArrowBoundsList)
+
+        val RowCeiling = RowItem.NameBounds.centerY()
+        val RowFloor = RowItem.CallBounds?.top ?: (RowCeiling + (ScreenHeight * 0.22f).toInt())
+        val SelectedArrow = ArrowBoundsList
+            .filter { BoundsObj ->
+                BoundsObj.centerX() > ScreenWidth * CUSTOMER_ROW_ARROW_X_MIN_RATIO &&
+                        BoundsObj.centerY() > RowCeiling &&
+                        BoundsObj.centerY() < RowFloor
+            }
+            .minByOrNull { BoundsObj -> BoundsObj.centerY() }
+
+        val TapX: Float
+        val TapY: Float
+        if (SelectedArrow != null) {
+            TapX = SelectedArrow.centerX().toFloat()
+            TapY = SelectedArrow.centerY().toFloat()
+        } else {
+            TapX = ScreenWidth * CUSTOMER_ROW_ARROW_X_FALLBACK_RATIO
+            TapY = RowCeiling + ScreenHeight * CUSTOMER_ROW_ARROW_Y_OFFSET_RATIO
+        }
+
+        if (RowItem.CallBounds != null && TapY >= RowItem.CallBounds.top) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_OPEN_BLOCKED",
+                MessageText = "customer=${RowItem.NameText} tapY=$TapY would hit " +
+                        "${CUSTOMER_CALL_LABEL} at ${RowItem.CallBounds.top}; scrolling instead"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                ScrollCustomerDashboard()
+            }
+            return
+        }
+        if (RowItem.CallBounds == null && SelectedArrow == null) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_OPEN_BLOCKED",
+                MessageText = "customer=${RowItem.NameText} has no ${CUSTOMER_CALL_LABEL} anchor " +
+                        "and no arrow; refusing a blind tap"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                ScrollCustomerDashboard()
+            }
+            return
+        }
+
+        ActiveCustomerName = RowItem.NameText
+        ProcessedCustomerKeys.add(CustomerKey(NameText = RowItem.NameText))
+        CustomerOpenAttempts++
+        CustomerStageValue = CustomerStage.OPENING_CUSTOMER
+
+        val TapAccepted = PerformTapGesture(XPos = TapX, YPos = TapY)
+        DiagnosticInfo(
+            EventName = "CUSTOMER_OPEN",
+            MessageText = "customer=${RowItem.NameText} x=$TapX y=$TapY " +
+                    "arrow=${SelectedArrow != null} accepted=$TapAccepted " +
+                    "page=$CustomerCurrentPage/$CustomerTotalPages target=$TargetCustomerPage"
+        )
+        ScheduleCustomerAction(DelayMs = CUSTOMER_DETAIL_OPEN_DELAY_MS) {
+            WaitForCustomerDetailScreen()
+        }
+    }
+
+    private fun AdvanceCustomerDashboard(
+        TextNodes: List<Pair<String, Rect>>,
+        VisibleRowCount: Int
+    ) {
+        val CurrentSignature = TextNodes
+            .joinToString(separator = "\u0001") { NodePair -> NodePair.first }
+            .hashCode()
+        val HasStalled = CurrentSignature == LatestCustomerVisibleSignature
+        LatestCustomerVisibleSignature = CurrentSignature
+
+        if (HasStalled) {
+            CustomerScrollStallCount++
+        } else {
+            CustomerScrollStallCount = 0
+        }
+
+        val ReachedScrollLimit = CustomerScrollAttempts >= CUSTOMER_DASHBOARD_SCROLL_LIMIT
+        val ReachedStallLimit = CustomerScrollStallCount >= CUSTOMER_SCROLL_STALL_LIMIT
+        if (!ReachedScrollLimit && !ReachedStallLimit) {
+            ScrollCustomerDashboard()
+            return
+        }
+
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PAGE_DONE",
+            MessageText = "page=$CustomerCurrentPage/$CustomerTotalPages " +
+                    "target=$TargetCustomerPage rowsVisible=$VisibleRowCount " +
+                    "scrolls=$CustomerScrollAttempts stalls=$CustomerScrollStallCount " +
+                    "processed=${ProcessedCustomerKeys.size}"
+        )
+        BeginNextCustomerPage()
+    }
+
+    private fun ScrollCustomerDashboard() {
+        CustomerScrollAttempts++
+        CustomerStageValue = CustomerStage.DASHBOARD
+        PerformPolicyScroll(ForwardVal = true, PreferAccessibilityAction = false)
+        ScheduleCustomerAction(DelayMs = CUSTOMER_SCROLL_SETTLE_MS) { RunCustomerDashboardStep() }
+    }
+
+    private fun BeginNextCustomerPage() {
+        if (CustomerTotalPages > 0 && TargetCustomerPage >= CustomerTotalPages) {
+            CompleteCustomerAutomation(ReasonText = "last customer page reached")
+            return
+        }
+        TargetCustomerPage += 1
+        CustomerScrollAttempts = 0
+        CustomerScrollStallCount = 0
+        LatestCustomerVisibleSignature = 0
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+            ReturnToCustomerPageSelector(ScrollCount = 0)
+        }
+    }
+
+    private fun ReturnToCustomerPageSelector(ScrollCount: Int) {
+        if (ScrollCount >= CUSTOMER_RETURN_TO_TOP_LIMIT) {
+            FailCustomerAutomation(ReasonText = "page selector never came back into view")
+            return
+        }
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (IsCustomerPageSelectorVisible()) {
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                OpenCustomerPageSelector()
+            }
+            return
+        }
+        PerformPolicyScroll(ForwardVal = false, PreferAccessibilityAction = false)
+        ScheduleCustomerAction(DelayMs = CUSTOMER_SCROLL_SETTLE_MS) {
+            ReturnToCustomerPageSelector(ScrollCount = ScrollCount + 1)
+        }
+    }
+
+    private fun IsCustomerPageSelectorVisible(): Boolean {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return false
+        return try {
+            CustomerPageChipBounds(RootNode = RootNode) != null
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun IsPageLabel(NodeText: String, Labels: Set<String>): Boolean {
+        val TrimmedText = NodeText.trim()
+        return Labels.any { LabelText ->
+            TrimmedText == LabelText || TrimmedText.startsWith("$LabelText ")
+        }
+    }
+
+    private fun CustomerPageChipBounds(RootNode: AccessibilityNodeInfo): Rect? {
+        val ScreenWidth = resources.displayMetrics.widthPixels
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val CandidateLabels = setOf(
+            CustomerCurrentPage.toString().padStart(2, '0'),
+            CustomerCurrentPage.toString()
+        )
+        return CollectVisibleTextNodes(RootNode = RootNode)
+            .filter { NodePair -> IsPageLabel(NodeText = NodePair.first, Labels = CandidateLabels) }
+            .filter { NodePair ->
+                NodePair.second.centerX() > ScreenWidth * 0.55f &&
+                        NodePair.second.centerY() < ScreenHeight * 0.35f
+            }
+            .minByOrNull { NodePair -> NodePair.second.top }
+            ?.second
+    }
+
+    private fun OpenCustomerPageSelector() {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (RootNode == null) {
+            RetryCustomerPageNavigation(ReasonText = "no root for the page selector")
+            return
+        }
+        val ChipBounds = try {
+            CustomerPageChipBounds(RootNode = RootNode)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+        if (ChipBounds == null) {
+            RetryCustomerPageNavigation(ReasonText = "page chip not visible")
+            return
+        }
+        val TapAccepted = PerformTapGesture(
+            XPos = ChipBounds.centerX().toFloat(),
+            YPos = ChipBounds.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PAGE_SELECTOR",
+            MessageText = "page=$CustomerCurrentPage bounds=$ChipBounds accepted=$TapAccepted"
+        )
+        ScheduleCustomerAction(DelayMs = POLICY_PAGE_SELECTOR_DELAY_MS) { SelectNextCustomerPage() }
+    }
+
+    private fun SelectNextCustomerPage() {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (RootNode == null) {
+            RetryCustomerPageNavigation(ReasonText = "no root for the page option list")
+            return
+        }
+        val OptionLabels = setOf(
+            TargetCustomerPage.toString().padStart(2, '0'),
+            TargetCustomerPage.toString()
+        )
+        val OptionBounds = try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+                .filter { NodePair -> IsPageLabel(NodeText = NodePair.first, Labels = OptionLabels) }
+                .filter { NodePair -> IsBoundsOnScreen(BoundsObj = NodePair.second) }
+                .minByOrNull { NodePair -> NodePair.second.top }
+                ?.second
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+        if (OptionBounds == null) {
+            RetryCustomerPageNavigation(ReasonText = "option $TargetCustomerPage not visible")
+            return
+        }
+        val TapAccepted = PerformTapGesture(
+            XPos = OptionBounds.centerX().toFloat(),
+            YPos = OptionBounds.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PAGE_OPTION",
+            MessageText = "target=$TargetCustomerPage bounds=$OptionBounds accepted=$TapAccepted"
+        )
+        ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_LOAD_DELAY_MS) { WaitForCustomerPageLoad() }
+    }
+
+    private fun WaitForCustomerPageLoad() {
+        val VisibleNodes = CurrentScreenNodes()
+        val PageInfo = ParsePolicyPageInfo(VisibleNodes = VisibleNodes)
+        if (PageInfo != null && PageInfo.first == TargetCustomerPage) {
+            CustomerCurrentPage = PageInfo.first
+            CustomerTotalPages = PageInfo.second
+            CustomerPageRetryCount = 0
+            CustomerPageWaitCount = 0
+            CustomerScrollAttempts = 0
+            CustomerScrollStallCount = 0
+            LatestCustomerVisibleSignature = 0
+            DiagnosticInfo(
+                EventName = "CUSTOMER_PAGE_LOADED",
+                MessageText = "page=$CustomerCurrentPage/$CustomerTotalPages"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                RunCustomerDashboardStep()
+            }
+            return
+        }
+        RetryCustomerPageNavigation(
+            ReasonText = "expected page $TargetCustomerPage, saw ${PageInfo?.first}"
+        )
+    }
+
+    private fun RetryCustomerPageNavigation(ReasonText: String) {
+        CustomerPageRetryCount++
+        DiagnosticWarning(
+            EventName = "CUSTOMER_PAGE_RETRY",
+            MessageText = "attempt=$CustomerPageRetryCount reason=$ReasonText"
+        )
+        if (CustomerPageRetryCount >= CUSTOMER_PAGE_RETRY_LIMIT) {
+            FailCustomerAutomation(ReasonText = "page navigation failed: $ReasonText")
+            return
+        }
+        ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_LOAD_DELAY_MS) {
+            ReturnToCustomerPageSelector(ScrollCount = 0)
+        }
+    }
+
+    private fun HandleCustomerDetailScreen(
+        RootNode: AccessibilityNodeInfo,
+        VisibleNodes: List<String>
+    ) {
+        if (CustomerStageValue != CustomerStage.DASHBOARD &&
+            CustomerStageValue != CustomerStage.IDLE
+        ) {
+            return
+        }
+        DiagnosticWarning(
+            EventName = "CUSTOMER_DETAIL_UNEXPECTED",
+            MessageText = "stage=$CustomerStageValue customer=$ActiveCustomerName; backing out"
+        )
+        CustomerStageValue = CustomerStage.RETURNING
+        ScheduleCustomerAction(DelayMs = CUSTOMER_RETURN_DELAY_MS) {
+            ReturnToCustomerDashboard(AttemptCount = 0)
+        }
+    }
+
+    private fun WaitForCustomerDetailScreen() {
+        val VisibleNodes = CurrentScreenNodes()
+        if (IsCustomerDetailScreen(VisibleNodes = VisibleNodes)) {
+            CustomerOpenAttempts = 0
+            ActiveProfile = null
+            ProfilePaneNodes.clear()
+            PendingSheetKinds.clear()
+            ProfileSweepCount = 0
+            LastProfileSweepSignature = 0
+            CustomerStageValue = CustomerStage.READING_POLICIES
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                ReadCustomerPolicies(SweepCount = 0, CollectedNumbers = emptySet())
+            }
+            return
+        }
+        if (CustomerOpenAttempts >= CUSTOMER_OPEN_RETRY_LIMIT) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_OPEN_FAILED",
+                MessageText = "customer=$ActiveCustomerName did not open after " +
+                        "$CustomerOpenAttempts attempts; skipping"
+            )
+            CustomerOpenAttempts = 0
+            CustomerStageValue = CustomerStage.DASHBOARD
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                RunCustomerDashboardStep()
+            }
+            return
+        }
+        DiagnosticWarning(
+            EventName = "CUSTOMER_OPEN_RETRY",
+            MessageText = "customer=$ActiveCustomerName attempt=$CustomerOpenAttempts"
+        )
+        CustomerStageValue = CustomerStage.DASHBOARD
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { RunCustomerDashboardStep() }
+    }
+
+    private fun ReadCustomerPolicies(SweepCount: Int, CollectedNumbers: Set<String>) {
+        val VisibleNodes = CurrentScreenNodes()
+        val FoundNumbers = CollectedNumbers +
+                CustomerProfileParser.ParsePolicyNumbers(Nodes = VisibleNodes)
+
+        val DeclaredCount = CustomerPolicyCount(VisibleNodes = VisibleNodes)
+        val NeedsMore = DeclaredCount > 0 && FoundNumbers.size < DeclaredCount
+        if (NeedsMore && SweepCount < CUSTOMER_PROFILE_SCROLL_LIMIT) {
+            PerformPolicyScroll(ForwardVal = true, PreferAccessibilityAction = false)
+            ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_SWEEP_SETTLE_MS) {
+                ReadCustomerPolicies(SweepCount = SweepCount + 1, CollectedNumbers = FoundNumbers)
+            }
+            return
+        }
+
+        ActiveCustomerPolicyNumbers = FoundNumbers.toList()
+        ActiveCustomerRelevantNumbers = ActiveCustomerPolicyNumbers
+            .filter { NumberText -> SessionPolicyNumbers.contains(NumberText) }
+
+        val GapNumbers = ActiveCustomerPolicyNumbers
+            .filterNot { NumberText -> SessionPolicyNumbers.contains(NumberText) }
+        for (GapNumber in GapNumbers) {
+            if (SessionGapMap.containsKey(GapNumber)) continue
+            SessionGapMap[GapNumber] = SessionGap(
+                PolicyNumber = GapNumber,
+                CustomerName = ActiveCustomerName,
+                SeenAt = System.currentTimeMillis()
+            )
+            DiagnosticInfo(
+                EventName = "CUSTOMER_POLICY_GAP",
+                MessageText = "policy=$GapNumber customer=$ActiveCustomerName " +
+                        "not captured in session=$CurrentSessionId"
+            )
+        }
+
+        DiagnosticInfo(
+            EventName = "CUSTOMER_POLICIES",
+            MessageText = "customer=$ActiveCustomerName declared=$DeclaredCount " +
+                    "found=${ActiveCustomerPolicyNumbers.size} " +
+                    "relevant=${ActiveCustomerRelevantNumbers.size} gaps=${GapNumbers.size}"
+        )
+
+        val OutstandingNumbers = ActiveCustomerRelevantNumbers.filterNot { NumberText ->
+            FilledPolicyNumbers.contains(NumberText)
+        }
+        if (ActiveCustomerRelevantNumbers.isNotEmpty() && OutstandingNumbers.isEmpty()) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_ALREADY_FILLED",
+                MessageText = "customer=$ActiveCustomerName all " +
+                        "${ActiveCustomerRelevantNumbers.size} policy(ies) already hold personal " +
+                        "details; not opening the profile"
+            )
+            MarkCustomerVisited(NameText = ActiveCustomerName)
+            CustomerStageValue = CustomerStage.RETURNING
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                ReturnToCustomerDashboard(AttemptCount = 0)
+            }
+            return
+        }
+
+        if (ActiveCustomerRelevantNumbers.isEmpty()) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_SKIPPED",
+                MessageText = "customer=$ActiveCustomerName has no policy in this session"
+            )
+            MarkCustomerVisited(NameText = ActiveCustomerName)
+            CustomerStageValue = CustomerStage.RETURNING
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                ReturnToCustomerDashboard(AttemptCount = 0)
+            }
+            return
+        }
+
+        CustomerStageValue = CustomerStage.OPENING_PROFILE
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+            ScrollDetailToTop(AttemptCount = 0) { TapProfileTab() }
+        }
+    }
+
+    private fun CustomerPolicyCount(VisibleNodes: List<String>): Int {
+        val CombinedText = VisibleNodes.joinToString(separator = " ")
+        val CountMatch = Regex("(?i)(\\d{1,3})\\s*Policy\\(ies\\)").find(CombinedText)
+        val DeclaredCount = CountMatch?.groupValues?.get(1)?.toIntOrNull()
+        if (DeclaredCount != null && DeclaredCount > 0) return DeclaredCount
+
+        for (LabelIndex in VisibleNodes.indices) {
+            if (!VisibleNodes[LabelIndex].trim().equals("Policies", ignoreCase = true)) continue
+            val NextText = VisibleNodes.getOrNull(LabelIndex + 1)?.trim().orEmpty()
+            if (!NextText.matches(Regex("^\\d{1,3}$"))) continue
+            val CountValue = NextText.toIntOrNull() ?: continue
+            if (CountValue > 0) return CountValue
+        }
+        return 0
+    }
+
+    private fun TapProfileTab() {
+        val TextNodes = CurrentBoundsNodes()
+        val TabBounds = ProfileTabBounds(TextNodes = TextNodes)
+        if (TabBounds == null) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PROFILE_TAB_CANDIDATES",
+                MessageText = "customer=$ActiveCustomerName onScreenNodes=${TextNodes.size}; " +
+                        "scrolling back towards the tab strip"
+            )
+            PerformPolicyScroll(ForwardVal = false, PreferAccessibilityAction = false)
+            RetryCustomerStep(ReasonText = "Profile tab not visible")
+            return
+        }
+        val TapAccepted = PerformTapGesture(
+            XPos = TabBounds.centerX().toFloat(),
+            YPos = TabBounds.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PROFILE_TAB",
+            MessageText = "customer=$ActiveCustomerName bounds=$TabBounds accepted=$TapAccepted"
+        )
+        CustomerStageValue = CustomerStage.READING_PROFILE
+        CustomerStepAttempts = 0
+        ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_TAB_DELAY_MS) { SweepProfilePane() }
+    }
+
+    private fun SweepProfilePane() {
+        val VisibleNodes = CurrentScreenNodesWithDescriptions()
+        if (VisibleSheetKind(VisibleNodes = VisibleNodes) != null) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PROFILE_SWEEP_BLOCKED",
+                MessageText = "customer=$ActiveCustomerName a sheet is covering the pane; " +
+                        "not folding it into the profile read"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_SWEEP_SETTLE_MS) { SweepProfilePane() }
+            return
+        }
+        ProfilePaneNodes.addAll(VisibleNodes)
+        ProfileSweepCount++
+
+        val CurrentSignature = VisibleNodes.joinToString(separator = "\u0001").hashCode()
+        val HasStalled = CurrentSignature == LastProfileSweepSignature
+        LastProfileSweepSignature = CurrentSignature
+
+        val CollectedNodes = ProfilePaneNodes.toList()
+        val IsComplete = CustomerProfileParser.IsProfilePaneComplete(Nodes = CollectedNodes)
+        val ReachedLimit = ProfileSweepCount >= CUSTOMER_PROFILE_SCROLL_LIMIT
+
+        if (!IsComplete && !ReachedLimit && !HasStalled) {
+            PerformPolicyScroll(ForwardVal = true, PreferAccessibilityAction = false)
+            ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_SWEEP_SETTLE_MS) { SweepProfilePane() }
+            return
+        }
+
+        if (!CustomerProfileParser.IsProfilePane(Nodes = CollectedNodes)) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PROFILE_MISSING",
+                MessageText = "customer=$ActiveCustomerName never showed a profile pane " +
+                        "after $ProfileSweepCount sweeps"
+            )
+            FinishActiveCustomer()
+            return
+        }
+
+        ActiveProfile = CustomerProfileParser.ParseProfilePane(
+            Nodes = CollectedNodes,
+            CustomerNameVal = ActiveCustomerName
+        )
+        PendingSheetKinds.clear()
+        if (CustomerProfileParser.NeedsSheet(
+                Nodes = CollectedNodes,
+                LabelText = CustomerProfileParser.LABEL_MOBILE
+            )
+        ) {
+            PendingSheetKinds.add(CustomerProfileParser.ContactKind.MOBILE)
+        }
+        if (CustomerProfileParser.NeedsSheet(
+                Nodes = CollectedNodes,
+                LabelText = CustomerProfileParser.LABEL_EMAIL
+            )
+        ) {
+            PendingSheetKinds.add(CustomerProfileParser.ContactKind.EMAIL)
+        }
+        if (CustomerProfileParser.NeedsSheet(
+                Nodes = CollectedNodes,
+                LabelText = CustomerProfileParser.LABEL_ADDRESS
+            )
+        ) {
+            PendingSheetKinds.add(CustomerProfileParser.ContactKind.ADDRESS)
+        }
+
+        val PartialCount = listOf(
+            ActiveProfile?.Emails.orEmpty(),
+            ActiveProfile?.Addresses.orEmpty(),
+            ActiveProfile?.Mobiles.orEmpty()
+        ).flatten().count { ValueItem -> ValueItem.IsPartial }
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PROFILE_READ",
+            MessageText = "customer=$ActiveCustomerName sweeps=$ProfileSweepCount " +
+                    "complete=$IsComplete fields=${ActiveProfile?.FieldCount ?: 0} " +
+                    "partialValues=$PartialCount paneNodes=${CollectedNodes.size} " +
+                    "email=${ActiveProfile?.Emails?.firstOrNull()?.Value.orEmpty()} " +
+                    "sheetsPending=${PendingSheetKinds.map { KindVal -> KindVal.name }}"
+        )
+        if (PendingSheetKinds.isEmpty()) {
+            FinishActiveCustomer()
+            return
+        }
+        ScrollDetailToTop(AttemptCount = 0) { OpenNextContactSheet() }
+    }
+
+    private fun OpenNextContactSheet() {
+        val NextKind = PendingSheetKinds.firstOrNull()
+        if (NextKind == null) {
+            FinishActiveCustomer()
+            return
+        }
+        if (!SheetsEverYieldedValues && EmptySheetReadCount >= CUSTOMER_EMPTY_SHEET_LIMIT) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_SHEETS_DISABLED",
+                MessageText = "customer=$ActiveCustomerName skipping ${PendingSheetKinds.size} " +
+                        "sheet(s): $EmptySheetReadCount opened so far this run exposed no values, " +
+                        "so the inline value is the best this app gives"
+            )
+            PendingSheetKinds.clear()
+            FinishActiveCustomer()
+            return
+        }
+        val LabelText = when (NextKind) {
+            CustomerProfileParser.ContactKind.MOBILE -> CustomerProfileParser.LABEL_MOBILE
+            CustomerProfileParser.ContactKind.EMAIL -> CustomerProfileParser.LABEL_EMAIL
+            CustomerProfileParser.ContactKind.ADDRESS -> CustomerProfileParser.LABEL_ADDRESS
+        }
+        val LinkBounds = FindViewAllBounds(LabelText = LabelText)
+        if (LinkBounds == null) {
+            if (SheetLinkRetryCount < CUSTOMER_SHEET_LINK_RETRY_LIMIT) {
+                SheetLinkRetryCount++
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_SHEET_LINK_SEARCH",
+                    MessageText = "customer=$ActiveCustomerName field=$LabelText " +
+                            "link not on screen; scrolling back attempt=$SheetLinkRetryCount"
+                )
+                PerformPolicyScroll(ForwardVal = false, PreferAccessibilityAction = false)
+                ScheduleCustomerAction(DelayMs = CUSTOMER_PROFILE_SWEEP_SETTLE_MS) {
+                    OpenNextContactSheet()
+                }
+                return
+            }
+            DiagnosticWarning(
+                EventName = "CUSTOMER_SHEET_LINK_MISSING",
+                MessageText = "customer=$ActiveCustomerName field=$LabelText " +
+                        "has no reachable ${CustomerProfileParser.LINK_VIEW_ALL} link; " +
+                        "keeping the inline value"
+            )
+            SheetLinkRetryCount = 0
+            PendingSheetKinds.removeAt(0)
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { OpenNextContactSheet() }
+            return
+        }
+        SheetLinkRetryCount = 0
+
+        ActiveSheetKind = NextKind
+        SheetReadRetryCount = 0
+        SheetOpenedAt = System.currentTimeMillis()
+        CustomerStageValue = CustomerStage.OPENING_SHEET
+        val TapAccepted = PerformTapGesture(
+            XPos = LinkBounds.centerX().toFloat(),
+            YPos = LinkBounds.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "CUSTOMER_SHEET_OPEN",
+            MessageText = "customer=$ActiveCustomerName field=$LabelText " +
+                    "bounds=$LinkBounds accepted=$TapAccepted"
+        )
+        ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_OPEN_DELAY_MS) { VerifySheetOpened() }
+    }
+
+    private fun FindViewAllBounds(LabelText: String): Rect? {
+        val ScreenWidth = resources.displayMetrics.widthPixels
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return null
+        return try {
+            val TextNodes = CollectVisibleTextNodes(RootNode = RootNode)
+            val LabelBounds = TextNodes
+                .firstOrNull { NodePair -> NodePair.first.trim().equals(LabelText, true) }
+                ?.second
+                ?: return null
+            val NextLabelTop = TextNodes
+                .filter { NodePair -> IsProfileFieldLabel(NodeText = NodePair.first) }
+                .map { NodePair -> NodePair.second }
+                .filter { BoundsObj -> BoundsObj.top > LabelBounds.top }
+                .minByOrNull { BoundsObj -> BoundsObj.top }
+                ?.top
+                ?: Int.MAX_VALUE
+
+            TextNodes
+                .filter { NodePair ->
+                    NodePair.first.trim().equals(CustomerProfileParser.LINK_VIEW_ALL, true)
+                }
+                .map { NodePair -> NodePair.second }
+                .filter { BoundsObj ->
+                    BoundsObj.top > LabelBounds.top &&
+                            BoundsObj.top < NextLabelTop &&
+                            BoundsObj.centerX() < ScreenWidth * PROFILE_TAP_MAX_X_RATIO
+                }
+                .minByOrNull { BoundsObj -> BoundsObj.top }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun IsProfileFieldLabel(NodeText: String): Boolean {
+        val Trimmed = NodeText.trim()
+        return Trimmed.equals(CustomerProfileParser.LABEL_MOBILE, true) ||
+                Trimmed.equals(CustomerProfileParser.LABEL_EMAIL, true) ||
+                Trimmed.equals(CustomerProfileParser.LABEL_ADDRESS, true) ||
+                Trimmed.equals(CustomerProfileParser.SECTION_PERSONAL, true)
+    }
+
+    private fun VerifySheetOpened() {
+        val VisibleNodes = CurrentScreenNodes()
+        if (VisibleSheetKind(VisibleNodes = VisibleNodes) != null) return
+
+        DiagnosticWarning(
+            EventName = "CUSTOMER_SHEET_MISSING",
+            MessageText = "customer=$ActiveCustomerName kind=${ActiveSheetKind?.name} " +
+                    "sheet never appeared; continuing with the inline value"
+        )
+        ActiveSheetKind = null
+        if (PendingSheetKinds.isNotEmpty()) PendingSheetKinds.removeAt(0)
+        CustomerStageValue = CustomerStage.READING_PROFILE
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { OpenNextContactSheet() }
+    }
+
+    private fun HandleContactSheet(
+        SheetKind: CustomerProfileParser.ContactKind,
+        VisibleNodes: List<String>
+    ) {
+        if (CustomerStageValue != CustomerStage.OPENING_SHEET &&
+            CustomerStageValue != CustomerStage.READING_SHEET
+        ) {
+            return
+        }
+        if (ActiveSheetKind != null && ActiveSheetKind != SheetKind) return
+
+        val SheetNodes = CurrentScreenNodesWithDescriptions().ifEmpty { VisibleNodes }
+        val SheetRead = CustomerProfileParser.ReadContactSheet(
+            Nodes = SheetNodes,
+            KindVal = SheetKind,
+            SelectedIndexVal = -1
+        )
+        val ValueList = SheetRead.Values
+
+        val WaitedLongEnough = System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
+        if (ValueList.isEmpty() &&
+            SheetRead.RelatedGroupCount > 0 &&
+            !WaitedLongEnough
+        ) {
+            SheetReadRetryCount++
+            CustomerStageValue = CustomerStage.READING_SHEET
+            DiagnosticWarning(
+                EventName = "CUSTOMER_SHEET_EMPTY",
+                MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                        "groups=${SheetRead.RelatedGroupCount} but no values exposed; " +
+                        "retry=$SheetReadRetryCount"
+            )
+            return
+        }
+
+        CustomerStageValue = CustomerStage.RETURNING
+
+        val ProfileObj = ActiveProfile
+        if (ProfileObj != null && ValueList.isNotEmpty()) {
+            ActiveProfile = when (SheetKind) {
+                CustomerProfileParser.ContactKind.MOBILE -> ProfileObj.copy(Mobiles = ValueList)
+                CustomerProfileParser.ContactKind.EMAIL -> ProfileObj.copy(Emails = ValueList)
+                CustomerProfileParser.ContactKind.ADDRESS -> ProfileObj.copy(Addresses = ValueList)
+            }
+        }
+        if (ValueList.isEmpty()) {
+            EmptySheetReadCount++
+        } else {
+            SheetsEverYieldedValues = true
+        }
+        val AttributedCount = ValueList.count { ValueItem ->
+            ValueItem.RelatedPolicies.isNotEmpty()
+        }
+        DiagnosticInfo(
+            EventName = "CUSTOMER_SHEET_READ",
+            MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                    "values=${ValueList.size} withRelatedPolicies=$AttributedCount " +
+                    "relatedGroups=${SheetRead.RelatedGroupCount} " +
+                    "orphanGroups=${SheetRead.OrphanGroupCount} " +
+                    "sheetNodes=${SheetNodes.size} defaultReadFromScreen=false"
+        )
+
+        ActiveSheetKind = null
+        if (PendingSheetKinds.isNotEmpty()) PendingSheetKinds.removeAt(0)
+        DismissContactSheet(UseBackAction = false)
+        ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
+            ConfirmSheetClosed(AttemptCount = 0)
+        }
+    }
+
+    private fun DismissContactSheet(UseBackAction: Boolean) {
+        if (UseBackAction) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            DiagnosticInfo(
+                EventName = "CUSTOMER_SHEET_DISMISS",
+                MessageText = "customer=$ActiveCustomerName method=back"
+            )
+            return
+        }
+        val DisplayMetricsObj = resources.displayMetrics
+        val TapAccepted = PerformTapGesture(
+            XPos = DisplayMetricsObj.widthPixels * 0.5f,
+            YPos = DisplayMetricsObj.heightPixels * SHEET_SCRIM_Y_RATIO
+        )
+        DiagnosticInfo(
+            EventName = "CUSTOMER_SHEET_DISMISS",
+            MessageText = "customer=$ActiveCustomerName method=scrim accepted=$TapAccepted"
+        )
+    }
+
+    private fun ConfirmSheetClosed(AttemptCount: Int) {
+        val VisibleNodes = CurrentScreenNodes()
+        val StillOpen = VisibleSheetKind(VisibleNodes = VisibleNodes) != null
+        if (StillOpen && AttemptCount < CUSTOMER_SHEET_CLOSE_LIMIT) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_SHEET_STILL_OPEN",
+                MessageText = "customer=$ActiveCustomerName attempt=$AttemptCount; dismissing again"
+            )
+            DismissContactSheet(UseBackAction = AttemptCount > 0)
+            ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
+                ConfirmSheetClosed(AttemptCount = AttemptCount + 1)
+            }
+            return
+        }
+        if (StillOpen) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_SHEET_STUCK",
+                MessageText = "customer=$ActiveCustomerName sheet would not close; " +
+                        "abandoning the remaining sheets for this customer"
+            )
+            PendingSheetKinds.clear()
+        }
+
+        if (IsCustomerDetailScreen(VisibleNodes = VisibleNodes)) {
+            CustomerStageValue = CustomerStage.READING_PROFILE
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { OpenNextContactSheet() }
+            return
+        }
+
+        val HasLeftDetail = IsCustomerDashboardScreen(VisibleNodes = VisibleNodes) ||
+                IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes)
+        if (!HasLeftDetail && AttemptCount < CUSTOMER_RETURN_ATTEMPT_LIMIT) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_SHEET_SETTLING",
+                MessageText = "customer=$ActiveCustomerName attempt=$AttemptCount " +
+                        "nodes=${VisibleNodes.size}; waiting for the detail screen to come back"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
+                ConfirmSheetClosed(AttemptCount = AttemptCount + 1)
+            }
+            return
+        }
+
+        DiagnosticWarning(
+            EventName = "CUSTOMER_SHEET_OVERSHOT",
+            MessageText = "customer=$ActiveCustomerName left the detail screen while closing " +
+                    "a sheet; finishing this customer with what was read"
+        )
+        PendingSheetKinds.clear()
+        FinishActiveCustomer()
+    }
+
+    private fun FinishActiveCustomer() {
+        val ProfileObj = ActiveProfile
+        var FilledCount = 0
+        if (ProfileObj != null) {
+            for (PolicyNumber in ActiveCustomerRelevantNumbers) {
+                val PatchItem = ProfileObj.ToPolicyPatch(PolicyNumber = PolicyNumber)
+                ProfilePatchMap[PolicyNumber] = PatchItem
+                ProfilePatchNames[PolicyNumber] = ActiveCustomerName
+                FilledCount++
+            }
+        }
+        for (PolicyNumber in ActiveCustomerRelevantNumbers) {
+            FilledPolicyNumbers.add(PolicyNumber)
+        }
+        MarkCustomerVisited(NameText = ActiveCustomerName)
+        DiagnosticInfo(
+            EventName = "CUSTOMER_DONE",
+            MessageText = "customer=$ActiveCustomerName policiesFilled=$FilledCount " +
+                    "totalPatches=${ProfilePatchMap.size} gaps=${SessionGapMap.size}"
+        )
+        CaptureSessionState.OnProgress(
+            RecordCountVal = ProfilePatchMap.size,
+            NodeCountVal = CapturedNodes.size,
+            ElapsedMsVal = ElapsedMs()
+        )
+        CustomerStageValue = CustomerStage.RETURNING
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+            ReturnToCustomerDashboard(AttemptCount = 0)
+        }
+    }
+
+    private fun ReturnToCustomerDashboard(AttemptCount: Int, BackCount: Int = 0) {
+        val VisibleNodes = CurrentScreenNodes()
+
+        if (IsCustomerDashboardScreen(VisibleNodes = VisibleNodes)) {
+            ActiveCustomerName = ""
+            ActiveProfile = null
+            ProfilePaneNodes.clear()
+            PendingSheetKinds.clear()
+            CustomerStageValue = CustomerStage.DASHBOARD
+            ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                RunCustomerDashboardStep()
+            }
+            return
+        }
+
+        if (AttemptCount >= CUSTOMER_RETURN_ATTEMPT_LIMIT) {
+            FailCustomerAutomation(ReasonText = "could not get back to the customer list")
+            return
+        }
+
+        if (IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes)) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_RETURN_OVERSHOT",
+                MessageText = "landed on Customer Portfolio; re-arming the Customers card " +
+                        "instead of pressing back again"
+            )
+            HasClickedPortfolioCustomers = false
+            PortfolioCustomersLastAttemptAt = 0L
+            CustomerStageValue = CustomerStage.DASHBOARD
+            ScheduleCustomerAction(DelayMs = CUSTOMER_RETURN_DELAY_MS) {
+                ReturnToCustomerDashboard(AttemptCount = AttemptCount + 1, BackCount = BackCount)
+            }
+            return
+        }
+
+        val IsDeeperScreen = IsCustomerDetailScreen(VisibleNodes = VisibleNodes) ||
+                VisibleSheetKind(VisibleNodes = VisibleNodes) != null
+        if (!IsDeeperScreen || BackCount >= CUSTOMER_BACK_LIMIT) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_RETURN_WAIT",
+                MessageText = "attempt=$AttemptCount backs=$BackCount nodes=${VisibleNodes.size} " +
+                        "screen not identified yet; waiting rather than pressing back"
+            )
+            ScheduleCustomerAction(DelayMs = CUSTOMER_RETURN_DELAY_MS) {
+                ReturnToCustomerDashboard(AttemptCount = AttemptCount + 1, BackCount = BackCount)
+            }
+            return
+        }
+
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        ScheduleCustomerAction(DelayMs = CUSTOMER_RETURN_DELAY_MS) {
+            ReturnToCustomerDashboard(AttemptCount = AttemptCount + 1, BackCount = BackCount + 1)
+        }
+    }
+
+    private fun RetryCustomerStep(ReasonText: String) {
+        CustomerStepAttempts++
+        DiagnosticWarning(
+            EventName = "CUSTOMER_STEP_RETRY",
+            MessageText = "stage=$CustomerStageValue attempt=$CustomerStepAttempts " +
+                    "reason=$ReasonText"
+        )
+        if (CustomerStepAttempts >= CUSTOMER_STEP_RETRY_LIMIT) {
+            CustomerStepAttempts = 0
+            when (CustomerStageValue) {
+                CustomerStage.DASHBOARD -> FailCustomerAutomation(ReasonText = ReasonText)
+                else -> {
+                    CustomerStageValue = CustomerStage.RETURNING
+                    ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                        ReturnToCustomerDashboard(AttemptCount = 0)
+                    }
+                }
+            }
+            return
+        }
+        val StageAtRetry = CustomerStageValue
+        ScheduleCustomerAction(DelayMs = CUSTOMER_SCROLL_SETTLE_MS) {
+            when (StageAtRetry) {
+                CustomerStage.OPENING_PROFILE -> TapProfileTab()
+                CustomerStage.READING_PROFILE -> SweepProfilePane()
+                else -> RunCustomerDashboardStep()
+            }
+        }
+    }
+
+    private fun CompleteCustomerAutomation(ReasonText: String) {
+        if (IsCustomerAutomationComplete) return
+        IsCustomerAutomationComplete = true
+        IsCustomerAutomationRunning = false
+        CustomerStageValue = CustomerStage.IDLE
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        CustomerAutomationRunnable = null
+
+        DiagnosticInfo(
+            EventName = "CUSTOMER_AUTOMATION_COMPLETE",
+            MessageText = "reason=$ReasonText customers=${ProcessedCustomerKeys.size} " +
+                    "policiesFilled=${ProfilePatchMap.size} gaps=${SessionGapMap.size}"
+        )
+        MainHandler.post { FinishCaptureSession() }
+    }
+
+    private fun FailCustomerAutomation(ReasonText: String) {
+        CustomerAutomationFailureCount++
+        IsCustomerAutomationRunning = false
+        CustomerStageValue = CustomerStage.IDLE
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        CustomerAutomationRunnable = null
+
+        DiagnosticWarning(
+            EventName = "CUSTOMER_AUTOMATION_FAILED",
+            MessageText = "reason=$ReasonText failures=$CustomerAutomationFailureCount"
+        )
+        if (CustomerAutomationFailureCount >= CUSTOMER_AUTOMATION_RECOVERY_LIMIT) {
+            CompleteCustomerAutomation(ReasonText = "recovery limit reached: $ReasonText")
+            return
+        }
+        CustomerAutomationRetryAfter = System.currentTimeMillis() + CUSTOMER_FAILURE_RETRY_MS
+        CustomerScrollAttempts = 0
+        CustomerScrollStallCount = 0
+        CustomerPageRetryCount = 0
+        CustomerStepAttempts = 0
+        LatestCustomerVisibleSignature = 0
+    }
+
+    private fun StopCustomerAutomation(ResetStateVal: Boolean) {
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        CustomerAutomationRunnable = null
+        IsCustomerAutomationRunning = false
+        CustomerStageValue = CustomerStage.IDLE
+        if (!ResetStateVal) return
+
+        IsCustomerAutomationComplete = false
+        IsCustomerDashboardActive = false
+        HasClickedPortfolioCustomers = false
+        PortfolioCustomersClickAttempts = 0
+        PortfolioCustomersLastAttemptAt = 0L
+        CustomerCurrentPage = 0
+        CustomerTotalPages = 0
+        TargetCustomerPage = 0
+        CustomerScrollAttempts = 0
+        CustomerScrollStallCount = 0
+        CustomerPageRetryCount = 0
+        CustomerPageWaitCount = 0
+        CustomerOpenAttempts = 0
+        CustomerStepAttempts = 0
+        CustomerAutomationFailureCount = 0
+        CustomerAutomationRetryAfter = 0L
+        LatestCustomerVisibleSignature = 0
+        ActiveCustomerName = ""
+        ActiveCustomerPolicyNumbers = emptyList()
+        ActiveCustomerRelevantNumbers = emptyList()
+        ActiveSheetKind = null
+        SheetReadRetryCount = 0
+        SheetLinkRetryCount = 0
+        ActiveProfile = null
+        ProfileSweepCount = 0
+        LastProfileSweepSignature = 0
+        ProfilePaneNodes.clear()
+        PendingSheetKinds.clear()
+        ProcessedCustomerKeys.clear()
+        ProfilePatchMap.clear()
+        ProfilePatchNames.clear()
+        SessionGapMap.clear()
+        SessionPolicyNumbers.clear()
+        FilledPolicyNumbers.clear()
+        VisitedCustomerNames.clear()
+        SheetsEverYieldedValues = false
+        EmptySheetReadCount = 0
+    }
+
     override fun onInterrupt() {
         StopAutoScroll()
         StopPolicyDashboardAutomation(ResetStateVal = false)
         StopRenewalAutomation(ResetStateVal = false)
+        StopCustomerAutomation(ResetStateVal = false)
         CancelEventWindowCapture()
     }
 
@@ -4731,6 +6387,7 @@ class ScreenReaderService : AccessibilityService() {
         StopAutoScroll()
         StopPolicyDashboardAutomation(ResetStateVal = false)
         StopRenewalAutomation(ResetStateVal = false)
+        StopCustomerAutomation(ResetStateVal = false)
         CancelEventWindowCapture()
         StopParseThread()
         RemoveBubble()

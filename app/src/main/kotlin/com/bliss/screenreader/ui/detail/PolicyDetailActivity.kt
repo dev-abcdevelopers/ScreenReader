@@ -422,7 +422,12 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     private fun ExportSingle(PolicyRef: CustomerPolicy) {
         val ExportedFile = ExcelExporter.ExportCustomerPolicies(
-            ContextRef = this, Policies = listOf(PolicyRef)
+            ContextRef = this,
+            Policies = listOf(PolicyRef),
+            AgencyCode = PolicyRepository.GetAgencyCode(
+                ContextRef = this,
+                SessionId = ResolveSessionId()
+            )
         )
         val FileUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", ExportedFile)
         val ShareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -461,6 +466,12 @@ class PolicyDetailActivity : AppCompatActivity() {
             Mobile = getString(R.string.detail_mobile),
             Dob = getString(R.string.detail_dob),
             Address = getString(R.string.detail_address),
+            Email = getString(R.string.detail_email),
+            Gender = getString(R.string.detail_gender),
+            Education = getString(R.string.detail_education),
+            Occupation = getString(R.string.detail_occupation),
+            MaritalStatus = getString(R.string.detail_marital_status),
+            AnnualIncome = getString(R.string.detail_annual_income),
             FlagKyc = getString(R.string.detail_flag_kyc),
             FlagNeft = getString(R.string.detail_flag_neft),
             FlagNominee = getString(R.string.detail_flag_nominee),

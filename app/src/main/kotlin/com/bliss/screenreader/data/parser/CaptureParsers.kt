@@ -8,6 +8,7 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.repository.PolicyRepository
 import java.util.regex.Pattern
 
@@ -31,6 +32,7 @@ object CaptureParsers {
             CaptureMode.POLICY -> PreviewPolicy(Nodes = Nodes)
             CaptureMode.PS -> PreviewPs(Nodes = Nodes)
             CaptureMode.FUP -> PreviewFup(Nodes = Nodes)
+            CaptureMode.CUSTOMER -> emptyList()
         }
     }
 
@@ -41,7 +43,8 @@ object CaptureParsers {
         Nodes: List<String>,
         PolicyRecords: List<CustomerPolicy> = emptyList(),
         FupRecords: List<FupPolicy> = emptyList(),
-        CapturePolicyDetails: Boolean = false
+        CapturePolicyDetails: Boolean = false,
+        GapRecords: List<SessionGap> = emptyList()
     ): Int {
         require(SessionId.isNotBlank()) { "A capture session id is required" }
         LastCommitResult = CommitResult(AddedCount = 0, UpdatedCount = 0)
@@ -58,6 +61,13 @@ object CaptureParsers {
                 SessionId = SessionId,
                 Nodes = Nodes
             )
+            CaptureMode.CUSTOMER -> CommitCustomerProfiles(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Patches = PolicyRecords,
+                Gaps = GapRecords
+            )
+
             CaptureMode.FUP -> CommitFup(
                 ContextRef = ContextRef,
                 SessionId = SessionId,
@@ -120,6 +130,114 @@ object CaptureParsers {
                 }
             )
         }
+    }
+
+    fun PreviewProfilePatches(
+        Patches: List<CustomerPolicy>,
+        NameMap: Map<String, String>
+    ): List<ParsedRecord> {
+        return Patches.map { PatchItem ->
+            val FilledFields = ProfileFieldSummary(PatchItem = PatchItem)
+            ParsedRecord(
+                PolicyNumber = PatchItem.PolicyNumber.ifEmpty { "Unknown policy" },
+                PrimaryLine = NameMap[PatchItem.PolicyNumber].orEmpty().ifEmpty { "Unknown customer" },
+                SecondaryLine = if (FilledFields.isEmpty()) {
+                    "No personal fields matched"
+                } else {
+                    FilledFields.joinToString(" · ")
+                },
+                FieldCount = FilledFields.size,
+                Warning = if (FilledFields.isEmpty()) "Nothing to update" else ""
+            )
+        }
+    }
+
+    private fun ProfileFieldSummary(PatchItem: CustomerPolicy): List<String> {
+        val PartList = mutableListOf<String>()
+        if (PatchItem.MobileNumber.isNotEmpty()) PartList.add("Mobile")
+        if (PatchItem.Email.isNotEmpty()) PartList.add("Email")
+        if (PatchItem.Address.isNotEmpty()) PartList.add("Address")
+        if (PatchItem.Dob.isNotEmpty()) PartList.add("DOB")
+        if (PatchItem.Gender.isNotEmpty()) PartList.add("Gender")
+        if (PatchItem.Education.isNotEmpty()) PartList.add("Education")
+        if (PatchItem.Occupation.isNotEmpty()) PartList.add("Occupation")
+        if (PatchItem.MaritalStatus.isNotEmpty()) PartList.add("Marital status")
+        if (PatchItem.AnnualIncome.isNotEmpty()) PartList.add("Annual income")
+        return PartList
+    }
+
+    private fun CommitCustomerProfiles(
+        ContextRef: Context,
+        SessionId: String,
+        Patches: List<CustomerPolicy>,
+        Gaps: List<SessionGap>
+    ): Int {
+        PolicyRepository.SaveSessionGaps(
+            ContextRef = ContextRef,
+            SessionId = SessionId,
+            Gaps = Gaps
+        )
+        if (Patches.isEmpty()) return 0
+
+        val ExistingList = PolicyRepository.GetCustomerPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        ).toMutableList()
+        if (ExistingList.isEmpty()) return 0
+
+        val ChangeLog = mutableListOf<RecordFieldChange>()
+        val SkippedGaps = mutableListOf<SessionGap>()
+        var UpdatedCount = 0
+
+        for (PatchItem in Patches) {
+            if (PatchItem.PolicyNumber.isEmpty()) continue
+            val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
+                ExistingItem.PolicyNumber == PatchItem.PolicyNumber
+            }
+            if (MatchIndex < 0) {
+                SkippedGaps.add(
+                    SessionGap(
+                        PolicyNumber = PatchItem.PolicyNumber,
+                        CustomerName = PatchItem.HolderName,
+                        SeenAt = System.currentTimeMillis()
+                    )
+                )
+                continue
+            }
+            val MergeOutcomeVal = RecordMerge.MergePolicy(
+                ExistingItem = ExistingList[MatchIndex],
+                IncomingItem = PatchItem
+            )
+            if (MergeOutcomeVal.Record != ExistingList[MatchIndex]) UpdatedCount++
+            ExistingList[MatchIndex] = MergeOutcomeVal.Record
+            ChangeLog.addAll(MergeOutcomeVal.Changes)
+        }
+
+        if (SkippedGaps.isNotEmpty()) {
+            PolicyRepository.SaveSessionGaps(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Gaps = SkippedGaps
+            )
+        }
+
+        PolicyRepository.SaveFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.POLICY,
+            SessionId = SessionId,
+            Changes = ChangeLog
+        )
+        PolicyRepository.SaveCustomerPolicies(
+            ContextRef = ContextRef,
+            Policies = ExistingList,
+            SessionId = SessionId,
+            CapturePolicyDetails = PolicyRepository.GetSessionReference(
+                ContextRef = ContextRef,
+                SessionId = SessionId
+            )?.CapturePolicyDetails == true
+        )
+        LastCommitResult = CommitResult(AddedCount = 0, UpdatedCount = UpdatedCount)
+        return UpdatedCount
     }
 
     data class CommitResult(val AddedCount: Int, val UpdatedCount: Int) {
@@ -198,7 +316,9 @@ object CaptureParsers {
             PolicyItem.DateOfMaturity, PolicyItem.MobileNumber, PolicyItem.Dob,
             PolicyItem.PremiumAmount, PolicyItem.Status, PolicyItem.PlanName,
             PolicyItem.AutoPay, PolicyItem.RenewalDueDate, PolicyItem.KycStatus,
-            PolicyItem.NeftStatus, PolicyItem.Address,
+            PolicyItem.NeftStatus, PolicyItem.Address, PolicyItem.Email,
+            PolicyItem.Gender, PolicyItem.Education, PolicyItem.Occupation,
+            PolicyItem.MaritalStatus, PolicyItem.AnnualIncome,
             PolicyItem.CommissionDateOfPremiumPayment, PolicyItem.CommissionDateOfPayment,
             PolicyItem.CommissionType, PolicyItem.BonusCommission,
             PolicyItem.CommissionPaidAmount

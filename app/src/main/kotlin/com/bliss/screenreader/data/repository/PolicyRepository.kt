@@ -9,6 +9,7 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.security.SecurePrefs
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -27,8 +28,13 @@ object PolicyRepository {
     private const val KEY_SESSION_HISTORY = "capture_session_history"
     private const val SESSION_KEY_PREFIX = "capture_session"
     private const val CHANGE_KEY_PREFIX = "capture_changes"
+    private const val GAP_KEY_PREFIX = "capture_gaps"
+    private const val AGENCY_KEY_PREFIX = "capture_agency"
+    private const val VISITED_KEY_PREFIX = "capture_visited_customers"
+    private const val KEY_LAST_AGENCY_CODE = "last_agency_code"
 
     private const val MAX_CHANGE_ENTRIES = 500
+    private const val MAX_GAP_ENTRIES = 500
 
     private val GsonInstance = Gson()
 
@@ -205,6 +211,41 @@ object PolicyRepository {
         }
     }
 
+    fun SaveSessionGaps(ContextRef: Context, SessionId: String, Gaps: List<SessionGap>) {
+        if (SessionId.isBlank() || Gaps.isEmpty()) return
+        val ExistingGaps = ReadStoredGaps(ContextRef = ContextRef, SessionId = SessionId)
+        val MergedGaps = linkedMapOf<String, SessionGap>()
+        for (GapItem in ExistingGaps + Gaps) {
+            if (GapItem.PolicyNumber.isBlank()) continue
+            MergedGaps[GapItem.PolicyNumber] = GapItem
+        }
+        val TrimmedGaps = MergedGaps.values.toList().takeLast(MAX_GAP_ENTRIES)
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(GapStorageKey(SessionId = SessionId), GsonInstance.toJson(TrimmedGaps))
+        }
+    }
+
+    fun GetSessionGaps(ContextRef: Context, SessionId: String): List<SessionGap> {
+        if (SessionId.isBlank()) return emptyList()
+        val StoredGaps = ReadStoredGaps(ContextRef = ContextRef, SessionId = SessionId)
+        if (StoredGaps.isEmpty()) return emptyList()
+        val CapturedNumbers = GetCustomerPolicies(ContextRef = ContextRef, SessionId = SessionId)
+            .map { PolicyItem -> PolicyItem.PolicyNumber }
+            .toSet()
+        return StoredGaps.filterNot { GapItem -> CapturedNumbers.contains(GapItem.PolicyNumber) }
+    }
+
+    private fun ReadStoredGaps(ContextRef: Context, SessionId: String): List<SessionGap> {
+        val JsonText = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(GapStorageKey(SessionId = SessionId), null) ?: return emptyList()
+        val GapType = object : TypeToken<List<SessionGap>>() {}.type
+        return try {
+            GsonInstance.fromJson(JsonText, GapType) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun DeleteSession(ContextRef: Context, SessionId: String, ModeVal: CaptureMode): Boolean {
         if (SessionId.isBlank()) return false
 
@@ -227,6 +268,9 @@ object PolicyRepository {
         PrefsObj.edit {
             remove(SessionStorageKey(ModeVal = ModeVal, SessionId = SessionId))
             remove(ChangeStorageKey(ModeVal = ModeVal, SessionId = SessionId))
+            remove(GapStorageKey(SessionId = SessionId))
+            remove(AgencyStorageKey(SessionId = SessionId))
+            remove(VisitedStorageKey(SessionId = SessionId))
             putString(KEY_SESSION_HISTORY, GsonInstance.toJson(RemainingHistory))
             if (WasLatest) {
                 if (ReplacementSessionId.isEmpty()) {
@@ -321,6 +365,65 @@ object PolicyRepository {
         return "${SESSION_KEY_PREFIX}_${ModeVal.name.lowercase()}_${SafeSessionId(SessionId = SessionId)}"
     }
 
+    fun SaveVisitedCustomers(ContextRef: Context, SessionId: String, Names: Set<String>) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(VisitedStorageKey(SessionId = SessionId), GsonInstance.toJson(Names.toList()))
+        }
+    }
+
+    fun GetVisitedCustomers(ContextRef: Context, SessionId: String): Set<String> {
+        if (SessionId.isBlank()) return emptySet()
+        val JsonText = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(VisitedStorageKey(SessionId = SessionId), null) ?: return emptySet()
+        val NameType = object : TypeToken<List<String>>() {}.type
+        return try {
+            (GsonInstance.fromJson<List<String>>(JsonText, NameType) ?: emptyList()).toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    fun ClearVisitedCustomers(ContextRef: Context, SessionId: String) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            remove(VisitedStorageKey(SessionId = SessionId))
+        }
+    }
+
+    private fun VisitedStorageKey(SessionId: String): String {
+        return "${VISITED_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
+    }
+
+    fun SaveAgencyCode(ContextRef: Context, SessionId: String, AgencyCode: String) {
+        val TrimmedCode = AgencyCode.trim()
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(KEY_LAST_AGENCY_CODE, TrimmedCode)
+            if (SessionId.isNotBlank()) {
+                putString(AgencyStorageKey(SessionId = SessionId), TrimmedCode)
+            }
+        }
+    }
+
+    fun GetAgencyCode(ContextRef: Context, SessionId: String): String {
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        if (SessionId.isNotBlank()) {
+            val SessionCode = PrefsObj
+                .getString(AgencyStorageKey(SessionId = SessionId), "")
+                .orEmpty()
+            if (SessionCode.isNotEmpty()) return SessionCode
+        }
+        return PrefsObj.getString(KEY_LAST_AGENCY_CODE, "").orEmpty()
+    }
+
+    private fun AgencyStorageKey(SessionId: String): String {
+        return "${AGENCY_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
+    }
+
+    private fun GapStorageKey(SessionId: String): String {
+        return "${GAP_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
+    }
+
     private fun ChangeStorageKey(ModeVal: CaptureMode, SessionId: String): String {
         return "${CHANGE_KEY_PREFIX}_${ModeVal.name.lowercase()}_${SafeSessionId(SessionId = SessionId)}"
     }
@@ -334,6 +437,7 @@ object PolicyRepository {
             CaptureMode.POLICY -> KEY_LATEST_POLICY_SESSION
             CaptureMode.PS -> KEY_LATEST_PS_SESSION
             CaptureMode.FUP -> KEY_LATEST_FUP_SESSION
+            CaptureMode.CUSTOMER -> KEY_LATEST_POLICY_SESSION
         }
     }
 }

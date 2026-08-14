@@ -9,7 +9,9 @@ enum class CaptureMode(val DisplayName: String, val RecordNounSingular: String, 
     POLICY("Policy Details", "policy", "policies"),
 
     PS("Servicing History", "record", "records"),
-    FUP("Renewal History", "renewal", "renewals");
+    FUP("Renewal History", "renewal", "renewals"),
+
+    CUSTOMER("Personal Details", "customer", "customers");
 
     fun DescribeCount(CountVal: Int): String {
         val Noun = if (CountVal == 1) RecordNounSingular else RecordNounPlural
@@ -48,7 +50,8 @@ data class CaptureSession(
     val FupRecords: List<FupPolicy> = emptyList(),
     val CapturePolicyDetails: Boolean = false,
     val TargetPackage: String = "",
-    val OriginActivity: String = ""
+    val OriginActivity: String = "",
+    val GapRecords: List<SessionGap> = emptyList()
 ) {
     val DurationMs: Long get() = (EndedAt - StartedAt).coerceAtLeast(0L)
 

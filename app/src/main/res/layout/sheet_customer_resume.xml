@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/surface_light"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingTop="@dimen/space_lg"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingBottom="@dimen/space_lg">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/customer_resume_title"
+        android:textAppearance="@style/TextAppearance.App.Heading" />
+
+    <TextView
+        android:id="@+id/tvCustomerResumeBody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xs"
+        android:layout_marginBottom="@dimen/space_md"
+        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCustomerResume"
+        style="@style/Widget.App.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/customer_resume_continue" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCustomerRestart"
+        style="@style/Widget.App.Button.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_sm"
+        android:text="@string/customer_resume_restart" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCustomerResumeCancel"
+        style="@style/Widget.App.Button.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_sm"
+        android:text="@string/action_cancel" />
+
+</LinearLayout>

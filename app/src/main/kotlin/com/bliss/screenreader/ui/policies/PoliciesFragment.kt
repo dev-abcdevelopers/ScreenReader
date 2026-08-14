@@ -24,6 +24,7 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
+import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
@@ -105,6 +106,10 @@ class PoliciesFragment : Fragment() {
 
         BindingObj.btnExportPdf.setOnClickListener { ExportPdf() }
         BindingObj.btnExportExcel.setOnClickListener { ExportExcel() }
+        BindingObj.btnCapturePersonal.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            CapturePersonalDetails()
+        }
 
         BindingObj.emptyState.btnEmptyAction.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -204,6 +209,7 @@ class PoliciesFragment : Fragment() {
             if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
         BindingObj.btnExportPdf.visibility = View.GONE
+        BindingObj.btnCapturePersonal.visibility = View.GONE
         if (HasVisible) return
 
         if (AllRenewals.isNotEmpty()) {
@@ -253,6 +259,11 @@ class PoliciesFragment : Fragment() {
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.chipGroupStatus.visibility = View.VISIBLE
         BindingObj.btnExportPdf.visibility = View.VISIBLE
+        BindingObj.btnCapturePersonal.visibility = if (SelectedSessionId.isNotEmpty()) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         BindingObj.tilSearch.hint = getString(R.string.policies_search_hint)
         SessionBackCallback?.isEnabled = true
 
@@ -426,23 +437,101 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun ExportExcel() {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val HasRows = if (SelectedSessionMode == CaptureMode.FUP) {
+            VisibleRenewals().isNotEmpty()
+        } else {
+            VisiblePolicies().isNotEmpty()
+        }
+        if (!HasRows) return
+
+        val AppContext = requireContext().applicationContext
+        val SavedCode = PolicyRepository.GetAgencyCode(
+            ContextRef = AppContext,
+            SessionId = SelectedSessionId
+        )
+        ShowAgencyCodeSheet(ActivityRef = ActivityRef, SavedCode = SavedCode) { EnteredCode ->
+            PolicyRepository.SaveAgencyCode(
+                ContextRef = AppContext,
+                SessionId = SelectedSessionId,
+                AgencyCode = EnteredCode
+            )
+            RunExcelExport(AgencyCodeVal = EnteredCode)
+        }
+    }
+
+    private fun ShowAgencyCodeSheet(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        SavedCode: String,
+        OnConfirm: (String) -> Unit
+    ) {
+        val SheetBinding = SheetAgencyCodeBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.etAgencyCode.setText(SavedCode)
+        SheetBinding.etAgencyCode.setSelection(SavedCode.length)
+        SheetBinding.btnAgencyExport.isEnabled = SavedCode.isNotBlank()
+        SheetBinding.etAgencyCode.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                SheetBinding.btnAgencyExport.isEnabled = !s?.toString().isNullOrBlank()
+            }
+        })
+
+        SheetBinding.btnAgencyExport.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            val EnteredCode = SheetBinding.etAgencyCode.text?.toString()?.trim().orEmpty()
+            if (EnteredCode.isEmpty()) return@setOnClickListener
+            SheetDialog.dismiss()
+            OnConfirm(EnteredCode)
+        }
+        SheetBinding.btnAgencyCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun RunExcelExport(AgencyCodeVal: String) {
         val ExportedFile = if (SelectedSessionMode == CaptureMode.FUP) {
             val VisibleList = VisibleRenewals()
             if (VisibleList.isEmpty()) return
             HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportExcel)
-            ExcelExporter.ExportFupPolicies(ContextRef = requireContext(), Policies = VisibleList)
+            ExcelExporter.ExportFupPolicies(
+                ContextRef = requireContext(),
+                Policies = VisibleList,
+                AgencyCode = AgencyCodeVal
+            )
         } else {
             val VisibleList = VisiblePolicies()
             if (VisibleList.isEmpty()) return
             HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportExcel)
             ExcelExporter.ExportCustomerPolicies(
                 ContextRef = requireContext(),
-                Policies = VisibleList
+                Policies = VisibleList,
+                AgencyCode = AgencyCodeVal
             )
         }
         ShareFile(
             FileRef = ExportedFile,
             MimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    }
+
+    private fun CapturePersonalDetails() {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (SelectedSessionId.isEmpty() || SelectedSessionMode != CaptureMode.POLICY) {
+            CaptureFlow.ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = getString(R.string.capture_customer_no_sessions)
+            )
+            return
+        }
+        CaptureFlow.StartCustomerCapture(
+            ActivityRef = ActivityRef,
+            SessionIdVal = SelectedSessionId
         )
     }
 

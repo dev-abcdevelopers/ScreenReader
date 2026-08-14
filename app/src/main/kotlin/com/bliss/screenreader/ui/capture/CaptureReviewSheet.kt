@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
+import android.widget.Toast
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
@@ -83,7 +84,8 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                     Nodes = SessionObj.RawNodes,
                     PolicyRecords = SessionObj.PolicyRecords,
                     FupRecords = SessionObj.FupRecords,
-                    CapturePolicyDetails = SessionObj.CapturePolicyDetails
+                    CapturePolicyDetails = SessionObj.CapturePolicyDetails,
+                    GapRecords = SessionObj.GapRecords
                 )
             } catch (ExceptionObj: Exception) {
                 CaptureDiagnostics.LogForSession(
@@ -104,6 +106,23 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                         "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +
                         "updated=${CommitBreakdown.UpdatedCount} nodes=${SessionObj.NodeCount}"
             )
+            if (SessionObj.GapRecords.isNotEmpty()) {
+                val GapNumberText = SessionObj.GapRecords.joinToString(",") { GapItem ->
+                    GapItem.PolicyNumber
+                }
+                CaptureDiagnostics.LogForSession(
+                    ContextObj = AppContext,
+                    SessionId = SessionObj.SessionId,
+                    EventName = "SESSION_GAPS",
+                    MessageText = "session=${SessionObj.SessionId} " +
+                            "gaps=${SessionObj.GapRecords.size} policies=$GapNumberText"
+                )
+                Toast.makeText(
+                    AppContext,
+                    getString(R.string.review_gaps_format, SessionObj.GapRecords.size),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(SavedCount)
             dismissAllowingStateLoss()
@@ -158,6 +177,7 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
     private fun ExistingRecordCount(SessionObj: CaptureSession): Int {
         val ContextRef = requireContext().applicationContext
         return when (SessionObj.Mode) {
+            CaptureMode.CUSTOMER,
             CaptureMode.POLICY -> PolicyRepository.GetCustomerPolicies(
                 ContextRef = ContextRef,
                 SessionId = SessionObj.SessionId

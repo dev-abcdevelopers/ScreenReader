@@ -16,6 +16,20 @@ object ScreenDataParser {
     private val PLAN_CODE_REGEX = Regex("^(\\d{1,4})\\s*[-–]")
     private val HOLDER_NAME_REGEX = Regex("^[\\p{L}.']+(?:\\s+[\\p{L}.']+){1,4}$")
 
+    private val ICON_WORDS = setOf(
+        "icon", "arrow", "chevron", "image", "svg", "vector", "logo", "banner",
+        "button", "card", "star", "badge", "avatar", "placeholder", "graphic",
+        "indicator", "checkbox", "radio", "toggle", "spinner", "loader"
+    )
+
+    private val NON_HOLDER_PHRASES = setOf(
+        "call customer", "send reminder", "view all", "filter sort", "add favourite",
+        "remove favourite", "share greetings", "share posters", "based on selected filters",
+        "customer portfolio", "customer dashboard", "detailed customer view",
+        "detailed policy view", "policy dashboard", "your portfolio", "contact details",
+        "personal details", "total sum assured", "annualized premium", "relationship with customer"
+    )
+
     private val POLICY_LABELS = setOf(
         "auto pay", "premium amount", "premium amount (excl. gst)", "send reminder",
         "filter & sort", "all date ranges", "special revival campaign eligible",
@@ -211,6 +225,14 @@ object ScreenDataParser {
             MobileNumber = IncomingPolicy.MobileNumber.ifEmpty { ExistingPolicy.MobileNumber },
             Dob = IncomingPolicy.Dob.ifEmpty { ExistingPolicy.Dob },
             Address = IncomingPolicy.Address.ifEmpty { ExistingPolicy.Address },
+            Email = IncomingPolicy.Email.ifEmpty { ExistingPolicy.Email },
+            Gender = IncomingPolicy.Gender.ifEmpty { ExistingPolicy.Gender },
+            Education = IncomingPolicy.Education.ifEmpty { ExistingPolicy.Education },
+            Occupation = IncomingPolicy.Occupation.ifEmpty { ExistingPolicy.Occupation },
+            MaritalStatus = IncomingPolicy.MaritalStatus.ifEmpty {
+                ExistingPolicy.MaritalStatus
+            },
+            AnnualIncome = IncomingPolicy.AnnualIncome.ifEmpty { ExistingPolicy.AnnualIncome },
             CommissionDateOfPremiumPayment = IncomingPolicy.CommissionDateOfPremiumPayment.ifEmpty {
                 ExistingPolicy.CommissionDateOfPremiumPayment
             },
@@ -250,7 +272,15 @@ object ScreenDataParser {
         if (IsPolicyStatus(TextValue = TrimmedValue) || IsRenewalType(TextValue = TrimmedValue)) return false
         if (TrimmedValue.contains("LIC", ignoreCase = true)) return false
         if (LowerValue.contains("not updated")) return false
+        if (LooksLikeIconDescription(LowerValue = LowerValue)) return false
+        if (NON_HOLDER_PHRASES.any { PhraseText -> LowerValue == PhraseText }) return false
         return true
+    }
+
+    private fun LooksLikeIconDescription(LowerValue: String): Boolean {
+        val WordList = LowerValue.split(Regex("\\s+")).filter { WordText -> WordText.isNotEmpty() }
+        if (WordList.isEmpty()) return false
+        return WordList.any { WordText -> ICON_WORDS.contains(WordText) }
     }
 
     fun ParseDetailedPolicyView(Nodes: List<String>): Map<String, String> {

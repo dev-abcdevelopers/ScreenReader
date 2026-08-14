@@ -13,15 +13,21 @@ import androidx.fragment.app.Fragment
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
+import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentCaptureBinding
+import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.PartialModeRowBinding
 import com.bliss.screenreader.databinding.PartialPreflightRowBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
+import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class CaptureFragment : Fragment() {
 
@@ -59,6 +65,12 @@ class CaptureFragment : Fragment() {
             TitleRes = R.string.capture_mode_fup,
             DescRes = R.string.capture_mode_fup_desc
         )
+        BindModeRow(
+            RowBinding = BindingObj.rowModeCustomer,
+            IconRes = R.drawable.ic_person,
+            TitleRes = R.string.capture_mode_customer,
+            DescRes = R.string.capture_mode_customer_desc
+        )
 
         BindingObj.cardModePolicy.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -67,6 +79,10 @@ class CaptureFragment : Fragment() {
         BindingObj.cardModeFup.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SelectMode(ModeVal = CaptureMode.FUP)
+        }
+        BindingObj.cardModeCustomer.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SelectMode(ModeVal = CaptureMode.CUSTOMER)
         }
 
         BindingObj.btnPrimaryAction.setOnClickListener { OnPrimaryAction() }
@@ -119,7 +135,8 @@ class CaptureFragment : Fragment() {
 
         val Entries = listOf(
             Triple(CaptureMode.POLICY, BindingObj.cardModePolicy, BindingObj.rowModePolicy),
-            Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup)
+            Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup),
+            Triple(CaptureMode.CUSTOMER, BindingObj.cardModeCustomer, BindingObj.rowModeCustomer)
         )
 
         val DensityVal = resources.displayMetrics.density
@@ -239,6 +256,12 @@ class CaptureFragment : Fragment() {
             return
         }
 
+        if (SelectedMode == CaptureMode.CUSTOMER) {
+            HapticFeedback.Tap(ViewRef = BindingObj?.btnPrimaryAction)
+            ShowCustomerSessionPicker(ActivityRef = ActivityRef)
+            return
+        }
+
         StartSelectedCapture(CapturePolicyDetails = false)
     }
 
@@ -259,6 +282,59 @@ class CaptureFragment : Fragment() {
             SheetDialog.dismiss()
         }
         SheetDialog.show()
+    }
+
+    private fun ShowCustomerSessionPicker(ActivityRef: androidx.appcompat.app.AppCompatActivity) {
+        val SessionList = PolicyRepository.GetSessionHistory(ContextRef = ActivityRef)
+            .filter { SessionRef -> SessionRef.Mode == CaptureMode.POLICY }
+            .sortedByDescending { SessionRef -> SessionRef.SavedAt }
+
+        if (SessionList.isEmpty()) {
+            CaptureFlow.ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = getString(R.string.capture_customer_no_sessions)
+            )
+            return
+        }
+
+        val DateFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
+        val SheetBinding = SheetSessionPickerBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        for (SessionRef in SessionList) {
+            val RowBinding = ItemSessionPickBinding.inflate(
+                layoutInflater,
+                SheetBinding.sessionPickContainer,
+                false
+            )
+            RowBinding.tvSessionPickTitle.text = SessionRef.Mode.DescribeCount(
+                CountVal = SessionRef.RecordCount
+            )
+            RowBinding.tvSessionPickMeta.text = getString(
+                R.string.capture_customer_session_format,
+                DateFormatter.format(Date(SessionRef.SavedAt)),
+                SessionRef.SessionId.take(8)
+            )
+            RowBinding.sessionPickCard.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                SheetDialog.dismiss()
+                StartCustomerCapture(SessionIdVal = SessionRef.SessionId)
+            }
+            SheetBinding.sessionPickContainer.addView(RowBinding.root)
+        }
+
+        SheetBinding.btnSessionPickCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun StartCustomerCapture(SessionIdVal: String) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnPrimaryAction)
+        CaptureFlow.StartCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
     }
 
     private fun StartSelectedCapture(CapturePolicyDetails: Boolean) {

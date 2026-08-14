@@ -116,7 +116,13 @@ object PolicyCompleteness {
                 Fields = listOf(
                     FieldEntry(Labels.Mobile, PolicyItem.MobileNumber),
                     FieldEntry(Labels.Dob, PolicyItem.Dob, IsDate = true),
-                    FieldEntry(Labels.Address, PolicyItem.Address)
+                    FieldEntry(Labels.Address, PolicyItem.Address),
+                    FieldEntry(Labels.Email, PolicyItem.Email),
+                    FieldEntry(Labels.Gender, PolicyItem.Gender),
+                    FieldEntry(Labels.Education, PolicyItem.Education),
+                    FieldEntry(Labels.Occupation, PolicyItem.Occupation),
+                    FieldEntry(Labels.MaritalStatus, PolicyItem.MaritalStatus),
+                    FieldEntry(Labels.AnnualIncome, PolicyItem.AnnualIncome)
                 )
             )
         )
@@ -166,6 +172,12 @@ object PolicyCompleteness {
         val Mobile: String,
         val Dob: String,
         val Address: String,
+        val Email: String,
+        val Gender: String,
+        val Education: String,
+        val Occupation: String,
+        val MaritalStatus: String,
+        val AnnualIncome: String,
         val FlagKyc: String,
         val FlagNeft: String,
         val FlagNominee: String,

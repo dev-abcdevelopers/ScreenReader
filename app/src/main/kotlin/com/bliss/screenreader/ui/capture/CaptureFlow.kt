@@ -5,13 +5,70 @@ package com.bliss.screenreader.ui.capture
 import androidx.appcompat.app.AppCompatActivity
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
+import com.bliss.screenreader.databinding.SheetCustomerResumeBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.utils.HapticFeedback
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.snackbar.Snackbar
 
 object CaptureFlow {
+
+    fun StartCustomerCapture(ActivityRef: AppCompatActivity, SessionIdVal: String) {
+        val VisitedNames = PolicyRepository.GetVisitedCustomers(
+            ContextRef = ActivityRef,
+            SessionId = SessionIdVal
+        )
+        if (VisitedNames.isEmpty()) {
+            LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
+            return
+        }
+
+        val OutstandingCount = PolicyRepository
+            .GetCustomerPolicies(ContextRef = ActivityRef, SessionId = SessionIdVal)
+            .count { PolicyItem -> !RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem) }
+
+        val SheetBinding = SheetCustomerResumeBinding.inflate(ActivityRef.layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.tvCustomerResumeBody.text = ActivityRef.getString(
+            R.string.customer_resume_body,
+            VisitedNames.size,
+            OutstandingCount
+        )
+        SheetBinding.btnCustomerResume.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
+        }
+        SheetBinding.btnCustomerRestart.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            PolicyRepository.ClearVisitedCustomers(
+                ContextRef = ActivityRef,
+                SessionId = SessionIdVal
+            )
+            LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
+        }
+        SheetBinding.btnCustomerResumeCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun LaunchCustomerCapture(ActivityRef: AppCompatActivity, SessionIdVal: String) {
+        Start(
+            ActivityRef = ActivityRef,
+            ModeVal = CaptureMode.CUSTOMER,
+            LaunchTarget = true,
+            ResumeSessionId = SessionIdVal
+        )
+    }
 
     fun Start(
         ActivityRef: AppCompatActivity,
@@ -41,7 +98,12 @@ object CaptureFlow {
                 ContextRef = ActivityRef,
                 SessionId = ResumeSessionId
             )
-            if (SessionRef == null || SessionRef.Mode != ModeVal) {
+            val RequiredMode = if (ModeVal == CaptureMode.CUSTOMER) {
+                CaptureMode.POLICY
+            } else {
+                ModeVal
+            }
+            if (SessionRef == null || SessionRef.Mode != RequiredMode) {
                 ShowMessage(
                     ActivityRef = ActivityRef,
                     MessageVal = ActivityRef.getString(R.string.capture_resume_mismatch)
