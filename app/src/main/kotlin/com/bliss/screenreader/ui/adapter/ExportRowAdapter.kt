@@ -42,7 +42,6 @@ class ExportRowAdapter(
             if (IsPdf) R.string.exports_kind_pdf else R.string.exports_kind_excel
         )
 
-        // The filename carries a timestamp nobody reads; show the intent instead.
         holder.BindingRef.tvExportTitle.text = FriendlyName(FileRef = FileRef)
 
         val SizeLabel = Formatter.formatShortFileSize(ContextRef, FileRef.length())

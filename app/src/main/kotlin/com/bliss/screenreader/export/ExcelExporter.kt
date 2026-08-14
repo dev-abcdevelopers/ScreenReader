@@ -15,19 +15,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Every exported sheet follows one contract so importers never have to parse
- * display text:
- *
- * - date columns hold ISO-8601 `yyyy-MM-dd` strings, or are empty
- * - amount columns hold real numeric cells - no `₹`, no thousands separators,
- *   no `/Month` suffix - with the frequency split into its own column
- * - identifier columns (policy number, mobile) stay text, so leading zeros
- *   survive and nothing turns into scientific notation
- *
- * A value that could not be normalised leaves its cell empty rather than
- * writing a guess, and is logged so a parser gap is visible.
- */
 object ExcelExporter {
 
     fun ExportCustomerPolicies(ContextRef: Context, Policies: List<CustomerPolicy>): File {
@@ -114,8 +101,6 @@ object ExcelExporter {
             WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PlanCode))
             WriteText(DataRow, 2, PolicyItem.PlanName)
             WriteText(DataRow, 3, PolicyItem.HolderName)
-            // The capture carries amount and frequency in one string
-            // ("₹1,221/Month"), so the export splits them.
             WriteNumber(DataRow, 4, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
             WriteText(DataRow, 5, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
             WriteText(DataRow, 6, ExportFormat.IsoDate(PolicyItem.DueDate))
@@ -164,7 +149,6 @@ object ExcelExporter {
         )
     }
 
-    // ---------------------------------------------------------------- writing
 
     private fun WriteHeaders(RowRef: Row, HeadersList: Array<String>) {
         for (Idx in HeadersList.indices) {
@@ -176,11 +160,6 @@ object ExcelExporter {
         RowRef.createCell(ColumnIdx).setCellValue(ValueText)
     }
 
-    /**
-     * A null value leaves the cell blank rather than writing zero. Zero is a
-     * real amount - a commission of nothing is meaningful - and must not stand
-     * in for "not captured".
-     */
     private fun WriteNumber(RowRef: Row, ColumnIdx: Int, ValueNumber: Double?) {
         val CellRef = RowRef.createCell(ColumnIdx)
         if (ValueNumber != null) CellRef.setCellValue(ValueNumber)

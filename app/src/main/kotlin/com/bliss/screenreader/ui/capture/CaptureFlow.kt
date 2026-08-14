@@ -11,16 +11,8 @@ import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.google.android.material.snackbar.Snackbar
 
-/**
- * Shared entry and exit points for the three capture screens, so each activity
- * only has to say which [CaptureMode] it wants.
- */
 object CaptureFlow {
 
-    /**
-     * Starts a capture and hands control to the bubble. Returns false when a
-     * prerequisite is missing, having already told the user which one.
-     */
     fun Start(
         ActivityRef: AppCompatActivity,
         ModeVal: CaptureMode,
@@ -44,8 +36,6 @@ object CaptureFlow {
             return false
         }
 
-        // Merging a renewal capture into a policy session, or vice versa, would
-        // write records the reader for that mode cannot parse.
         if (ResumeSessionId.isNotBlank()) {
             val SessionRef = PolicyRepository.GetSessionReference(
                 ContextRef = ActivityRef,
@@ -60,8 +50,6 @@ object CaptureFlow {
             }
         }
 
-        // A screen that finishes itself on start must nominate somewhere else to
-        // come back to, or the service reopens a dead activity.
         ServiceInstance.StartCaptureSession(
             ModeVal = ModeVal,
             CapturePolicyDetailsVal = CapturePolicyDetails,
@@ -81,9 +69,6 @@ object CaptureFlow {
                 FreshStartVal = true
             )
             if (!LaunchSucceeded) {
-                // StartCaptureSession runs first so accessibility events cannot
-                // be missed while Android switches applications. Roll it back
-                // when the requested target is unavailable.
                 ServiceInstance.DiscardCaptureSession()
                 return false
             }
@@ -101,10 +86,6 @@ object CaptureFlow {
         return true
     }
 
-    /**
-     * Call from onResume. Presents the review sheet if a finished capture for
-     * this mode is waiting, and reports back how many records were saved.
-     */
     fun ShowPendingReview(
         ActivityRef: AppCompatActivity,
         ModeVal: CaptureMode,
@@ -114,8 +95,6 @@ object CaptureFlow {
         if (SessionObj.Mode != ModeVal) return
         if (ActivityRef.supportFragmentManager.isStateSaved) return
 
-        // A sheet can survive a rotation while its callback does not, so an
-        // existing instance is re-attached rather than skipped.
         val ExistingSheet = ActivityRef.supportFragmentManager
             .findFragmentByTag(CaptureReviewSheet.TAG) as? CaptureReviewSheet
         if (ExistingSheet != null) {

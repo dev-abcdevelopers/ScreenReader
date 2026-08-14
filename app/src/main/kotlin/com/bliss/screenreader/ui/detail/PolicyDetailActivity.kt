@@ -1,18 +1,20 @@
-@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
+    "SameParameterValue", "SpellCheckingInspection"
+)
 
 package com.bliss.screenreader.ui.detail
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
+import androidx.core.view.isEmpty
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
@@ -33,14 +35,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * The record view, organised by how the data was captured.
- *
- * Fields are grouped by the screen they came from rather than by topic, so an
- * incomplete group names the exact thing to go back and fetch — and the same
- * rule the capture service uses to decide whether an accordion was read drives
- * what this screen calls missing.
- */
+
 class PolicyDetailActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityPolicyDetailBinding
@@ -75,20 +70,17 @@ class PolicyDetailActivity : AppCompatActivity() {
             PolicyItem = ResolvedPolicy,
             Labels = BuildLabels()
         )
-        BindCompleteness(SummaryVal = SummaryVal, PolicyRef = ResolvedPolicy)
-        BindGroups(SummaryVal = SummaryVal, PolicyRef = ResolvedPolicy)
+        BindCompleteness(SummaryVal = SummaryVal)
+        BindGroups(SummaryVal = SummaryVal)
         BindRenewalHistory(PolicyRef = ResolvedPolicy)
         BindProvenance(PolicyRef = ResolvedPolicy)
     }
 
-    // ---------------------------------------------------------------- header
 
     private fun BindHeader(PolicyRef: CustomerPolicy) {
         ViewBindingObj.tvDetailNumber.text =
             PolicyRef.PolicyNumber.ifEmpty { getString(R.string.detail_missing) }
 
-        // Age was rendered here but no parser ever populates it, so the
-        // suffix was permanently dead. Holder name stands alone.
         ViewBindingObj.tvDetailHolder.text =
             PolicyRef.HolderName.ifEmpty { getString(R.string.status_unknown) }
 
@@ -104,15 +96,14 @@ class PolicyDetailActivity : AppCompatActivity() {
 
         ViewBindingObj.btnCopyNumber.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
-            CopyValue(LabelText = getString(R.string.detail_copy_number), ValueText = PolicyRef.PolicyNumber)
+            CopyValue(
+                LabelText = getString(R.string.detail_copy_number),
+                ValueText = PolicyRef.PolicyNumber
+            )
         }
     }
 
-    /**
-     * Status first, then any "not updated" markers. These markers are absence
-     * flags, not fields, so they never count toward completeness — an empty
-     * one means the customer is fine.
-     */
+
     private fun BindFlagChips(PolicyRef: CustomerPolicy) {
         ViewBindingObj.chipGroupFlags.removeAllViews()
 
@@ -139,7 +130,7 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
 
         ViewBindingObj.chipGroupFlags.visibility =
-            if (ViewBindingObj.chipGroupFlags.childCount == 0) View.GONE else View.VISIBLE
+            if (ViewBindingObj.chipGroupFlags.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun AddChip(LabelText: String, BackgroundRes: Int, TextColorRes: Int) {
@@ -153,7 +144,6 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.chipGroupFlags.addView(ChipRef)
     }
 
-    // --------------------------------------------------------------- actions
 
     private fun BindActions(PolicyRef: CustomerPolicy) {
         val MobileNumber = PolicyRef.MobileNumber.filter { CharValue ->
@@ -168,7 +158,7 @@ class PolicyDetailActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             LaunchIntentSafely(
-                IntentObj = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$MobileNumber"))
+                IntentObj = Intent(Intent.ACTION_DIAL, "tel:$MobileNumber".toUri())
             )
         }
 
@@ -179,7 +169,7 @@ class PolicyDetailActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             LaunchIntentSafely(
-                IntentObj = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$MobileNumber"))
+                IntentObj = Intent(Intent.ACTION_SENDTO, "smsto:$MobileNumber".toUri())
             )
         }
 
@@ -189,10 +179,6 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * A lapsed policy's revival window is the only genuinely time-critical
-     * thing on this screen, so it is promoted out of the field list.
-     */
     private fun BindRevival(PolicyRef: CustomerPolicy) {
         val IsLapsed = PolicyRef.NormalizedStatus.equals("Lapsed", ignoreCase = true)
         val DueDateIso = ExportFormat.IsoDate(RawText = PolicyRef.RenewalDueDate)
@@ -209,11 +195,9 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.tvRevivalDate.text = DueDateIso
     }
 
-    // ---------------------------------------------------------- completeness
 
     private fun BindCompleteness(
-        SummaryVal: PolicyCompleteness.Summary,
-        PolicyRef: CustomerPolicy
+        SummaryVal: PolicyCompleteness.Summary
     ) {
         ViewBindingObj.tvCompletenessLabel.text = getString(
             R.string.detail_completeness_format,
@@ -256,8 +240,7 @@ class PolicyDetailActivity : AppCompatActivity() {
     }
 
     private fun BindGroups(
-        SummaryVal: PolicyCompleteness.Summary,
-        PolicyRef: CustomerPolicy
+        SummaryVal: PolicyCompleteness.Summary
     ) {
         ViewBindingObj.groupContainer.removeAllViews()
 
@@ -296,8 +279,6 @@ class PolicyDetailActivity : AppCompatActivity() {
 
             AddGroupFields(FieldContainer = GroupBinding.groupFields, GroupRef = GroupRef)
 
-            // A group with nothing in it explains why rather than showing a
-            // column of dashes.
             if (GroupRef.IsEmpty && !GroupRef.IsCapturable) {
                 GroupBinding.tvGroupEmpty.visibility = View.VISIBLE
                 GroupBinding.tvGroupEmpty.setText(R.string.detail_group_empty_customer)
@@ -319,7 +300,7 @@ class PolicyDetailActivity : AppCompatActivity() {
             RowBinding.tvFieldLabel.text = FieldRef.Label
             RowBinding.tvFieldValue.text = FormatForDisplay(FieldRef = FieldRef)
 
-            // Agents retype these into other systems constantly.
+
             RowBinding.root.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
                 CopyValue(LabelText = FieldRef.Label, ValueText = FieldRef.Value)
@@ -328,13 +309,12 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Dates are normalised on screen too, so they match what an export holds. */
+
     private fun FormatForDisplay(FieldRef: PolicyCompleteness.FieldEntry): String {
         if (!FieldRef.IsDate) return FieldRef.Value
         return ExportFormat.IsoDate(RawText = FieldRef.Value).ifEmpty { FieldRef.Value }
     }
 
-    // ------------------------------------------------------------- renewals
 
     private fun BindRenewalHistory(PolicyRef: CustomerPolicy) {
         val RenewalList = PolicyRepository.GetFupPolicies(ContextRef = this)
@@ -357,11 +337,7 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Set unconditionally. It used to be assigned at the end of the
-     * more-fields binder, after an early return, so a sparse policy silently
-     * lost its capture date.
-     */
+
     private fun BindProvenance(PolicyRef: CustomerPolicy) {
         val CapturedLabel = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
             .format(Date(PolicyRef.CapturedAt))
@@ -391,13 +367,7 @@ class PolicyDetailActivity : AppCompatActivity() {
             getString(R.string.detail_captured_at_format, CapturedLabel)
     }
 
-    // --------------------------------------------------------------- capture
 
-    /**
-     * Resumes the session this policy belongs to in full-detail mode. The
-     * capture service skips policies whose sections are already complete, so
-     * this run only chases what is missing.
-     */
     private fun ResumeCaptureForPolicy() {
         val StartedOk = CaptureFlow.Start(
             ActivityRef = this,
@@ -426,11 +396,10 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
     }
 
-    // --------------------------------------------------------------- helpers
 
     private fun CopyValue(LabelText: String, ValueText: String) {
         if (ValueText.isEmpty()) return
-        val ClipboardRef = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val ClipboardRef = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         ClipboardRef.setPrimaryClip(ClipData.newPlainText(LabelText, ValueText))
         ShowMessage(MessageVal = getString(R.string.detail_copied_format, LabelText))
     }
@@ -503,7 +472,6 @@ class PolicyDetailActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_POLICY_NUMBER = "extra_policy_number"
         const val EXTRA_SESSION_ID = "extra_session_id"
-
         private const val MIN_DIALABLE_DIGITS = 6
         private const val SESSION_ID_PREVIEW_LENGTH = 8
     }

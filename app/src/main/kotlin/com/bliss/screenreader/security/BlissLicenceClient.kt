@@ -25,7 +25,7 @@ object BlissLicenceClient {
     }
 
     fun BuildUrl(BaseUrl: String, DeviceIdText: String, ArgsText: String): String =
-        BaseUrl + "?message=format!" + DeviceIdText + "!" + ArgsText
+        "$BaseUrl?message=format!$DeviceIdText!$ArgsText"
 
     fun IsUsableDeviceId(DeviceIdText: String): Boolean =
         DeviceIdText.length >= MIN_ID_LENGTH && DeviceIdText != BROKEN_ANDROID_ID

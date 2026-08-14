@@ -27,10 +27,6 @@ class CaptureSessionAdapter(
 
     private val DateFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
 
-    /**
-     * The single row whose delete action is revealed. Only one can be open, so
-     * opening another closes the previous one.
-     */
     private var OpenSessionId: String = ""
 
     fun IsRowOpen(SessionId: String): Boolean = OpenSessionId == SessionId
@@ -77,8 +73,6 @@ class CaptureSessionAdapter(
         val BindingRef = holder.BindingRef
         val ContextRef = BindingRef.root.context
 
-        // Sessions from different modes now share this list, so the row has to
-        // say what kind of capture it was rather than assume policies.
         val CaptureType = ContextRef.getString(
             when {
                 SessionRef.Mode == CaptureMode.FUP -> R.string.sessions_type_renewals
@@ -106,8 +100,6 @@ class CaptureSessionAdapter(
             R.string.sessions_id_format,
             SessionRef.SessionId
         )
-        // A revealed row is parked, not dismissed, so the delete icon stays
-        // tappable until the user acts on it or taps the row to close it.
         val IsOpen = OpenSessionId == SessionRef.SessionId
         BindingRef.sessionRowRoot.translationX = if (IsOpen) RevealWidthPx(holder) else 0f
 
@@ -120,8 +112,6 @@ class CaptureSessionAdapter(
             }
         }
         BindingRef.btnSessionResume.setOnClickListener { ViewRef ->
-            // A policy resume opens the fast/full picker first, so the commit
-            // haptic belongs downstream rather than here.
             HapticFeedback.Tap(ViewRef = ViewRef)
             CloseOpenRow()
             OnResumeClick(SessionRef)
@@ -140,7 +130,6 @@ class CaptureSessionAdapter(
     @SuppressLint("NotifyDataSetChanged")
     fun UpdateData(NewSessions: List<PolicyRepository.CaptureSessionReference>) {
         SessionList = NewSessions
-        // A row that no longer exists cannot stay open.
         if (NewSessions.none { SessionRef -> SessionRef.SessionId == OpenSessionId }) {
             OpenSessionId = ""
         }

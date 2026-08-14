@@ -23,11 +23,6 @@ import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 
-/**
- * Home. One mode picker, one button, and warnings that appear only when a
- * prerequisite is genuinely missing — the old screen kept two permission rows
- * on display forever, long after they stopped being interesting.
- */
 class CaptureFragment : Fragment() {
 
     private var ViewBindingObj: FragmentCaptureBinding? = null
@@ -49,8 +44,6 @@ class CaptureFragment : Fragment() {
 
         savedInstanceState?.getString(KEY_MODE)?.let {
             val RestoredMode = CaptureMode.FromName(NameVal = it)
-            // A state bundle saved before PS was hidden would otherwise restore
-            // a mode that no longer has a visible card to select.
             SelectedMode = if (RestoredMode == CaptureMode.PS) CaptureMode.POLICY else RestoredMode
         }
 
@@ -76,8 +69,6 @@ class CaptureFragment : Fragment() {
             SelectMode(ModeVal = CaptureMode.FUP)
         }
 
-        // The haptic lives in OnPrimaryAction, not here: this button either
-        // commits or opens a sheet, and those should not feel the same.
         BindingObj.btnPrimaryAction.setOnClickListener { OnPrimaryAction() }
 
         ObserveCaptureState()
@@ -96,7 +87,6 @@ class CaptureFragment : Fragment() {
         outState.putString(KEY_MODE, SelectedMode.name)
     }
 
-    // ------------------------------------------------------------ selection
 
     private fun BindModeRow(
         RowBinding: PartialModeRowBinding,
@@ -127,14 +117,11 @@ class CaptureFragment : Fragment() {
         val TextDefault = ContextCompat.getColor(ContextRef, R.color.text_primary)
         val IconDefault = ContextCompat.getColor(ContextRef, R.color.text_secondary)
 
-        // PS is hidden from the picker for now; its card stays in the layout
-        // with visibility=gone so nothing else has to change to bring it back.
         val Entries = listOf(
             Triple(CaptureMode.POLICY, BindingObj.cardModePolicy, BindingObj.rowModePolicy),
             Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup)
         )
 
-        // strokeWidth is in pixels, so the dp values have to be converted.
         val DensityVal = resources.displayMetrics.density
         val StrokeSelectedPx = (2 * DensityVal).toInt()
         val StrokeDefaultPx = (1 * DensityVal).toInt().coerceAtLeast(1)
@@ -152,12 +139,7 @@ class CaptureFragment : Fragment() {
         }
     }
 
-    // ------------------------------------------------------------ preflight
 
-    /**
-     * Rebuilds the banner stack from scratch each resume. When everything is
-     * granted the container is empty and the picker moves up the screen.
-     */
     private fun RenderPreflight() {
         val BindingObj = ViewBindingObj ?: return
         val ContextRef = BindingObj.root.context
@@ -199,7 +181,6 @@ class CaptureFragment : Fragment() {
         }
     }
 
-    // --------------------------------------------------------- capture state
 
     private fun ObserveCaptureState() {
         CaptureSessionState.IsCapturingLive.observe(viewLifecycleOwner) { RenderActionState() }
@@ -253,7 +234,6 @@ class CaptureFragment : Fragment() {
         }
 
         if (SelectedMode == CaptureMode.POLICY) {
-            // Opening the picker is not yet a commitment.
             HapticFeedback.Tap(ViewRef = BindingObj?.btnPrimaryAction)
             ShowPolicyCaptureModeSheet(ActivityRef = ActivityRef)
             return
@@ -283,11 +263,8 @@ class CaptureFragment : Fragment() {
 
     private fun StartSelectedCapture(CapturePolicyDetails: Boolean) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
-        // The single commit point for both the direct and the sheet path.
         HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnPrimaryAction)
 
-        // The accessibility service waits until the correct target screen is
-        // visible before starting any mode-specific automation.
         val StartedOk = CaptureFlow.Start(
             ActivityRef = ActivityRef,
             ModeVal = SelectedMode,

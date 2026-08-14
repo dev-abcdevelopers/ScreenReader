@@ -13,16 +13,10 @@ import com.bliss.screenreader.security.SecurePrefs
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
-/**
- * Persists each accepted capture under its own session key. Calls without an
- * explicit session id read the latest accepted session for that mode, keeping
- * existing list/detail/export screens isolated without changing their API.
- */
 object PolicyRepository {
 
     const val PREFS_NAME = "data_reader_prefs"
 
-    // Pre-session keys are retained as a read-only migration fallback.
     private const val KEY_CUSTOMER_POLICIES = "key_customer_policies"
     private const val KEY_FUP_POLICIES = "key_fup_policies"
     private const val KEY_PS_POLICIES = "key_ps_policies"
@@ -34,15 +28,10 @@ object PolicyRepository {
     private const val SESSION_KEY_PREFIX = "capture_session"
     private const val CHANGE_KEY_PREFIX = "capture_changes"
 
-    /** A repeatedly resumed session must not grow its log without bound. */
     private const val MAX_CHANGE_ENTRIES = 500
 
     private val GsonInstance = Gson()
 
-    /**
-     * New fields carry defaults so Gson reads history written before they
-     * existed without a migration step.
-     */
     data class CaptureSessionReference(
         val SessionId: String,
         val Mode: CaptureMode,
@@ -216,15 +205,6 @@ object PolicyRepository {
         }
     }
 
-    /**
-     * Removes a session entirely: its records, its change log and its history
-     * entry.
-     *
-     * If it was the latest session for its mode, the pointer is moved to the
-     * next most recent one rather than cleared. Leaving it dangling would make
-     * every session-less read return nothing even though other sessions still
-     * exist.
-     */
     fun DeleteSession(ContextRef: Context, SessionId: String, ModeVal: CaptureMode): Boolean {
         if (SessionId.isBlank()) return false
 
@@ -290,9 +270,6 @@ object PolicyRepository {
                 Mode = ModeVal,
                 SavedAt = CurrentTime,
                 RecordCount = Records.size,
-                // A fast resume of a session originally captured in full mode
-                // must not downgrade the flag and make the row claim details
-                // were never collected.
                 CapturePolicyDetails = CapturePolicyDetails ||
                         ExistingRef?.CapturePolicyDetails == true,
                 LastResumedAt = if (ExistingRef == null) 0L else CurrentTime,

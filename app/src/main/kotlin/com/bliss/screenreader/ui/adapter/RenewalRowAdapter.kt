@@ -12,10 +12,6 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.databinding.ItemRenewalRowBinding
 
-/**
- * Renewal history rows. Unlike a policy row these are read-only: there is no
- * per-renewal detail screen, so the row does not handle clicks.
- */
 class RenewalRowAdapter(
     private var RenewalList: List<FupPolicy> = emptyList()
 ) : RecyclerView.Adapter<RenewalRowAdapter.RenewalViewHolder>() {
@@ -81,10 +77,6 @@ class RenewalRowAdapter(
         BindStatus(BindingRef = BindingRef, StatusText = RenewalItem.Status)
     }
 
-    /**
-     * "Paid on Time" reads as healthy, anything mentioning grace, late or a
-     * miss reads as a problem.
-     */
     private fun BindStatus(BindingRef: ItemRenewalRowBinding, StatusText: String) {
         if (StatusText.isEmpty()) {
             BindingRef.tvRenewalStatus.visibility = View.GONE

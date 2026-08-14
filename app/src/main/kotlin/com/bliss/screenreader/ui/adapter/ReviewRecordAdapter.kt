@@ -11,10 +11,6 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.databinding.ItemReviewRecordBinding
 
-/**
- * Renders the parsed preview rows in the review sheet. Rows that parsed thinly
- * are tinted amber so the user can spot them before saving rather than after.
- */
 class ReviewRecordAdapter(
     private var RecordList: List<ParsedRecord> = emptyList()
 ) : RecyclerView.Adapter<ReviewRecordAdapter.RecordViewHolder>() {

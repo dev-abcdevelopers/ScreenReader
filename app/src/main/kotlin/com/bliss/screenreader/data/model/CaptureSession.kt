@@ -4,11 +4,6 @@ package com.bliss.screenreader.data.model
 
 import java.util.Locale
 
-/**
- * Which screen of the target app a capture session is reading, and therefore
- * which parser runs over the collected nodes. The three capture flows differ
- * only by this value.
- */
 enum class CaptureMode(val DisplayName: String, val RecordNounSingular: String, val RecordNounPlural: String) {
 
     POLICY("Policy Details", "policy", "policies"),
@@ -32,11 +27,6 @@ enum class CaptureMode(val DisplayName: String, val RecordNounSingular: String, 
     }
 }
 
-/**
- * One row in the post-capture review sheet. Deliberately display-only: it carries
- * enough to let the user judge whether the parse worked, not the record itself.
- * The typed model is rebuilt from the raw nodes at save time.
- */
 data class ParsedRecord(
     val PolicyNumber: String,
     val PrimaryLine: String,
@@ -47,12 +37,6 @@ data class ParsedRecord(
     val HasWarning: Boolean get() = Warning.isNotEmpty()
 }
 
-/**
- * The result of a capture, held in memory between the service finishing and the
- * user accepting or discarding it. Typed policy records are retained here so
- * details collected on separate screens cannot become associated with another
- * policy. Nothing reaches storage until the review is confirmed.
- */
 data class CaptureSession(
     val SessionId: String,
     val Mode: CaptureMode,

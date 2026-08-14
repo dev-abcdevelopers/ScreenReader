@@ -2,25 +2,6 @@
 
 package com.bliss.screenreader.data.model
 
-/**
- * Groups a [CustomerPolicy]'s fields by the screen they were captured from,
- * and reports how much of each group actually landed.
- *
- * Grouping by capture source rather than by topic is what makes "missing" both
- * computable and actionable: a group maps one-to-one onto a screen or an
- * accordion in the target app, so an incomplete group names the exact thing to
- * go back and capture.
- *
- * Two deliberate exclusions from the denominator:
- *
- * - **Status flags** (KYC, NEFT, nominee, mobile, address) are absence markers.
- *   The parser only writes them when the source app says "not updated", so an
- *   empty value means the customer is fine, not that capture failed. Counting
- *   them would make a healthy policy look incomplete.
- * - **Customer profile** fields have no capture path yet - nothing navigates to
- *   that screen - so they are shown when present but never counted as missing.
- *   A denominator that cannot be reached trains people to ignore the bar.
- */
 object PolicyCompleteness {
 
     data class FieldEntry(
@@ -34,9 +15,7 @@ object PolicyCompleteness {
         val Key: String,
         val Title: String,
         val Fields: List<FieldEntry>,
-        /** False for groups the app cannot capture yet. */
         val IsCountedTowardTotal: Boolean,
-        /** False when the app has no way to go and fetch this group. */
         val IsCapturable: Boolean
     ) {
         val CapturedCount: Int get() = Fields.count { FieldRef -> FieldRef.Value.isNotEmpty() }
@@ -132,7 +111,6 @@ object PolicyCompleteness {
             FieldGroup(
                 Key = GROUP_CUSTOMER,
                 Title = Labels.CustomerTitle,
-                // Read-only until a customer-profile capture flow exists.
                 IsCountedTowardTotal = false,
                 IsCapturable = false,
                 Fields = listOf(
@@ -151,10 +129,6 @@ object PolicyCompleteness {
         )
     }
 
-    /**
-     * Status markers shown as chips rather than counted as fields. Present
-     * means "the source app flagged a problem".
-     */
     fun StatusFlags(PolicyItem: CustomerPolicy, Labels: LabelSet): List<String> {
         val FlagList = mutableListOf<String>()
         if (PolicyItem.KycStatus.isNotEmpty()) FlagList.add(Labels.FlagKyc)
@@ -165,7 +139,6 @@ object PolicyCompleteness {
         return FlagList
     }
 
-    /** Labels are passed in so this stays free of Android resource lookups. */
     data class LabelSet(
         val CardTitle: String,
         val PolicyDetailsTitle: String,

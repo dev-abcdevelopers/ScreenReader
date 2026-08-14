@@ -73,7 +73,7 @@ object BlissLicenceStore {
     }
 
     fun DaysSinceLastCheck(LastOkAt: Long, NowMillis: Long): Int {
-        if (LastOkAt <= 0L || NowMillis < LastOkAt) return 0
+        if (LastOkAt !in 1..NowMillis) return 0
         return ((NowMillis - LastOkAt) / 86_400_000L).toInt()
     }
 

@@ -16,10 +16,7 @@ import com.bliss.screenreader.databinding.FragmentExportsBinding
 import com.bliss.screenreader.ui.adapter.ExportRowAdapter
 import java.io.File
 
-/**
- * A log of what has been exported rather than a folder listing. A filename says
- * nothing; the row says what kind of file it is, how big, and when.
- */
+
 class ExportsFragment : Fragment() {
 
     private var ViewBindingObj: FragmentExportsBinding? = null

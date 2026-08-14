@@ -21,11 +21,6 @@ import com.bliss.screenreader.ui.raw.RawCaptureActivity
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
-/**
- * Shown after every capture. This is the only place a capture reaches storage,
- * so a parse that came back wrong costs a tap rather than the whole session.
- * The raw nodes stay reachable from here for the same reason.
- */
 class CaptureReviewSheet : BottomSheetDialogFragment() {
 
     private var ViewBindingObj: SheetCaptureReviewBinding? = null
@@ -71,8 +66,6 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         }
 
         BindingObj.btnReviewDiscard.setOnClickListener { ViewRef ->
-            // Discarding throws away the whole capture, so it gets the
-            // negative pattern rather than the same tick as saving.
             HapticFeedback.Reject(ViewRef = ViewRef)
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(0)
@@ -115,10 +108,6 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         }
     }
 
-    /**
-     * Long captures would otherwise push the action buttons off the bottom of
-     * the sheet, so past four rows the list scrolls instead of growing.
-     */
     private fun CapListHeight(BindingObj: SheetCaptureReviewBinding, RecordCount: Int) {
         if (RecordCount <= MAX_VISIBLE_ROWS) return
         val DensityVal = resources.displayMetrics.density
@@ -151,8 +140,6 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         )
         BindingObj.btnReviewSave.visibility = View.VISIBLE
 
-        // On a resumed session most records already exist, so a plain "Save 87
-        // policies" would overstate what this run actually contributed.
         val ExistingCount = ExistingRecordCount(SessionObj = SessionObj)
         BindingObj.btnReviewSave.text = if (ExistingCount > 0) {
             val NewCount = (RecordCount - ExistingCount).coerceAtLeast(0)
@@ -166,10 +153,6 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         BindingObj.btnReviewDiscard.setText(R.string.review_discard)
     }
 
-    /**
-     * How many records this session already had before the current run. Zero
-     * for a fresh capture, so the normal wording is used.
-     */
     private fun ExistingRecordCount(SessionObj: CaptureSession): Int {
         val ContextRef = requireContext().applicationContext
         return when (SessionObj.Mode) {

@@ -1,4 +1,6 @@
-@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
+    "SameParameterValue"
+)
 
 package com.bliss.screenreader.service
 
@@ -49,6 +51,7 @@ import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.UUID
+import kotlin.math.abs
 
 @SuppressLint("AccessibilityPolicy")
 class ScreenReaderService : AccessibilityService() {
@@ -281,7 +284,7 @@ class ScreenReaderService : AccessibilityService() {
         Instance = this
 
         val ServiceConfigInfo = AccessibilityServiceInfo().apply {
-            eventTypes = android.view.accessibility.AccessibilityEvent.TYPES_ALL_MASK
+            eventTypes = AccessibilityEvent.TYPES_ALL_MASK
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
@@ -769,11 +772,7 @@ class ScreenReaderService : AccessibilityService() {
         }?.key
     }
 
-    /**
-     * Re-emits the merged records in the card layout the parser expects, so the
-     * raw-node view and any re-parse of [CapturedNodes] stay consistent with
-     * the typed records carried on the session.
-     */
+
     private fun RebuildCapturedRenewalNodes() {
         CapturedNodes.clear()
         for (RecordItem in CapturedFupMap.values) {
@@ -1119,13 +1118,7 @@ class ScreenReaderService : AccessibilityService() {
         MainHandler.post(TickRunnable)
     }
 
-    /**
-     * Loads a previously saved session back into the in-memory maps so this
-     * run merges into it instead of starting empty. Without this a resumed
-     * capture would still commit correctly - the merge happens at save time -
-     * but the live counter and the review sheet would show only the new rows,
-     * and a full capture would re-open every policy it already collected.
-     */
+
     private fun SeedFromStoredSession() {
         when (CurrentMode) {
             CaptureMode.POLICY -> {
@@ -1222,12 +1215,16 @@ class ScreenReaderService : AccessibilityService() {
         TeardownSession()
 
         val RecordList = try {
-            if (CurrentMode == CaptureMode.POLICY && CapturedPolicyMap.isNotEmpty()) {
-                CaptureParsers.PreviewPolicies(Policies = CapturedPolicyMap.values.toList())
-            } else if (CurrentMode == CaptureMode.FUP && CapturedFupMap.isNotEmpty()) {
-                CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
-            } else {
-                CaptureParsers.Preview(ModeVal = CurrentMode, Nodes = NodeSnapshot)
+            when (CurrentMode) {
+                CaptureMode.POLICY if CapturedPolicyMap.isNotEmpty() -> {
+                    CaptureParsers.PreviewPolicies(Policies = CapturedPolicyMap.values.toList())
+                }
+                CaptureMode.FUP if CapturedFupMap.isNotEmpty() -> {
+                    CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
+                }
+                else -> {
+                    CaptureParsers.Preview(ModeVal = CurrentMode, Nodes = NodeSnapshot)
+                }
             }
         } catch (_: Exception) {
             emptyList()
@@ -1363,7 +1360,7 @@ class ScreenReaderService : AccessibilityService() {
             if (IsPolicyDetailScreen(VisibleNodes = VisibleNodes)) {
                 IsPolicyDetailScreenActive = true
                 IsPolicyDashboardScreenVisible = false
-                TryAutoExpandPolicySections(RootNode = RootNode, VisibleNodes = VisibleNodes)
+                TryAutoExpandPolicySections(VisibleNodes = VisibleNodes)
                 return
             }
 
@@ -1835,7 +1832,7 @@ class ScreenReaderService : AccessibilityService() {
             ?.takeIf { BoundsObj -> IsBoundsOnScreen(BoundsObj = BoundsObj) }
             ?.centerY()
             ?.toFloat()
-            ?: DisplayMetricsObj.heightPixels * PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO
+            ?: (DisplayMetricsObj.heightPixels * PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO)
         val TargetX = DisplayMetricsObj.widthPixels * PORTFOLIO_POLICIES_ARROW_X_RATIO
         val TapAccepted = PerformTapGesture(XPos = TargetX, YPos = TargetY)
         DiagnosticInfo(
@@ -2207,7 +2204,7 @@ class ScreenReaderService : AccessibilityService() {
         PolicyDetailReturnAttempts++
         if (PolicyDetailReturnAttempts >= POLICY_DETAIL_RETURN_LIMIT) {
             FailPolicyDashboardAutomation(
-                "Could not return from policy ${PolicyDetailCurrentPolicyNumber}"
+                "Could not return from policy $PolicyDetailCurrentPolicyNumber"
             )
             return
         }
@@ -2457,7 +2454,7 @@ class ScreenReaderService : AccessibilityService() {
                 return@SchedulePolicyAction
             }
 
-            if (PolicyTotalPages > 0 && PolicyCurrentPage > PolicyTotalPages) {
+            if (PolicyTotalPages in 1..<PolicyCurrentPage) {
                 CompletePolicyDashboardAutomation()
                 return@SchedulePolicyAction
             }
@@ -3291,10 +3288,10 @@ class ScreenReaderService : AccessibilityService() {
 
         val MatchedViewAll = ViewAllCandidates
             .filter { NodeEntry ->
-                Math.abs(NodeEntry.second.centerY() - HeaderBounds.centerY()) <= RowTolerance
+                abs(NodeEntry.second.centerY() - HeaderBounds.centerY()) <= RowTolerance
             }
             .minByOrNull { NodeEntry ->
-                Math.abs(NodeEntry.second.centerY() - HeaderBounds.centerY())
+                abs(NodeEntry.second.centerY() - HeaderBounds.centerY())
             }
             ?: return false
 
@@ -3603,7 +3600,7 @@ class ScreenReaderService : AccessibilityService() {
                     "controlOnScreen=$IsSelectorActuallyVisible returnAttempts=$RenewalReturnToTopCount"
         )
         if (IsSelectorActuallyVisible) {
-            if (RenewalTotalPages > 0 && RenewalCurrentPage >= RenewalTotalPages) {
+            if (RenewalTotalPages in 1..RenewalCurrentPage) {
                 CompleteRenewalAutomation()
             } else {
                 OpenRenewalPageSelector()
@@ -3723,7 +3720,7 @@ class ScreenReaderService : AccessibilityService() {
                 return@ScheduleRenewalAction
             }
 
-            if (RenewalTotalPages > 0 && RenewalCurrentPage > RenewalTotalPages) {
+            if (RenewalTotalPages in 1..<RenewalCurrentPage) {
                 CompleteRenewalAutomation()
                 return@ScheduleRenewalAction
             }
@@ -4105,7 +4102,6 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun TryAutoExpandPolicySections(
-        RootNode: AccessibilityNodeInfo,
         VisibleNodes: List<String>
     ) {
         val IsDetailedPolicyScreen = VisibleNodes.any { NodeText ->
@@ -4229,7 +4225,7 @@ class ScreenReaderService : AccessibilityService() {
             }
 
             val LabelCentreY = LabelBounds.centerY().toFloat()
-            if (LabelCentreY > BottomLimit || LabelCentreY < TopLimit) {
+            if (LabelCentreY !in TopLimit..BottomLimit) {
                 val ScrollForward = LabelCentreY > BottomLimit
                 val ScrollAccepted = PerformPolicyScroll(
                     ForwardVal = ScrollForward,
@@ -4572,8 +4568,8 @@ class ScreenReaderService : AccessibilityService() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    val DiffXVal = kotlin.math.abs(MotionEvt.rawX - InitialTouchXVal)
-                    val DiffYVal = kotlin.math.abs(MotionEvt.rawY - InitialTouchYVal)
+                    val DiffXVal = abs(MotionEvt.rawX - InitialTouchXVal)
+                    val DiffYVal = abs(MotionEvt.rawY - InitialTouchYVal)
                     if (DiffXVal < TouchSlopPx && DiffYVal < TouchSlopPx) {
                         ViewRef.performClick()
                         ToggleBubbleExpanded()

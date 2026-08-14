@@ -26,11 +26,6 @@ object ScreenDataParser {
         return DATE_REGEX.matcher(InputStr.trim()).matches()
     }
 
-    /**
-     * Parses every visible card on the Policy Dashboard. A session calls this
-     * for each scroll position and merges results by policy number, so cards
-     * that were only partly visible in one snapshot are completed by the next.
-     */
     fun ParsePolicyDashboard(Nodes: List<String>): List<CustomerPolicy> {
         val CleanNodes = Nodes
             .flatMap { NodeText -> NodeText.split("\n") }
@@ -156,8 +151,6 @@ object ScreenDataParser {
                 ForwardIdx++
             }
 
-            // The label arrives as "945 - LIC'S JEEVAN UMANG PLAN"; the code
-            // and the name are stored apart so neither has to be re-parsed.
             val (PlanCode, PlanNameOnly) = PlanIdentity.Split(RawLabel = PlanName)
             val IncomingPolicy = CustomerPolicy(
                 HolderName = HolderName,

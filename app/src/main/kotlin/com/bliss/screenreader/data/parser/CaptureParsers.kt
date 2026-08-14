@@ -11,21 +11,8 @@ import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.repository.PolicyRepository
 import java.util.regex.Pattern
 
-/**
- * Single dispatch point between a [CaptureMode] and the parser that handles it.
- *
- * [Preview] is cheap and side effect free, so it can run repeatedly while a
- * capture is still in progress to drive the live count on the overlay.
- * [Commit] is the only path that writes to storage, and it only runs once the
- * user has accepted the review sheet.
- */
 object CaptureParsers {
 
-    /**
-     * Set by the most recent [Commit]. The review sheet reads it to say how
-     * many records were added versus updated; a resumed capture that only
-     * filled gaps would otherwise report a bare total that reads as new work.
-     */
     @Volatile
     var LastCommitResult: CommitResult = CommitResult(AddedCount = 0, UpdatedCount = 0)
         private set
@@ -47,7 +34,6 @@ object CaptureParsers {
         }
     }
 
-    /** Writes the parsed records to storage. Returns how many were saved. */
     fun Commit(
         ContextRef: Context,
         SessionId: String,
@@ -81,7 +67,6 @@ object CaptureParsers {
         }
     }
 
-    // ---------------------------------------------------------------- policy
 
     fun BuildPolicy(Nodes: List<String>): CustomerPolicy {
         val DetailsMap = ScreenDataParser.ParseDetailedPolicyView(Nodes = Nodes)
@@ -137,10 +122,6 @@ object CaptureParsers {
         }
     }
 
-    /**
-     * How a commit changed the stored session. A resumed capture that only
-     * filled gaps adds nothing, so a bare total would read as "0 saved".
-     */
     data class CommitResult(val AddedCount: Int, val UpdatedCount: Int) {
         val TotalCount: Int get() = AddedCount + UpdatedCount
     }
@@ -250,7 +231,6 @@ object CaptureParsers {
         }
     }
 
-    // -------------------------------------------------------------------- ps
 
     private fun PreviewPs(Nodes: List<String>): List<ParsedRecord> {
         return PsDataParser.ParsePsPolicies(Nodes = Nodes).map { PsItem ->
@@ -300,7 +280,6 @@ object CaptureParsers {
         return AddedCount
     }
 
-    // ------------------------------------------------------------------- fup
 
     private fun PreviewFup(Nodes: List<String>): List<ParsedRecord> {
         return PreviewFupRecords(Records = FupDataParser.ParseRenewalHistory(Nodes = Nodes))
@@ -359,8 +338,6 @@ object CaptureParsers {
         var AddedCount = 0
         var UpdatedCount = 0
 
-        // Previously this skipped anything whose key was already known, so a
-        // resumed capture could never fill in a field missed the first time.
         for (FupItem in ParsedList) {
             val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
                 FupItem.PolicyNumber.isNotEmpty() &&
@@ -396,7 +373,6 @@ object CaptureParsers {
         return AddedCount + UpdatedCount
     }
 
-    // --------------------------------------------------------------- helpers
 
     private fun FindPolicyNumber(Nodes: List<String>): String {
         for (NodeText in Nodes) {

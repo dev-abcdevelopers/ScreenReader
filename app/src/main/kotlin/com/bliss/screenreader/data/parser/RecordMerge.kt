@@ -6,15 +6,6 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
 
-/**
- * Field-level merge used when a capture is resumed into an existing session.
- *
- * The rule is "newest non-empty value wins": an incoming value replaces what is
- * stored, but a blank never erases anything. A capture that could not read a
- * field - because a section stayed collapsed, or a card scrolled past - reports
- * it as empty, and treating that as an authoritative answer would delete good
- * data on every resume.
- */
 object RecordMerge {
 
     data class MergeOutcome<RecordType>(
@@ -22,12 +13,6 @@ object RecordMerge {
         val Changes: List<RecordFieldChange>
     )
 
-    /**
-     * Returns the value to keep, appending to [ChangeSink] only when a real
-     * replacement happened. Filling a blank is the expected outcome of a
-     * resume, so it is not logged; logging it would bury the entries that
-     * actually warrant a second look.
-     */
     fun ResolveField(
         RecordKey: String,
         FieldName: String,
@@ -183,20 +168,10 @@ object RecordMerge {
         return MergeOutcome(Record = MergedItem, Changes = ChangeSink)
     }
 
-    /**
-     * A policy renews repeatedly, so identity is the policy number *and* the
-     * date the premium was paid. Keying on the number alone would collapse
-     * separate payments into one row.
-     */
     fun RenewalKey(RecordItem: FupPolicy): String {
         return "${RecordItem.PolicyNumber}|${RecordItem.PaymentDate}"
     }
 
-    /**
-     * Whether every collapsible section of the detailed policy view was read.
-     * Mirrors the three-section check the capture service uses, so a resumed
-     * full capture only skips a policy that was genuinely completed.
-     */
     fun HasCompletePolicyDetails(PolicyItem: CustomerPolicy): Boolean {
         val HasPolicyDetails = PolicyItem.TermPPT.isNotEmpty()
         val HasCommissions = PolicyItem.CommissionType.isNotEmpty() ||

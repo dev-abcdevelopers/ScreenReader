@@ -16,11 +16,7 @@ import com.bliss.screenreader.ui.capture.CaptureFragment
 import com.bliss.screenreader.ui.exports.ExportsFragment
 import com.bliss.screenreader.ui.policies.PoliciesFragment
 
-/**
- * The shell. Three tabs, one back stack, and a single place that owns window
- * insets. Replaces the old launcher grid, which sent every task through a
- * separate activity and gave the app no home to return to.
- */
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityMainBinding
@@ -45,24 +41,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Safety net for restore. If a saved state comes back with nothing attached,
-     * or with everything hidden, the container would render empty with no way
-     * out except reelecting a tab.
-     */
+
     override fun onStart() {
         super.onStart()
         val ManagerRef = supportFragmentManager
-        val NothingShowing = ManagerRef.fragments.none { !it.isHidden && it.tag?.startsWith("tab_") == true }
+        val NothingShowing =
+            ManagerRef.fragments.none { !it.isHidden && it.tag?.startsWith("tab_") == true }
         if (NothingShowing) {
             ShowTab(ItemId = ViewBindingObj.bottomNav.selectedItemId)
         }
     }
 
-    /**
-     * The status bar inset goes to the fragment container so each tab can put
-     * its own header under it; the navigation bar inset goes to the bar itself.
-     */
     private fun ApplyInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(ViewBindingObj.root) { _, WindowInsetsObj ->
             val BarInsets = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.systemBars())

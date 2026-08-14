@@ -9,15 +9,6 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ItemCaptureSessionBinding
 import com.bliss.screenreader.utils.HapticFeedback
 
-/**
- * Right-swipe on a session row to reveal its delete action.
- *
- * The row is never dismissed by the swipe itself. [onSwiped] parks it open and
- * hands control back to the adapter, so deleting always takes a second,
- * deliberate tap on the revealed icon - a swipe alone cannot destroy a session.
- *
- * Only the foreground is translated; the delete layer underneath stays put.
- */
 class SessionSwipeCallback(
     private val AdapterRef: CaptureSessionAdapter
 ) : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.RIGHT) {
@@ -28,10 +19,6 @@ class SessionSwipeCallback(
         target: RecyclerView.ViewHolder
     ): Boolean = false
 
-    /**
-     * The same RecyclerView also shows policy and renewal rows, which have no
-     * delete action, so swipe is enabled only for session rows.
-     */
     override fun getMovementFlags(
         recyclerView: RecyclerView,
         viewHolder: RecyclerView.ViewHolder
@@ -40,17 +27,12 @@ class SessionSwipeCallback(
         return super.getMovementFlags(recyclerView, viewHolder)
     }
 
-    /** A short drag should reveal; the row is small and easy to overshoot. */
     override fun getSwipeThreshold(viewHolder: RecyclerView.ViewHolder): Float = 0.25f
 
     override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
         val SessionRef = AdapterRef.SessionAt(PositionVal = viewHolder.bindingAdapterPosition)
             ?: return
-        // A light tick confirms the reveal landed. Deliberately not the
-        // destructive pattern - nothing has been deleted yet.
         HapticFeedback.Tap(ViewRef = viewHolder.itemView)
-        // Re-binds the row, which resets the swipe animation and applies the
-        // parked translation from the adapter instead.
         AdapterRef.OpenRow(SessionId = SessionRef.SessionId)
     }
 
@@ -69,8 +51,6 @@ class SessionSwipeCallback(
             return
         }
 
-        // Clamped to the same width the adapter parks the row at, so releasing
-        // the swipe does not visibly jump to a different offset.
         val MaxRevealPx = ForegroundView.resources
             .getDimensionPixelSize(R.dimen.touch_min)
             .toFloat()
