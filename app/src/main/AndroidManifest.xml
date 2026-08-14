@@ -22,32 +22,20 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DataReaderApp">
 
-        <!--
-          Neither gate carries the LAUNCHER filter here. Each flavour manifest
-          adds it to the one gate that flavour uses, so a build can only ever
-          have a single entry point.
-        -->
         <activity
             android:name=".ui.licence.LicenceActivity"
             android:exported="false"
-            android:label="@string/app_name"
             android:launchMode="singleTask" />
 
         <activity
             android:name=".ui.auth.AuthActivity"
             android:exported="false"
-            android:label="@string/app_name"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />
 
-        <!--
-          singleTask so the accessibility service can bring the shell back to
-          front when a capture finishes, without stacking duplicates.
-        -->
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="false"
-            android:label="@string/app_name"
             android:launchMode="singleTask" />
 
         <activity
