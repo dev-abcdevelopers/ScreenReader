@@ -9,31 +9,14 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.annotation.RequiresApi
 
-/**
- * Haptics for actions worth feeling.
- *
- * Two families, because the app acts in two places:
- *
- * - [Tap] / [Confirm] / [Reject] run through the view, so Android's own
- *   "touch feedback" setting is respected and nothing fires for a user who
- *   turned it off.
- * - [Success] / [Failure] run through the vibrator, because they report the
- *   end of an automated capture. By then the phone is showing the target app
- *   and the agent is not looking at this one, so the signal has to be
- *   noticeable rather than polite.
- *
- * Nothing here is load-bearing: every call degrades to silence if the device
- * has no vibrator or the API is unavailable.
- */
+
 object HapticFeedback {
-
-    /** A light tick for a reversible state change, such as revealing a row. */
     fun Tap(ViewRef: View?) {
         ViewRef?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
     }
 
-    /** A committed positive action: capture started, records saved, resumed. */
     fun Confirm(ViewRef: View?) {
         val ConstantVal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             HapticFeedbackConstants.CONFIRM
@@ -43,7 +26,6 @@ object HapticFeedback {
         ViewRef?.performHapticFeedback(ConstantVal)
     }
 
-    /** A destructive or discarding action: session deleted, capture thrown away. */
     fun Reject(ViewRef: View?) {
         val ConstantVal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             HapticFeedbackConstants.REJECT
@@ -53,7 +35,7 @@ object HapticFeedback {
         ViewRef?.performHapticFeedback(ConstantVal)
     }
 
-    /** Automation finished on its own. Two pulses: "it worked, come back". */
+
     fun Success(ContextRef: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PlayPredefined(
@@ -68,7 +50,7 @@ object HapticFeedback {
         }
     }
 
-    /** Automation stopped or paused itself. One longer, heavier pulse. */
+
     fun Failure(ContextRef: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PlayPredefined(
@@ -83,6 +65,7 @@ object HapticFeedback {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun PlayPredefined(ContextRef: Context, EffectId: Int) {
         val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
         try {
