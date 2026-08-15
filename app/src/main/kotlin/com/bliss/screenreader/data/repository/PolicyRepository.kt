@@ -235,6 +235,70 @@ object PolicyRepository {
         return StoredGaps.filterNot { GapItem -> CapturedNumbers.contains(GapItem.PolicyNumber) }
     }
 
+    fun GetStoredSessionGaps(ContextRef: Context, SessionId: String): List<SessionGap> {
+        if (SessionId.isBlank()) return emptyList()
+        return ReadStoredGaps(ContextRef = ContextRef, SessionId = SessionId)
+    }
+
+    fun RestoreSession(
+        ContextRef: Context,
+        SessionRef: CaptureSessionReference,
+        Policies: List<CustomerPolicy>,
+        Renewals: List<FupPolicy>,
+        Servicing: List<PsPolicy>,
+        Gaps: List<SessionGap>,
+        Changes: Map<CaptureMode, List<RecordFieldChange>>,
+        VisitedCustomers: List<String>,
+        AgencyCode: String
+    ) {
+        val SessionId = SessionRef.SessionId
+        if (SessionId.isBlank()) return
+
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        PrefsObj.edit {
+            if (Policies.isNotEmpty()) {
+                putString(
+                    SessionStorageKey(ModeVal = CaptureMode.POLICY, SessionId = SessionId),
+                    GsonInstance.toJson(Policies)
+                )
+            }
+            if (Renewals.isNotEmpty()) {
+                putString(
+                    SessionStorageKey(ModeVal = CaptureMode.FUP, SessionId = SessionId),
+                    GsonInstance.toJson(Renewals)
+                )
+            }
+            if (Servicing.isNotEmpty()) {
+                putString(
+                    SessionStorageKey(ModeVal = CaptureMode.PS, SessionId = SessionId),
+                    GsonInstance.toJson(Servicing)
+                )
+            }
+            if (Gaps.isNotEmpty()) {
+                putString(GapStorageKey(SessionId = SessionId), GsonInstance.toJson(Gaps))
+            }
+            for ((ModeVal, ChangeList) in Changes) {
+                if (ChangeList.isEmpty()) continue
+                putString(
+                    ChangeStorageKey(ModeVal = ModeVal, SessionId = SessionId),
+                    GsonInstance.toJson(ChangeList.take(MAX_CHANGE_ENTRIES))
+                )
+            }
+            if (VisitedCustomers.isNotEmpty()) {
+                putString(
+                    VisitedStorageKey(SessionId = SessionId),
+                    GsonInstance.toJson(VisitedCustomers)
+                )
+            }
+            if (AgencyCode.isNotBlank()) {
+                putString(AgencyStorageKey(SessionId = SessionId), AgencyCode)
+            }
+            putString(LatestSessionKey(ModeVal = SessionRef.Mode), SessionId)
+        }
+
+        RegisterSession(ContextRef = ContextRef, SessionRef = SessionRef)
+    }
+
     private fun ReadStoredGaps(ContextRef: Context, SessionId: String): List<SessionGap> {
         val JsonText = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
             .getString(GapStorageKey(SessionId = SessionId), null) ?: return emptyList()

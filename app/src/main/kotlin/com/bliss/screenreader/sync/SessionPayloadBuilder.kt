@@ -21,6 +21,7 @@ object SessionPayloadBuilder {
     private const val UPLOAD_DIR_NAME = "Upload"
     private const val FALLBACK_AGENCY_CODE = "unknown"
     private const val MAX_CODE_LENGTH = 64
+    private const val PAYLOAD_EXTENSION = ".json"
 
     private val GsonInstance: Gson = GsonBuilder().serializeNulls().create()
 
@@ -32,7 +33,7 @@ object SessionPayloadBuilder {
     }
 
     fun ObjectKeyFor(AgencyCode: String): String =
-        "${NormalizeAgencyCode(AgencyCode = AgencyCode)}.json"
+        "${NormalizeAgencyCode(AgencyCode = AgencyCode)}$PAYLOAD_EXTENSION"
 
     fun Build(
         ContextRef: Context,

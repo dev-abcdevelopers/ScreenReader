@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import com.bliss.screenreader.BuildConfig
 import com.bliss.screenreader.service.CaptureDiagnostics
+import java.io.File
 import java.util.concurrent.Executors
 
 object SessionUploader {
@@ -92,6 +93,11 @@ object SessionUploader {
             val ObjectKey = SessionPayloadBuilder.ObjectKeyFor(AgencyCode = PayloadObj.AgencyCode)
             val PayloadBytes = PayloadFile.length()
 
+            val PrimaryPath = SessionUploadClient.ResolveSignPath(
+                UploadUrl = BuildConfig.UPLOAD_URL,
+                SignPath = BuildConfig.UPLOAD_SIGN_PATH
+            )
+
             LogUpload(
                 ContextRef = ContextRef,
                 SessionId = SessionId,
@@ -99,27 +105,53 @@ object SessionUploader {
                 MessageText = "session=$SessionId agency=${PayloadObj.AgencyCode} key=$ObjectKey " +
                     "policies=${PayloadObj.Policies.size} renewals=${PayloadObj.Renewals.size} " +
                     "servicing=${PayloadObj.Servicing.size} gaps=${PayloadObj.Gaps.size} " +
-                    "bytes=$PayloadBytes saved=${PayloadFile.absolutePath}"
+                    "bytes=$PayloadBytes url=${BuildConfig.UPLOAD_URL} " +
+                    "filename=${SessionUploadClient.UploadFileName(FileKey = ObjectKey)} " +
+                    "signpath=$PrimaryPath build=${BuildConfig.BUILD_TYPE} " +
+                    "keylen=${BuildConfig.UPLOAD_APP_KEY.length} " +
+                    "keyfp=${SessionUploadClient.Fingerprint(ValueText = BuildConfig.UPLOAD_APP_KEY)} " +
+                    "secretlen=${BuildConfig.UPLOAD_APP_SECRET.length} " +
+                    "secretfp=${SessionUploadClient.Fingerprint(ValueText = BuildConfig.UPLOAD_APP_SECRET)} " +
+                    "saved=${PayloadFile.absolutePath}"
             )
 
             val StartedAt = System.currentTimeMillis()
-            val UploadOutcome = SessionUploadClient.Upload(
-                UploadUrl = BuildConfig.UPLOAD_URL,
-                SignPath = BuildConfig.UPLOAD_SIGN_PATH,
-                AppKey = BuildConfig.UPLOAD_APP_KEY,
-                AppSecret = BuildConfig.UPLOAD_APP_SECRET,
-                FileRef = PayloadFile,
-                FileKey = ObjectKey,
-                OnAttemptFailure = { AttemptIndex, HttpCode, MessageVal ->
+            var SignPathUsed = PrimaryPath
+            var UploadOutcome = AttemptUpload(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                ObjectKey = ObjectKey,
+                SignPathVal = PrimaryPath,
+                PayloadFile = PayloadFile
+            )
+
+            val AuthFailure = UploadOutcome as? SessionUploadClient.Result.Failure
+            if (AuthFailure != null &&
+                SessionUploadClient.IsAuthRejection(HttpCode = AuthFailure.HttpCode)
+            ) {
+                val AlternatePath = SessionUploadClient.AlternateSignPath(
+                    UploadUrl = BuildConfig.UPLOAD_URL,
+                    UsedPath = PrimaryPath
+                )
+                if (AlternatePath.isNotEmpty()) {
                     LogUpload(
                         ContextRef = ContextRef,
                         SessionId = SessionId,
-                        EventName = "UPLOAD_RETRY",
+                        EventName = "UPLOAD_SIGNPATH_RETRY",
                         MessageText = "session=$SessionId key=$ObjectKey " +
-                            "attempt=${AttemptIndex + 1} http=$HttpCode error=$MessageVal"
+                            "rejected=$PrimaryPath retrying=$AlternatePath " +
+                            "http=${AuthFailure.HttpCode} error=${AuthFailure.Message}"
+                    )
+                    SignPathUsed = AlternatePath
+                    UploadOutcome = AttemptUpload(
+                        ContextRef = ContextRef,
+                        SessionId = SessionId,
+                        ObjectKey = ObjectKey,
+                        SignPathVal = AlternatePath,
+                        PayloadFile = PayloadFile
                     )
                 }
-            )
+            }
             val ElapsedMs = System.currentTimeMillis() - StartedAt
 
             when (UploadOutcome) {
@@ -130,7 +162,8 @@ object SessionUploader {
                         EventName = "UPLOAD_OK",
                         MessageText = "session=$SessionId key=${UploadOutcome.Key} " +
                             "etag=${UploadOutcome.ETag} records=${PayloadObj.TotalRecordCount} " +
-                            "bytes=$PayloadBytes ms=$ElapsedMs"
+                            "bytes=$PayloadBytes signpath=$SignPathUsed " +
+                            "ms=$ElapsedMs"
                     )
                     Outcome.Uploaded(
                         Key = UploadOutcome.Key,
@@ -144,7 +177,8 @@ object SessionUploader {
                         SessionId = SessionId,
                         EventName = "UPLOAD_FAILED",
                         MessageText = "session=$SessionId key=$ObjectKey " +
-                            "http=${UploadOutcome.HttpCode} bytes=$PayloadBytes ms=$ElapsedMs " +
+                            "http=${UploadOutcome.HttpCode} bytes=$PayloadBytes " +
+                            "signpath=$SignPathUsed ms=$ElapsedMs " +
                             "error=${UploadOutcome.Message}"
                     )
                     Outcome.Failed(Message = UploadOutcome.Message)
@@ -161,6 +195,30 @@ object SessionUploader {
             Outcome.Failed(Message = ErrorRef.message.orEmpty().ifEmpty { "Upload failed" })
         }
     }
+
+    private fun AttemptUpload(
+        ContextRef: Context,
+        SessionId: String,
+        ObjectKey: String,
+        SignPathVal: String,
+        PayloadFile: File
+    ): SessionUploadClient.Result = SessionUploadClient.Upload(
+        UploadUrl = BuildConfig.UPLOAD_URL,
+        SignPath = SignPathVal,
+        AppKey = BuildConfig.UPLOAD_APP_KEY,
+        AppSecret = BuildConfig.UPLOAD_APP_SECRET,
+        FileRef = PayloadFile,
+        FileKey = ObjectKey,
+        OnAttemptFailure = { AttemptIndex, HttpCode, MessageVal ->
+            LogUpload(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                EventName = "UPLOAD_RETRY",
+                MessageText = "session=$SessionId key=$ObjectKey signpath=$SignPathVal " +
+                    "attempt=${AttemptIndex + 1} http=$HttpCode error=$MessageVal"
+            )
+        }
+    )
 
     private fun LogUpload(
         ContextRef: Context,

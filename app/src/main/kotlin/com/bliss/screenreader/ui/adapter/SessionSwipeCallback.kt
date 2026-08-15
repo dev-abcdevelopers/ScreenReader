@@ -13,6 +13,8 @@ class SessionSwipeCallback(
     private val AdapterRef: CaptureSessionAdapter
 ) : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.RIGHT) {
 
+    private var TickedHolderRef: RecyclerView.ViewHolder? = null
+
     override fun onMove(
         recyclerView: RecyclerView,
         viewHolder: RecyclerView.ViewHolder,
@@ -32,7 +34,7 @@ class SessionSwipeCallback(
     override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
         val SessionRef = AdapterRef.SessionAt(PositionVal = viewHolder.bindingAdapterPosition)
             ?: return
-        HapticFeedback.Tap(ViewRef = viewHolder.itemView)
+        HapticFeedback.Confirm(ViewRef = viewHolder.itemView)
         AdapterRef.OpenRow(SessionId = SessionRef.SessionId)
     }
 
@@ -56,12 +58,24 @@ class SessionSwipeCallback(
             .toFloat()
         val ClampedDx = dX.coerceIn(0f, MaxRevealPx)
 
+        if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE && isCurrentlyActive) {
+            if (ClampedDx >= MaxRevealPx * TICK_FRACTION) {
+                if (TickedHolderRef !== viewHolder) {
+                    TickedHolderRef = viewHolder
+                    HapticFeedback.Tap(ViewRef = ForegroundView)
+                }
+            } else if (TickedHolderRef === viewHolder) {
+                TickedHolderRef = null
+            }
+        }
+
         getDefaultUIUtil().onDraw(
             c, recyclerView, ForegroundView, ClampedDx, dY, actionState, isCurrentlyActive
         )
     }
 
     override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+        if (TickedHolderRef === viewHolder) TickedHolderRef = null
         val ForegroundView = ForegroundOf(viewHolder = viewHolder) ?: return
         getDefaultUIUtil().clearView(ForegroundView)
     }
@@ -69,6 +83,10 @@ class SessionSwipeCallback(
     override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
         val ForegroundView = viewHolder?.let { HolderRef -> ForegroundOf(viewHolder = HolderRef) }
         if (ForegroundView != null) getDefaultUIUtil().onSelected(ForegroundView)
+    }
+
+    companion object {
+        private const val TICK_FRACTION = 0.55f
     }
 
     private fun ForegroundOf(viewHolder: RecyclerView.ViewHolder) =

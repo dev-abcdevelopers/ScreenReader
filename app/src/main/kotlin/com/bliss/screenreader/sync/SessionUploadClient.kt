@@ -13,6 +13,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -58,6 +59,26 @@ object SessionUploadClient {
         } catch (_: Exception) {
             DEFAULT_SIGN_PATH
         }
+    }
+
+    fun AlternateSignPath(UploadUrl: String, UsedPath: String): String {
+        val UrlPath = try {
+            URL(UploadUrl).path.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        if (UrlPath.isNotEmpty() && UrlPath != UsedPath) return UrlPath
+        if (UsedPath != DEFAULT_SIGN_PATH) return DEFAULT_SIGN_PATH
+        return ""
+    }
+
+    fun IsAuthRejection(HttpCode: Int): Boolean = HttpCode == 401 || HttpCode == 403
+
+    fun Fingerprint(ValueText: String): String {
+        if (ValueText.isEmpty()) return "none"
+        val DigestBytes = MessageDigest.getInstance("SHA-256")
+            .digest(ValueText.toByteArray(Charsets.UTF_8))
+        return DigestBytes.take(4).joinToString("") { ByteVal -> "%02x".format(ByteVal) }
     }
 
     fun Upload(
@@ -143,7 +164,10 @@ object SessionUploadClient {
             )
         )
 
-        val PreambleBytes = BuildPreamble(FileKey = FileKey, FileName = FileRef.name)
+        val PreambleBytes = BuildPreamble(
+            FileKey = FileKey,
+            FileName = UploadFileName(FileKey = FileKey)
+        )
         val EpilogueBytes = "$LINE_END--$BOUNDARY--$LINE_END".toByteArray(Charsets.UTF_8)
         val ContentLength = PreambleBytes.size + FileRef.length() + EpilogueBytes.size
 
@@ -191,6 +215,9 @@ object SessionUploadClient {
             }
         }
     }
+
+    fun UploadFileName(FileKey: String): String =
+        FileKey.substringAfterLast('/').ifEmpty { FileKey }
 
     private fun BuildPreamble(FileKey: String, FileName: String): ByteArray {
         val BuilderRef = StringBuilder()

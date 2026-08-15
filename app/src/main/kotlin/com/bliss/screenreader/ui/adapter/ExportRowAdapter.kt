@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.ItemExportRowBinding
+import com.bliss.screenreader.sync.SessionBundleStore
 import com.bliss.screenreader.utils.HapticFeedback
 import java.io.File
 import java.text.SimpleDateFormat
@@ -64,6 +65,9 @@ class ExportRowAdapter(
 
     private fun KindRes(FileRef: File): Int = when {
         FileRef.name.endsWith(".pdf", ignoreCase = true) -> R.string.exports_kind_pdf
+        SessionBundleStore.IsBundleFile(FileNameVal = FileRef.name) ->
+            R.string.exports_kind_backup
+
         FileRef.name.endsWith(".json", ignoreCase = true) -> R.string.exports_kind_json
         else -> R.string.exports_kind_excel
     }
