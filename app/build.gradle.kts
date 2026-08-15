@@ -1,6 +1,11 @@
+@file:Suppress("LocalVariableName", "FunctionName")
+
 plugins {
     id("com.android.application")
 }
+
+fun UploadProperty(NameText: String): String =
+    (project.findProperty(NameText) as? String)?.trim().orEmpty()
 
 android {
     namespace = "com.bliss.screenreader"
@@ -27,6 +32,19 @@ android {
             buildConfigField("String", "LICENCE_ARGS", "\"1!1!1!1!COMBO!1!1\"")
             buildConfigField("String", "SUPPORT_PHONE", "\"+919716720049\"")
             buildConfigField("String", "SUPPORT_PHONE_DISPLAY", "\"+91 97167 20049\"")
+            buildConfigField("boolean", "UPLOAD_ENABLED", "true")
+            buildConfigField(
+                "String",
+                "UPLOAD_URL",
+                "\"${UploadProperty("blissUploadUrl").ifEmpty { "https://bmaservices.in/agdata/upload.php" }}\""
+            )
+            buildConfigField(
+                "String",
+                "UPLOAD_SIGN_PATH",
+                "\"${UploadProperty("blissUploadSignPath").ifEmpty { "/upload.php" }}\""
+            )
+            buildConfigField("String", "UPLOAD_APP_KEY", "\"${UploadProperty("blissUploadAppKey")}\"")
+            buildConfigField("String", "UPLOAD_APP_SECRET", "\"${UploadProperty("blissUploadAppSecret")}\"")
         }
         create("digi") {
             dimension = "brand"
@@ -37,12 +55,17 @@ android {
             buildConfigField("String", "LICENCE_ARGS", "\"\"")
             buildConfigField("String", "SUPPORT_PHONE", "\"\"")
             buildConfigField("String", "SUPPORT_PHONE_DISPLAY", "\"\"")
+            buildConfigField("boolean", "UPLOAD_ENABLED", "false")
+            buildConfigField("String", "UPLOAD_URL", "\"\"")
+            buildConfigField("String", "UPLOAD_SIGN_PATH", "\"\"")
+            buildConfigField("String", "UPLOAD_APP_KEY", "\"\"")
+            buildConfigField("String", "UPLOAD_APP_SECRET", "\"\"")
         }
     }
 
     buildTypes {
         getByName("debug") {
-            buildConfigField("boolean", "BYPASS_AUTH", "false")
+            buildConfigField("boolean", "BYPASS_AUTH", "true")
         }
         getByName("release") {
             buildConfigField("boolean", "BYPASS_AUTH", "false")

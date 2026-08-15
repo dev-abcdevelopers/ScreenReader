@@ -22,24 +22,44 @@ object CaptureFlow {
             ContextRef = ActivityRef,
             SessionId = SessionIdVal
         )
-        if (VisitedNames.isEmpty()) {
+        val PolicyList = PolicyRepository.GetCustomerPolicies(
+            ContextRef = ActivityRef,
+            SessionId = SessionIdVal
+        )
+        val FilledCount = PolicyList.count { PolicyItem ->
+            RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem)
+        }
+        val OutstandingCount = PolicyList.size - FilledCount
+
+        if (VisitedNames.isEmpty() && FilledCount == 0) {
             LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
             return
         }
-
-        val OutstandingCount = PolicyRepository
-            .GetCustomerPolicies(ContextRef = ActivityRef, SessionId = SessionIdVal)
-            .count { PolicyItem -> !RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem) }
 
         val SheetBinding = SheetCustomerResumeBinding.inflate(ActivityRef.layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
 
-        SheetBinding.tvCustomerResumeBody.text = ActivityRef.getString(
-            R.string.customer_resume_body,
-            VisitedNames.size,
-            OutstandingCount
-        )
+        val BodyText = buildString {
+            append(
+                ActivityRef.getString(
+                    R.string.customer_resume_body,
+                    FilledCount,
+                    PolicyList.size,
+                    OutstandingCount
+                )
+            )
+            if (VisitedNames.isNotEmpty()) {
+                append(" ")
+                append(
+                    ActivityRef.getString(
+                        R.string.customer_resume_visited,
+                        VisitedNames.size
+                    )
+                )
+            }
+        }
+        SheetBinding.tvCustomerResumeBody.text = BodyText
         SheetBinding.btnCustomerResume.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             SheetDialog.dismiss()

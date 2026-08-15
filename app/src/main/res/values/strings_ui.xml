@@ -117,13 +117,22 @@
     <string name="policies_capture_personal">Capture personal details</string>
     <string name="action_cancel">Cancel</string>
     <string name="customer_resume_title">Continue where you left off?</string>
-    <string name="customer_resume_body">%1$d customer(s) were already visited for this session, and %2$d policy(ies) still have no personal details.</string>
+    <string name="customer_resume_body">%1$d of %2$d policy(ies) in this session already have personal details, and %3$d still have none.</string>
+    <string name="customer_resume_visited">%1$d customer(s) were visited in an earlier run.</string>
     <string name="customer_resume_continue">Resume — skip visited customers</string>
     <string name="customer_resume_restart">Start fresh — visit everyone again</string>
     <string name="export_agency_title">Agency code</string>
     <string name="export_agency_body">This is written into every row of the spreadsheet. It is remembered for this session and can be changed here any time.</string>
     <string name="export_agency_hint">Agency code</string>
     <string name="export_agency_confirm">Export</string>
+    <string name="export_agency_upload_body">This names the file on the server. The whole session is uploaded as agencycode.json and replaces whatever that agency sent before.</string>
+    <string name="export_agency_upload_confirm">Upload</string>
+    <string name="policies_upload">Upload to server</string>
+    <string name="upload_started">Uploading session\u2026</string>
+    <string name="upload_success_format">Uploaded %1$s \u00b7 %2$d record(s)</string>
+    <string name="upload_failed_format">Upload failed: %1$s</string>
+    <string name="upload_not_configured">Upload is not configured in this build</string>
+    <string name="upload_nothing_to_send">This session has no records to upload</string>
     <string name="capture_customer_no_sessions">Capture policies first — personal details are added to an existing session</string>
     <string name="capture_customer_session_format">%1$s · %2$s</string>
     <string name="review_gaps_format">%1$d policy(ies) seen on customers but not in this session</string>
@@ -184,6 +193,7 @@
     <string name="exports_open">Open</string>
     <string name="exports_kind_excel">Excel</string>
     <string name="exports_kind_pdf">PDF</string>
+    <string name="exports_kind_json">JSON</string>
 
     <!-- Shared -->
     <string name="cd_back">Back</string>

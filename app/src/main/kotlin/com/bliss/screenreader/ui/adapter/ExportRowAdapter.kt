@@ -36,11 +36,9 @@ class ExportRowAdapter(
     override fun onBindViewHolder(holder: ExportViewHolder, position: Int) {
         val FileRef = FileList[position]
         val ContextRef = holder.BindingRef.root.context
-        val IsPdf = FileRef.name.endsWith(".pdf", ignoreCase = true)
+        val KindLabel = ContextRef.getString(KindRes(FileRef = FileRef))
 
-        holder.BindingRef.tvExportKind.setText(
-            if (IsPdf) R.string.exports_kind_pdf else R.string.exports_kind_excel
-        )
+        holder.BindingRef.tvExportKind.text = KindLabel
 
         holder.BindingRef.tvExportTitle.text = FriendlyName(FileRef = FileRef)
 
@@ -49,8 +47,7 @@ class ExportRowAdapter(
             .format(Date(FileRef.lastModified()))
         holder.BindingRef.tvExportMeta.text = ContextRef.getString(
             R.string.exports_meta_format,
-            if (IsPdf) ContextRef.getString(R.string.exports_kind_pdf)
-            else ContextRef.getString(R.string.exports_kind_excel),
+            KindLabel,
             SizeLabel,
             DateLabel
         )
@@ -63,6 +60,12 @@ class ExportRowAdapter(
             HapticFeedback.Tap(ViewRef = ViewRef)
             OnShare(FileRef)
         }
+    }
+
+    private fun KindRes(FileRef: File): Int = when {
+        FileRef.name.endsWith(".pdf", ignoreCase = true) -> R.string.exports_kind_pdf
+        FileRef.name.endsWith(".json", ignoreCase = true) -> R.string.exports_kind_json
+        else -> R.string.exports_kind_excel
     }
 
     private fun FriendlyName(FileRef: File): String {

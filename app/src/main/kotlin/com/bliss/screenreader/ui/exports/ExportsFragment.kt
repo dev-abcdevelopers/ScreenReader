@@ -13,6 +13,8 @@ import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bliss.screenreader.R
 import com.bliss.screenreader.databinding.FragmentExportsBinding
+import com.bliss.screenreader.sync.SessionPayloadBuilder
+import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.ExportRowAdapter
 import java.io.File
 
@@ -58,15 +60,28 @@ class ExportsFragment : Fragment() {
     private fun RenderFiles() {
         val BindingObj = ViewBindingObj ?: return
 
-        val FileList = requireContext().getExternalFilesDir(null)
+        val ExportFiles = requireContext().getExternalFilesDir(null)
             ?.listFiles { FileRef ->
                 FileRef.isFile && (
                         FileRef.name.endsWith(".pdf", ignoreCase = true) ||
                                 FileRef.name.endsWith(".xlsx", ignoreCase = true)
                         )
             }
-            ?.sortedByDescending { it.lastModified() }
-            ?: emptyList()
+            ?.toList()
+            .orEmpty()
+
+        val UploadFiles = if (SessionUploader.IsEnabled()) {
+            SessionPayloadBuilder.UploadDirectory(ContextRef = requireContext())
+                .listFiles { FileRef ->
+                    FileRef.isFile && FileRef.name.endsWith(".json", ignoreCase = true)
+                }
+                ?.toList()
+                .orEmpty()
+        } else {
+            emptyList()
+        }
+
+        val FileList = (ExportFiles + UploadFiles).sortedByDescending { it.lastModified() }
 
         AdapterObj.UpdateData(NewFiles = FileList)
         BindingObj.emptyState.emptyStateRoot.visibility =
@@ -77,10 +92,10 @@ class ExportsFragment : Fragment() {
         val FileUri = FileProvider.getUriForFile(
             requireContext(), "${requireContext().packageName}.fileprovider", FileRef
         )
-        val MimeType = if (FileRef.name.endsWith(".pdf", ignoreCase = true)) {
-            "application/pdf"
-        } else {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        val MimeType = when {
+            FileRef.name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
+            FileRef.name.endsWith(".json", ignoreCase = true) -> "application/json"
+            else -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         }
 
         val ActionIntent = if (ForceChooser) {

@@ -157,7 +157,18 @@
             android:text="@string/policies_capture_personal"
             app:icon="@drawable/ic_person" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUploadSync"
+            style="@style/Widget.App.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_sm"
+            android:text="@string/policies_upload"
+            android:visibility="gone"
+            app:icon="@drawable/ic_cloud_upload" />
+
         <LinearLayout
+            android:id="@+id/exportButtonRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">

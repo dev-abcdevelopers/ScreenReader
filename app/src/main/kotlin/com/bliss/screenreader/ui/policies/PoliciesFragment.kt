@@ -29,6 +29,7 @@ import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
 import com.bliss.screenreader.service.CaptureDiagnostics
+import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
@@ -106,6 +107,7 @@ class PoliciesFragment : Fragment() {
 
         BindingObj.btnExportPdf.setOnClickListener { ExportPdf() }
         BindingObj.btnExportExcel.setOnClickListener { ExportExcel() }
+        BindingObj.btnUploadSync.setOnClickListener { UploadSession() }
         BindingObj.btnCapturePersonal.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             CapturePersonalDetails()
@@ -208,7 +210,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.emptyState.emptyStateRoot.visibility =
             if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
-        BindingObj.btnExportPdf.visibility = View.GONE
+        ApplyExportBarMode(ShowPdf = false)
         BindingObj.btnCapturePersonal.visibility = View.GONE
         if (HasVisible) return
 
@@ -258,7 +260,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.chipGroupStatus.visibility = View.VISIBLE
-        BindingObj.btnExportPdf.visibility = View.VISIBLE
+        ApplyExportBarMode(ShowPdf = true)
         BindingObj.btnCapturePersonal.visibility = if (SelectedSessionId.isNotEmpty()) {
             View.VISIBLE
         } else {
@@ -417,6 +419,82 @@ class PoliciesFragment : Fragment() {
         RenderList()
     }
 
+    private fun ApplyExportBarMode(ShowPdf: Boolean) {
+        val BindingObj = ViewBindingObj ?: return
+        val UploadMode = SessionUploader.IsEnabled()
+        BindingObj.exportButtonRow.visibility = if (UploadMode) View.GONE else View.VISIBLE
+        BindingObj.btnExportPdf.visibility = if (ShowPdf) View.VISIBLE else View.GONE
+        BindingObj.btnUploadSync.visibility = if (UploadMode) View.VISIBLE else View.GONE
+    }
+
+    private fun UploadSession() {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (SelectedSessionId.isEmpty()) return
+
+        val AppContext = requireContext().applicationContext
+        val SavedCode = PolicyRepository.GetAgencyCode(
+            ContextRef = AppContext,
+            SessionId = SelectedSessionId
+        )
+        ShowAgencyCodeSheet(
+            ActivityRef = ActivityRef,
+            SavedCode = SavedCode,
+            BodyText = getString(R.string.export_agency_upload_body),
+            ConfirmText = getString(R.string.export_agency_upload_confirm)
+        ) { EnteredCode ->
+            PolicyRepository.SaveAgencyCode(
+                ContextRef = AppContext,
+                SessionId = SelectedSessionId,
+                AgencyCode = EnteredCode
+            )
+            RunUpload(ActivityRef = ActivityRef, AgencyCodeVal = EnteredCode)
+        }
+    }
+
+    private fun RunUpload(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        AgencyCodeVal: String
+    ) {
+        val UploadButton = ViewBindingObj?.btnUploadSync
+        HapticFeedback.Confirm(ViewRef = UploadButton)
+        UploadButton?.isEnabled = false
+        CaptureFlow.ShowMessage(
+            ActivityRef = ActivityRef,
+            MessageVal = getString(R.string.upload_started)
+        )
+
+        SessionUploader.UploadSession(
+            ContextRef = requireContext(),
+            SessionId = SelectedSessionId,
+            AgencyCode = AgencyCodeVal
+        ) { OutcomeVal ->
+            if (!isAdded) return@UploadSession
+            val BindingObj = ViewBindingObj ?: return@UploadSession
+            BindingObj.btnUploadSync.isEnabled = true
+            val MessageText = when (OutcomeVal) {
+                is SessionUploader.Outcome.Uploaded -> getString(
+                    R.string.upload_success_format, OutcomeVal.Key, OutcomeVal.RecordCount
+                )
+
+                is SessionUploader.Outcome.Failed -> getString(
+                    R.string.upload_failed_format, OutcomeVal.Message
+                )
+
+                SessionUploader.Outcome.NotConfigured ->
+                    getString(R.string.upload_not_configured)
+
+                SessionUploader.Outcome.NothingToSend ->
+                    getString(R.string.upload_nothing_to_send)
+            }
+            if (OutcomeVal is SessionUploader.Outcome.Uploaded) {
+                HapticFeedback.Confirm(ViewRef = BindingObj.btnUploadSync)
+            } else {
+                HapticFeedback.Reject(ViewRef = BindingObj.btnUploadSync)
+            }
+            CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = MessageText)
+        }
+    }
+
     private fun OpenDetail(PolicyItem: CustomerPolicy) {
         startActivity(
             Intent(requireContext(), PolicyDetailActivity::class.java).apply {
@@ -463,12 +541,16 @@ class PoliciesFragment : Fragment() {
     private fun ShowAgencyCodeSheet(
         ActivityRef: androidx.appcompat.app.AppCompatActivity,
         SavedCode: String,
+        BodyText: String = getString(R.string.export_agency_body),
+        ConfirmText: String = getString(R.string.export_agency_confirm),
         OnConfirm: (String) -> Unit
     ) {
         val SheetBinding = SheetAgencyCodeBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
 
+        SheetBinding.tvAgencyBody.text = BodyText
+        SheetBinding.btnAgencyExport.text = ConfirmText
         SheetBinding.etAgencyCode.setText(SavedCode)
         SheetBinding.etAgencyCode.setSelection(SavedCode.length)
         SheetBinding.btnAgencyExport.isEnabled = SavedCode.isNotBlank()
