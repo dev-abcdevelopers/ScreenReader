@@ -95,6 +95,9 @@
     <string name="bubble_discard">Discard session</string>
     <string name="bubble_paused">Paused</string>
     <string name="bubble_meta_format">%1$s · %2$d fields</string>
+    <string name="bubble_customer_count_format">%1$d of %2$d filled</string>
+    <string name="bubble_customer_meta_format">%1$s \u00b7 %2$s</string>
+    <string name="bubble_customer_visited_format">%1$d customer(s)</string>
 
     <string name="review_title">Capture complete</string>
     <string name="review_title_empty">Nothing captured</string>

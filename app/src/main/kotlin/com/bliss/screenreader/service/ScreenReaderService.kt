@@ -122,6 +122,7 @@ class ScreenReaderService : AccessibilityService() {
         private const val RENEWAL_FAILURE_RETRY_MS = 5000L
         private const val RENEWAL_SECTION_ROW_TOLERANCE_RATIO = 0.06f
         private const val CUSTOMER_NAVIGATION_DELAY_MS = 400L
+        private const val MAX_BUBBLE_NAME_LENGTH = 16
         private const val CUSTOMER_SCROLL_SETTLE_MS = 900L
         private const val CUSTOMER_PAGE_LOAD_DELAY_MS = 2000L
         private const val CUSTOMER_DETAIL_OPEN_DELAY_MS = 1400L
@@ -4797,24 +4798,66 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
+    private fun CurrentRecordCount(): Int = when (CurrentMode) {
+        CaptureMode.CUSTOMER -> ProfilePatchMap.size
+        else -> LatestRecords.size
+    }
+
+    private fun CustomerCountLabel(): String {
+        val ScopeCount = SessionPolicyNumbers.size
+        if (ScopeCount == 0) {
+            return CurrentMode.DescribeCount(CountVal = ProfilePatchMap.size)
+        }
+        return getString(
+            R.string.bubble_customer_count_format,
+            FilledPolicyNumbers.size.coerceAtMost(ScopeCount),
+            ScopeCount
+        )
+    }
+
+    private fun CustomerMetaLabel(ElapsedValue: Long): String {
+        val TrailingText = if (ActiveCustomerName.isNotBlank()) {
+            ShortCustomerName(NameText = ActiveCustomerName)
+        } else {
+            getString(R.string.bubble_customer_visited_format, VisitedCustomerNames.size)
+        }
+        return getString(
+            R.string.bubble_customer_meta_format,
+            CaptureSession.FormatClock(DurationMsVal = ElapsedValue),
+            TrailingText
+        )
+    }
+
+    private fun ShortCustomerName(NameText: String): String {
+        val TrimmedName = NameText.trim()
+        if (TrimmedName.length <= MAX_BUBBLE_NAME_LENGTH) return TrimmedName
+        return TrimmedName.take(MAX_BUBBLE_NAME_LENGTH).trimEnd() + "\u2026"
+    }
+
     private fun RefreshBubble() {
         if (!IsOverlayAdded) return
 
-        val RecordCount = LatestRecords.size
+        val RecordCount = CurrentRecordCount()
         val NodeCount = CapturedNodes.size
         val ElapsedValue = ElapsedMs()
+        val IsCustomerMode = CurrentMode == CaptureMode.CUSTOMER
 
         TvBubbleCount?.text = when {
             IsPaused -> getString(R.string.bubble_paused)
+            IsCustomerMode && SessionPolicyNumbers.isNotEmpty() -> CustomerCountLabel()
             RecordCount == 0 -> getString(R.string.bubble_starting)
             else -> CurrentMode.DescribeCount(CountVal = RecordCount)
         }
 
-        TvBubbleMeta?.text = getString(
-            R.string.bubble_meta_format,
-            CaptureSession.FormatClock(DurationMsVal = ElapsedValue),
-            NodeCount
-        )
+        TvBubbleMeta?.text = if (IsCustomerMode) {
+            CustomerMetaLabel(ElapsedValue = ElapsedValue)
+        } else {
+            getString(
+                R.string.bubble_meta_format,
+                CaptureSession.FormatClock(DurationMsVal = ElapsedValue),
+                NodeCount
+            )
+        }
 
         TvBubblePause?.text = getString(
             if (IsPaused) R.string.bubble_resume else R.string.bubble_pause
@@ -5424,6 +5467,7 @@ class ScreenReaderService : AccessibilityService() {
         ProcessedCustomerKeys.add(CustomerKey(NameText = RowItem.NameText))
         CustomerOpenAttempts++
         CustomerStageValue = CustomerStage.OPENING_CUSTOMER
+        RefreshBubble()
 
         val TapAccepted = PerformTapGesture(XPos = TapX, YPos = TapY)
         DiagnosticInfo(
@@ -6189,11 +6233,7 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "customer=$ActiveCustomerName policiesFilled=$FilledCount " +
                     "totalPatches=${ProfilePatchMap.size} gaps=${SessionGapMap.size}"
         )
-        CaptureSessionState.OnProgress(
-            RecordCountVal = ProfilePatchMap.size,
-            NodeCountVal = CapturedNodes.size,
-            ElapsedMsVal = ElapsedMs()
-        )
+        RefreshBubble()
         CustomerStageValue = CustomerStage.RETURNING
         ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
             ReturnToCustomerDashboard(AttemptCount = 0)
@@ -6209,6 +6249,7 @@ class ScreenReaderService : AccessibilityService() {
             ProfilePaneNodes.clear()
             PendingSheetKinds.clear()
             CustomerStageValue = CustomerStage.DASHBOARD
+            RefreshBubble()
             ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
                 RunCustomerDashboardStep()
             }
