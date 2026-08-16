@@ -16,10 +16,39 @@ object SessionUploader {
     private val MainHandler = Handler(Looper.getMainLooper())
 
     sealed class Outcome {
-        data class Uploaded(val Key: String, val RecordCount: Int) : Outcome()
-        data class Failed(val Message: String) : Outcome()
+        data class Uploaded(
+            val Key: String,
+            val RecordCount: Int,
+            val ElapsedMs: Long
+        ) : Outcome()
+
+        data class Failed(val HttpCode: Int, val Message: String) : Outcome()
+        object Cancelled : Outcome()
         object NotConfigured : Outcome()
         object NothingToSend : Outcome()
+    }
+
+    sealed class Progress {
+        object Packing : Progress()
+
+        data class Ready(
+            val ObjectKey: String,
+            val PolicyCount: Int,
+            val RenewalCount: Int,
+            val ServicingCount: Int,
+            val GapCount: Int,
+            val TotalBytes: Long
+        ) : Progress()
+
+        data class Sending(val SentBytes: Long, val TotalBytes: Long) : Progress()
+        object Waiting : Progress()
+    }
+
+    @Volatile
+    private var CancelRequested = false
+
+    fun Cancel() {
+        CancelRequested = true
     }
 
     fun IsEnabled(): Boolean = BuildConfig.UPLOAD_ENABLED
@@ -33,6 +62,7 @@ object SessionUploader {
         ContextRef: Context,
         SessionId: String,
         AgencyCode: String,
+        OnProgress: (Progress) -> Unit = {},
         OnResult: (Outcome) -> Unit
     ) {
         val AppContext = ContextRef.applicationContext
@@ -55,11 +85,13 @@ object SessionUploader {
             return
         }
 
+        CancelRequested = false
         WorkerRef.execute {
             val ResultOutcome = RunUpload(
                 ContextRef = AppContext,
                 SessionId = SessionId,
-                AgencyCode = AgencyCode
+                AgencyCode = AgencyCode,
+                OnProgress = { ProgressVal -> MainHandler.post { OnProgress(ProgressVal) } }
             )
             MainHandler.post { OnResult(ResultOutcome) }
         }
@@ -68,9 +100,11 @@ object SessionUploader {
     private fun RunUpload(
         ContextRef: Context,
         SessionId: String,
-        AgencyCode: String
+        AgencyCode: String,
+        OnProgress: (Progress) -> Unit
     ): Outcome {
         return try {
+            OnProgress(Progress.Packing)
             val PayloadObj = SessionPayloadBuilder.Build(
                 ContextRef = ContextRef,
                 SessionId = SessionId,
@@ -92,6 +126,17 @@ object SessionUploader {
             )
             val ObjectKey = SessionPayloadBuilder.ObjectKeyFor(AgencyCode = PayloadObj.AgencyCode)
             val PayloadBytes = PayloadFile.length()
+
+            OnProgress(
+                Progress.Ready(
+                    ObjectKey = ObjectKey,
+                    PolicyCount = PayloadObj.Policies.size,
+                    RenewalCount = PayloadObj.Renewals.size,
+                    ServicingCount = PayloadObj.Servicing.size,
+                    GapCount = PayloadObj.Gaps.size,
+                    TotalBytes = PayloadBytes
+                )
+            )
 
             val PrimaryPath = SessionUploadClient.ResolveSignPath(
                 UploadUrl = BuildConfig.UPLOAD_URL,
@@ -122,7 +167,8 @@ object SessionUploader {
                 SessionId = SessionId,
                 ObjectKey = ObjectKey,
                 SignPathVal = PrimaryPath,
-                PayloadFile = PayloadFile
+                PayloadFile = PayloadFile,
+                OnProgress = OnProgress
             )
 
             val AuthFailure = UploadOutcome as? SessionUploadClient.Result.Failure
@@ -148,7 +194,8 @@ object SessionUploader {
                         SessionId = SessionId,
                         ObjectKey = ObjectKey,
                         SignPathVal = AlternatePath,
-                        PayloadFile = PayloadFile
+                        PayloadFile = PayloadFile,
+                        OnProgress = OnProgress
                     )
                 }
             }
@@ -167,7 +214,8 @@ object SessionUploader {
                     )
                     Outcome.Uploaded(
                         Key = UploadOutcome.Key,
-                        RecordCount = PayloadObj.TotalRecordCount
+                        RecordCount = PayloadObj.TotalRecordCount,
+                        ElapsedMs = ElapsedMs
                     )
                 }
 
@@ -181,7 +229,21 @@ object SessionUploader {
                             "signpath=$SignPathUsed ms=$ElapsedMs " +
                             "error=${UploadOutcome.Message}"
                     )
-                    Outcome.Failed(Message = UploadOutcome.Message)
+                    Outcome.Failed(
+                        HttpCode = UploadOutcome.HttpCode,
+                        Message = UploadOutcome.Message
+                    )
+                }
+
+                SessionUploadClient.Result.Cancelled -> {
+                    LogUpload(
+                        ContextRef = ContextRef,
+                        SessionId = SessionId,
+                        EventName = "UPLOAD_CANCELLED",
+                        MessageText = "session=$SessionId key=$ObjectKey bytes=$PayloadBytes " +
+                            "signpath=$SignPathUsed ms=$ElapsedMs"
+                    )
+                    Outcome.Cancelled
                 }
             }
         } catch (ErrorRef: Exception) {
@@ -192,7 +254,10 @@ object SessionUploader {
                 MessageText = "session=$SessionId " +
                     "${ErrorRef.javaClass.simpleName}: ${ErrorRef.message.orEmpty()}"
             )
-            Outcome.Failed(Message = ErrorRef.message.orEmpty().ifEmpty { "Upload failed" })
+            Outcome.Failed(
+                HttpCode = 0,
+                Message = ErrorRef.message.orEmpty().ifEmpty { "Upload failed" }
+            )
         }
     }
 
@@ -201,7 +266,8 @@ object SessionUploader {
         SessionId: String,
         ObjectKey: String,
         SignPathVal: String,
-        PayloadFile: File
+        PayloadFile: File,
+        OnProgress: (Progress) -> Unit
     ): SessionUploadClient.Result = SessionUploadClient.Upload(
         UploadUrl = BuildConfig.UPLOAD_URL,
         SignPath = SignPathVal,
@@ -217,7 +283,12 @@ object SessionUploader {
                 MessageText = "session=$SessionId key=$ObjectKey signpath=$SignPathVal " +
                     "attempt=${AttemptIndex + 1} http=$HttpCode error=$MessageVal"
             )
-        }
+        },
+        OnBytesSent = { SentBytes, TotalBytes ->
+            OnProgress(Progress.Sending(SentBytes = SentBytes, TotalBytes = TotalBytes))
+        },
+        OnBodySent = { OnProgress(Progress.Waiting) },
+        ShouldCancel = { CancelRequested }
     )
 
     private fun LogUpload(

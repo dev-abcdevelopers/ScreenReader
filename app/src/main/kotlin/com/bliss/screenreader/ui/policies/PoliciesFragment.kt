@@ -6,6 +6,7 @@ package com.bliss.screenreader.ui.policies
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.format.Formatter
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -13,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.DividerItemDecoration
@@ -26,6 +28,7 @@ import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
+import com.bliss.screenreader.databinding.SheetUploadProgressBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
 import com.bliss.screenreader.service.CaptureDiagnostics
@@ -58,6 +61,12 @@ class PoliciesFragment : Fragment() {
     private var AllPolicies: List<CustomerPolicy> = emptyList()
     private var AllRenewals: List<FupPolicy> = emptyList()
     private var SessionList: List<PolicyRepository.CaptureSessionReference> = emptyList()
+    private var UploadSheetBinding: SheetUploadProgressBinding? = null
+    private var UploadDialogObj: BottomSheetDialog? = null
+    private var UploadAgencyCode: String = ""
+    private var UploadRunning: Boolean = false
+    private var UploadCanRetry: Boolean = false
+
     private var SelectedSessionId: String = ""
     private var SelectedSessionMode: CaptureMode = CaptureMode.POLICY
     private var SearchQuery: String = ""
@@ -455,43 +464,258 @@ class PoliciesFragment : Fragment() {
         ActivityRef: androidx.appcompat.app.AppCompatActivity,
         AgencyCodeVal: String
     ) {
-        val UploadButton = ViewBindingObj?.btnUploadSync
-        HapticFeedback.Confirm(ViewRef = UploadButton)
-        UploadButton?.isEnabled = false
-        CaptureFlow.ShowMessage(
-            ActivityRef = ActivityRef,
-            MessageVal = getString(R.string.upload_started)
-        )
+        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnUploadSync)
+        UploadAgencyCode = AgencyCodeVal
+        ShowUploadSheet(ActivityRef = ActivityRef)
+        StartUpload()
+    }
+
+    private fun ShowUploadSheet(ActivityRef: androidx.appcompat.app.AppCompatActivity) {
+        val SheetBinding = SheetUploadProgressBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.setCancelable(false)
+        SheetDialog.setOnDismissListener {
+            UploadSheetBinding = null
+            UploadDialogObj = null
+        }
+        UploadSheetBinding = SheetBinding
+        UploadDialogObj = SheetDialog
+
+        SheetBinding.btnUploadSecondary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            if (UploadRunning) {
+                SheetBinding.btnUploadSecondary.isEnabled = false
+                SessionUploader.Cancel()
+            } else {
+                SheetDialog.dismiss()
+            }
+        }
+        SheetBinding.btnUploadPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            if (UploadRunning) return@setOnClickListener
+            if (UploadCanRetry) StartUpload() else SheetDialog.dismiss()
+        }
+
+        SheetDialog.show()
+    }
+
+    private fun StartUpload() {
+        val SheetBinding = UploadSheetBinding ?: return
+        UploadRunning = true
+        UploadCanRetry = false
+
+        SheetBinding.btnUploadPrimary.visibility = View.GONE
+        SheetBinding.btnUploadSecondary.visibility = View.VISIBLE
+        SheetBinding.btnUploadSecondary.isEnabled = true
+        SheetBinding.btnUploadSecondary.setText(R.string.upload_action_cancel)
+        SheetBinding.ivProgressResult.visibility = View.GONE
+        SheetBinding.tvProgressPercent.visibility = View.GONE
+        SheetBinding.progressDeterminate.visibility = View.GONE
+        SheetBinding.progressIndeterminate.visibility = View.VISIBLE
+        SheetBinding.tvUploadTitle.setText(R.string.upload_sheet_title)
+        SheetBinding.tvUploadMeta.setText(R.string.upload_meta_preparing)
+        SetPhase(PhaseIndex = 0)
 
         SessionUploader.UploadSession(
             ContextRef = requireContext(),
             SessionId = SelectedSessionId,
-            AgencyCode = AgencyCodeVal
-        ) { OutcomeVal ->
-            if (!isAdded) return@UploadSession
-            val BindingObj = ViewBindingObj ?: return@UploadSession
-            BindingObj.btnUploadSync.isEnabled = true
-            val MessageText = when (OutcomeVal) {
-                is SessionUploader.Outcome.Uploaded -> getString(
-                    R.string.upload_success_format, OutcomeVal.Key, OutcomeVal.RecordCount
+            AgencyCode = UploadAgencyCode,
+            OnProgress = { ProgressVal -> RenderUploadProgress(ProgressVal = ProgressVal) }
+        ) { OutcomeVal -> RenderUploadResult(OutcomeVal = OutcomeVal) }
+    }
+
+    private fun RenderUploadProgress(ProgressVal: SessionUploader.Progress) {
+        if (!isAdded) return
+        val SheetBinding = UploadSheetBinding ?: return
+
+        when (ProgressVal) {
+            SessionUploader.Progress.Packing -> SetPhase(PhaseIndex = 0)
+
+            is SessionUploader.Progress.Ready -> {
+                SheetBinding.tvUploadTitle.text = getString(
+                    R.string.upload_sheet_title_key_format, ProgressVal.ObjectKey
                 )
-
-                is SessionUploader.Outcome.Failed -> getString(
-                    R.string.upload_failed_format, OutcomeVal.Message
+                SheetBinding.tvUploadMeta.text = getString(
+                    R.string.upload_meta_format,
+                    getString(
+                        R.string.upload_counts_format,
+                        ProgressVal.PolicyCount,
+                        ProgressVal.RenewalCount,
+                        ProgressVal.GapCount
+                    ),
+                    Formatter.formatShortFileSize(requireContext(), ProgressVal.TotalBytes)
                 )
-
-                SessionUploader.Outcome.NotConfigured ->
-                    getString(R.string.upload_not_configured)
-
-                SessionUploader.Outcome.NothingToSend ->
-                    getString(R.string.upload_nothing_to_send)
+                SetPhase(PhaseIndex = 1)
             }
-            if (OutcomeVal is SessionUploader.Outcome.Uploaded) {
-                HapticFeedback.Confirm(ViewRef = BindingObj.btnUploadSync)
-            } else {
-                HapticFeedback.Reject(ViewRef = BindingObj.btnUploadSync)
+
+            is SessionUploader.Progress.Sending -> {
+                val TotalBytes = ProgressVal.TotalBytes.coerceAtLeast(1L)
+                val PercentVal = (ProgressVal.SentBytes * 100L / TotalBytes)
+                    .toInt()
+                    .coerceIn(0, 100)
+
+                SheetBinding.progressIndeterminate.visibility = View.GONE
+                SheetBinding.progressDeterminate.visibility = View.VISIBLE
+                SheetBinding.progressDeterminate.setProgressCompat(PercentVal, true)
+                SheetBinding.tvProgressPercent.visibility = View.VISIBLE
+                SheetBinding.tvProgressPercent.text = getString(
+                    R.string.upload_percent_format, PercentVal
+                )
+                SheetBinding.tvPhaseSend.text = getString(
+                    R.string.upload_phase_send_format,
+                    Formatter.formatShortFileSize(requireContext(), ProgressVal.SentBytes),
+                    Formatter.formatShortFileSize(requireContext(), ProgressVal.TotalBytes)
+                )
+                SetPhase(PhaseIndex = 1)
             }
-            CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = MessageText)
+
+            SessionUploader.Progress.Waiting -> {
+                SheetBinding.progressDeterminate.visibility = View.GONE
+                SheetBinding.tvProgressPercent.visibility = View.GONE
+                SheetBinding.progressIndeterminate.visibility = View.VISIBLE
+                SetPhase(PhaseIndex = 2)
+            }
+        }
+    }
+
+    private fun RenderUploadResult(OutcomeVal: SessionUploader.Outcome) {
+        if (!isAdded) return
+        UploadRunning = false
+        val SheetBinding = UploadSheetBinding ?: return
+
+        SheetBinding.progressDeterminate.visibility = View.GONE
+        SheetBinding.progressIndeterminate.visibility = View.GONE
+        SheetBinding.tvProgressPercent.visibility = View.GONE
+        SheetBinding.ivProgressResult.visibility = View.VISIBLE
+        SheetBinding.btnUploadPrimary.visibility = View.VISIBLE
+
+        when (OutcomeVal) {
+            is SessionUploader.Outcome.Uploaded -> {
+                HapticFeedback.Confirm(ViewRef = SheetBinding.root)
+                SetResultIcon(
+                    IconRes = R.drawable.ic_check_circle,
+                    ColorRes = R.color.status_green_text
+                )
+                SetPhase(PhaseIndex = 3)
+                SheetBinding.tvUploadTitle.setText(R.string.upload_sheet_title_done)
+                SheetBinding.tvUploadMeta.text = getString(
+                    R.string.upload_meta_done_format,
+                    OutcomeVal.Key,
+                    OutcomeVal.RecordCount,
+                    getString(R.string.upload_elapsed_format, OutcomeVal.ElapsedMs / 1000f)
+                )
+                UploadCanRetry = false
+                SheetBinding.btnUploadPrimary.setText(R.string.upload_action_done)
+                SheetBinding.btnUploadSecondary.visibility = View.GONE
+            }
+
+            is SessionUploader.Outcome.Failed -> ShowUploadStop(
+                TitleRes = R.string.upload_sheet_title_failed,
+                ColorRes = R.color.status_red_text,
+                MetaText = getString(R.string.upload_meta_failed_format, OutcomeVal.Message) +
+                        "\n" + getString(R.string.upload_meta_kept),
+                AllowRetry = true
+            )
+
+            SessionUploader.Outcome.Cancelled -> ShowUploadStop(
+                TitleRes = R.string.upload_sheet_title_cancelled,
+                ColorRes = R.color.status_amber_text,
+                MetaText = getString(R.string.upload_meta_cancelled),
+                AllowRetry = true
+            )
+
+            SessionUploader.Outcome.NotConfigured -> ShowUploadStop(
+                TitleRes = R.string.upload_sheet_title_failed,
+                ColorRes = R.color.status_red_text,
+                MetaText = getString(R.string.upload_not_configured),
+                AllowRetry = false
+            )
+
+            SessionUploader.Outcome.NothingToSend -> ShowUploadStop(
+                TitleRes = R.string.upload_sheet_title_failed,
+                ColorRes = R.color.status_amber_text,
+                MetaText = getString(R.string.upload_nothing_to_send),
+                AllowRetry = false
+            )
+        }
+    }
+
+    private fun ShowUploadStop(
+        TitleRes: Int,
+        ColorRes: Int,
+        MetaText: String,
+        AllowRetry: Boolean
+    ) {
+        val SheetBinding = UploadSheetBinding ?: return
+        HapticFeedback.Reject(ViewRef = SheetBinding.root)
+        SetResultIcon(IconRes = R.drawable.ic_alert, ColorRes = ColorRes)
+        SheetBinding.tvUploadTitle.setText(TitleRes)
+        SheetBinding.tvUploadMeta.text = MetaText
+
+        UploadCanRetry = AllowRetry
+        SheetBinding.btnUploadPrimary.setText(
+            if (AllowRetry) R.string.upload_action_retry else R.string.upload_action_close
+        )
+        SheetBinding.btnUploadSecondary.visibility =
+            if (AllowRetry) View.VISIBLE else View.GONE
+        SheetBinding.btnUploadSecondary.isEnabled = true
+        SheetBinding.btnUploadSecondary.setText(R.string.upload_action_close)
+    }
+
+    private fun SetResultIcon(IconRes: Int, ColorRes: Int) {
+        val SheetBinding = UploadSheetBinding ?: return
+        SheetBinding.ivProgressResult.setImageResource(IconRes)
+        SheetBinding.ivProgressResult.setColorFilter(
+            ContextCompat.getColor(requireContext(), ColorRes)
+        )
+    }
+
+    private fun SetPhase(PhaseIndex: Int) {
+        val SheetBinding = UploadSheetBinding ?: return
+        PaintPhase(
+            IconRef = SheetBinding.ivPhasePack,
+            LabelRef = SheetBinding.tvPhasePack,
+            StateVal = PhaseIndex - 0
+        )
+        PaintPhase(
+            IconRef = SheetBinding.ivPhaseSend,
+            LabelRef = SheetBinding.tvPhaseSend,
+            StateVal = PhaseIndex - 1
+        )
+        PaintPhase(
+            IconRef = SheetBinding.ivPhaseWait,
+            LabelRef = SheetBinding.tvPhaseWait,
+            StateVal = PhaseIndex - 2
+        )
+    }
+
+    private fun PaintPhase(
+        IconRef: android.widget.ImageView,
+        LabelRef: android.widget.TextView,
+        StateVal: Int
+    ) {
+        val ContextRef = context ?: return
+        when {
+            StateVal > 0 -> {
+                IconRef.setImageResource(R.drawable.ic_check_circle)
+                IconRef.setColorFilter(
+                    ContextCompat.getColor(ContextRef, R.color.status_green_text)
+                )
+                LabelRef.setTextColor(ContextCompat.getColor(ContextRef, R.color.text_secondary))
+            }
+
+            StateVal == 0 -> {
+                IconRef.setImageResource(R.drawable.ic_record)
+                IconRef.setColorFilter(ContextCompat.getColor(ContextRef, R.color.primary))
+                LabelRef.setTextColor(ContextCompat.getColor(ContextRef, R.color.text_primary))
+            }
+
+            else -> {
+                IconRef.setImageResource(R.drawable.ic_record)
+                IconRef.setColorFilter(ContextCompat.getColor(ContextRef, R.color.text_faint))
+                LabelRef.setTextColor(ContextCompat.getColor(ContextRef, R.color.text_faint))
+            }
         }
     }
 
@@ -656,6 +880,9 @@ class PoliciesFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        UploadDialogObj?.dismiss()
+        UploadDialogObj = null
+        UploadSheetBinding = null
         ViewBindingObj = null
         SessionBackCallback = null
     }

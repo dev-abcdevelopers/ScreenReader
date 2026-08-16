@@ -28,13 +28,18 @@ object SessionUploadClient {
     private const val MAX_UPLOAD_BYTES = 25L * 1024L * 1024L
     private const val MAX_BODY_BYTES = 64 * 1024
     private const val BOUNDARY = "----BlissReaderUpload"
+    private const val PROGRESS_CHUNK_BYTES = 16 * 1024
+    private const val PROGRESS_INTERVAL_MS = 120L
     private const val LINE_END = "\r\n"
     private const val JSON_MIME = "application/json"
 
     sealed class Result {
         data class Success(val Key: String, val ETag: String) : Result()
         data class Failure(val HttpCode: Int, val Message: String) : Result()
+        object Cancelled : Result()
     }
+
+    private class CancelledUploadException : IOException("Cancelled")
 
     fun BuildStringToSign(
         MethodText: String,
@@ -88,7 +93,10 @@ object SessionUploadClient {
         AppSecret: String,
         FileRef: File,
         FileKey: String,
-        OnAttemptFailure: ((Int, Int, String) -> Unit)? = null
+        OnAttemptFailure: ((Int, Int, String) -> Unit)? = null,
+        OnBytesSent: ((Long, Long) -> Unit)? = null,
+        OnBodySent: (() -> Unit)? = null,
+        ShouldCancel: (() -> Boolean)? = null
     ): Result {
         if (UploadUrl.isBlank() || AppKey.isBlank() || AppSecret.isBlank()) {
             return Result.Failure(0, "Upload credentials are missing")
@@ -106,6 +114,8 @@ object SessionUploadClient {
         var LastFailure = Result.Failure(0, "Upload failed")
 
         for (AttemptIndex in 0..MAX_RETRIES) {
+            if (ShouldCancel?.invoke() == true) return Result.Cancelled
+
             val AttemptResult = try {
                 PerformUpload(
                     UploadUrl = UploadUrl.trim(),
@@ -113,17 +123,22 @@ object SessionUploadClient {
                     AppKey = AppKey,
                     AppSecret = AppSecret,
                     FileRef = FileRef,
-                    FileKey = FileKey
+                    FileKey = FileKey,
+                    OnBytesSent = OnBytesSent,
+                    OnBodySent = OnBodySent,
+                    ShouldCancel = ShouldCancel
                 )
+            } catch (_: CancelledUploadException) {
+                return Result.Cancelled
             } catch (ErrorRef: IOException) {
                 Result.Failure(0, "Network error: ${ErrorRef.message.orEmpty()}")
             } catch (ErrorRef: Exception) {
                 Result.Failure(0, ErrorRef.message.orEmpty().ifEmpty { "Upload failed" })
             }
 
-            if (AttemptResult is Result.Success) return AttemptResult
+            if (AttemptResult !is Result.Failure) return AttemptResult
 
-            LastFailure = AttemptResult as Result.Failure
+            LastFailure = AttemptResult
             if (!IsRetryable(HttpCode = LastFailure.HttpCode)) return LastFailure
             if (AttemptIndex < MAX_RETRIES) {
                 OnAttemptFailure?.invoke(AttemptIndex, LastFailure.HttpCode, LastFailure.Message)
@@ -149,7 +164,10 @@ object SessionUploadClient {
         AppKey: String,
         AppSecret: String,
         FileRef: File,
-        FileKey: String
+        FileKey: String,
+        OnBytesSent: ((Long, Long) -> Unit)?,
+        OnBodySent: (() -> Unit)?,
+        ShouldCancel: (() -> Boolean)?
     ): Result {
         val TimestampText = (System.currentTimeMillis() / 1000L).toString()
         val NonceText = NewNonce()
@@ -191,10 +209,17 @@ object SessionUploadClient {
 
             BufferedOutputStream(ConnectionRef.outputStream).use { OutputRef ->
                 OutputRef.write(PreambleBytes)
-                FileRef.inputStream().use { FileStream -> FileStream.copyTo(OutputRef) }
+                StreamBody(
+                    FileRef = FileRef,
+                    OutputRef = OutputRef,
+                    TotalBytes = FileRef.length(),
+                    OnBytesSent = OnBytesSent,
+                    ShouldCancel = ShouldCancel
+                )
                 OutputRef.write(EpilogueBytes)
                 OutputRef.flush()
             }
+            OnBodySent?.invoke()
 
             val StatusCode = ConnectionRef.responseCode
             val BodyText = if (StatusCode in 200..299) {
@@ -212,6 +237,36 @@ object SessionUploadClient {
             try {
                 ConnectionRef?.disconnect()
             } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun StreamBody(
+        FileRef: File,
+        OutputRef: java.io.OutputStream,
+        TotalBytes: Long,
+        OnBytesSent: ((Long, Long) -> Unit)?,
+        ShouldCancel: (() -> Boolean)?
+    ) {
+        val BufferRef = ByteArray(PROGRESS_CHUNK_BYTES)
+        var SentBytes = 0L
+        var LastReportedAt = 0L
+
+        FileRef.inputStream().use { FileStream ->
+            while (true) {
+                if (ShouldCancel?.invoke() == true) throw CancelledUploadException()
+
+                val ReadCount = FileStream.read(BufferRef)
+                if (ReadCount <= 0) break
+
+                OutputRef.write(BufferRef, 0, ReadCount)
+                SentBytes += ReadCount
+
+                val NowMs = System.currentTimeMillis()
+                if (SentBytes >= TotalBytes || NowMs - LastReportedAt >= PROGRESS_INTERVAL_MS) {
+                    LastReportedAt = NowMs
+                    OnBytesSent?.invoke(SentBytes, TotalBytes)
+                }
             }
         }
     }
