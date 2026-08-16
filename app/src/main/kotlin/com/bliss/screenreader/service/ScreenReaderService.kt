@@ -1,5 +1,5 @@
 @file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
-    "SameParameterValue"
+    "SameParameterValue", "unused", "SpellCheckingInspection"
 )
 
 package com.bliss.screenreader.service
@@ -123,6 +123,15 @@ class ScreenReaderService : AccessibilityService() {
         private const val RENEWAL_SECTION_ROW_TOLERANCE_RATIO = 0.06f
         private const val CUSTOMER_NAVIGATION_DELAY_MS = 400L
         private const val MAX_BUBBLE_NAME_LENGTH = 16
+
+        private const val ERROR_SHEET_TITLE = "something went wrong"
+        private const val ERROR_SHEET_RETRY_LABEL = "try again"
+        private const val ERROR_SHEET_MAX_RETRIES = 3
+        private const val ERROR_SHEET_BOUNDS_MISS_LIMIT = 4
+        private const val ERROR_SHEET_GIVEUP_LIMIT = 3
+        private const val ERROR_SHEET_PACE_STEP_MS = 400L
+        private const val ERROR_SHEET_PACE_CEILING_MS = 2_000L
+        private val ERROR_SHEET_BACKOFF_MS = longArrayOf(2_000L, 5_000L, 10_000L)
         private const val CUSTOMER_SCROLL_SETTLE_MS = 900L
         private const val CUSTOMER_PAGE_LOAD_DELAY_MS = 2000L
         private const val CUSTOMER_DETAIL_OPEN_DELAY_MS = 1400L
@@ -260,6 +269,14 @@ class ScreenReaderService : AccessibilityService() {
     private val VisitedCustomerNames = mutableSetOf<String>()
     private val ProfilePatchMap = linkedMapOf<String, CustomerPolicy>()
     private val ProfilePatchNames = mutableMapOf<String, String>()
+
+    private var ErrorRetryCount = 0
+    private var ErrorRecoveryScheduled = false
+    private var ErrorRetryRunnable: Runnable? = null
+    private var ErrorBoundsMissCount = 0
+    private var ConsecutiveErrorGiveUps = 0
+    private var ErrorPaceExtraMs = 0L
+    private var LastHealthyRecordCount = 0
     private val SessionGapMap = linkedMapOf<String, SessionGap>()
     private var ActiveProfile: CustomerProfile? = null
     private var PolicyCurrentPage = 0
@@ -1115,6 +1132,12 @@ class ScreenReaderService : AccessibilityService() {
         PausedTotalMs = 0L
         PausedAt = 0L
         LatestRecords = emptyList()
+        CancelErrorRetry()
+        ErrorRetryCount = 0
+        ErrorBoundsMissCount = 0
+        ConsecutiveErrorGiveUps = 0
+        ErrorPaceExtraMs = 0L
+        LastHealthyRecordCount = 0
         LastParsedNodeCount = -1
         LastPackageName = ""
         HasExpandedCurrentPolicyScreen = false
@@ -1437,6 +1460,14 @@ class ScreenReaderService : AccessibilityService() {
         RootNode: AccessibilityNodeInfo,
         VisibleNodes: List<String>
     ) {
+        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE &&
+            IsErrorSheetScreen(FreshNodes = VisibleNodes)
+        ) {
+            HandleErrorSheet(RootNode = RootNode)
+            return
+        }
+        NoteScreenWithoutError()
+
         // Both the policy and renewal flows begin on the agent app's Home
         // dashboard and branch apart at the bottom navigation bar.
         if (CurrentMode == CaptureMode.POLICY ||
@@ -4067,6 +4098,7 @@ class ScreenReaderService : AccessibilityService() {
 
                 val ExpectedPackage = ExpectedTargetPackage()
                 CaptureActiveWindow(ExpectedPackage = ExpectedPackage)
+                if (!IsAutoScrolling || !IsCapturing || IsPaused) return
                 val ScrollAccepted = ScrollActiveWindow(ExpectedPackage = ExpectedPackage)
                 if (!ScrollAccepted) {
                     Log.d(LOG_TAG, "Auto-scroll stopped because the list cannot scroll further")
@@ -5106,6 +5138,257 @@ class ScreenReaderService : AccessibilityService() {
         ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) { RunCustomerDashboardStep() }
     }
 
+    private fun IsErrorSheetScreen(FreshNodes: List<String>): Boolean {
+        val HasTitle = FreshNodes.any { NodeText ->
+            NodeText.contains(ERROR_SHEET_TITLE, ignoreCase = true)
+        }
+        if (!HasTitle) return false
+        return FreshNodes.any { NodeText ->
+            NodeText.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)
+        }
+    }
+
+    private fun NoteScreenWithoutError() {
+        val RecordCountNow = CurrentRecordCount()
+        if (RecordCountNow > LastHealthyRecordCount) {
+            LastHealthyRecordCount = RecordCountNow
+            ConsecutiveErrorGiveUps = 0
+        }
+
+        if (ErrorRetryCount == 0 && !ErrorRecoveryScheduled && ErrorBoundsMissCount == 0) return
+
+        DiagnosticInfo(
+            EventName = "ERROR_SHEET_RECOVERED",
+            MessageText = "retries=$ErrorRetryCount paceExtraMs=$ErrorPaceExtraMs"
+        )
+        CancelErrorRetry()
+        ErrorRetryCount = 0
+        ErrorBoundsMissCount = 0
+        ConsecutiveErrorGiveUps = 0
+        ResumeAutomationAfterError()
+    }
+
+    private fun CancelErrorRetry() {
+        ErrorRetryRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        ErrorRetryRunnable = null
+        ErrorRecoveryScheduled = false
+    }
+
+    private fun HandleErrorSheet(RootNode: AccessibilityNodeInfo) {
+        if (ErrorRecoveryScheduled) return
+
+        SuspendAutomationForError()
+
+        if (ErrorRetryCount >= ERROR_SHEET_MAX_RETRIES) {
+            GiveUpOnErrorSheet(ReasonText = "retries=$ErrorRetryCount exhausted")
+            return
+        }
+
+        if (FindErrorRetryBounds(RootNode = RootNode) == null) {
+            ErrorBoundsMissCount++
+            if (ErrorBoundsMissCount < ERROR_SHEET_BOUNDS_MISS_LIMIT) return
+            GiveUpOnErrorSheet(ReasonText = "no Try Again bounds after $ErrorBoundsMissCount looks")
+            return
+        }
+
+        ErrorBoundsMissCount = 0
+        val BackoffMs = ERROR_SHEET_BACKOFF_MS[
+            ErrorRetryCount.coerceAtMost(ERROR_SHEET_BACKOFF_MS.size - 1)
+        ]
+        ErrorRetryCount++
+        ErrorRecoveryScheduled = true
+
+        DiagnosticWarning(
+            EventName = "ERROR_SHEET_SEEN",
+            MessageText = "attempt=$ErrorRetryCount of $ERROR_SHEET_MAX_RETRIES " +
+                    "backoffMs=$BackoffMs mode=${CurrentMode.name} " +
+                    "customer=$ActiveCustomerName"
+        )
+
+        val RetryRunnable = Runnable {
+            ErrorRetryRunnable = null
+            ErrorRecoveryScheduled = false
+            TapErrorRetryNow()
+        }
+        ErrorRetryRunnable = RetryRunnable
+        MainHandler.postDelayed(RetryRunnable, BackoffMs)
+    }
+
+    /**
+     * The bounds read when the sheet appeared are worthless by the time the backoff
+     * expires: the sheet may have gone, and this app places real calls if a tap lands
+     * on the dashboard behind it. Everything is read again here, or nothing is tapped.
+     */
+    private fun TapErrorRetryNow() {
+        if (!IsCapturing || IsPaused) return
+
+        val FreshRoot = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        )
+        if (FreshRoot == null) {
+            DiagnosticInfo(
+                EventName = "ERROR_SHEET_RETRY_ABANDONED",
+                MessageText = "attempt=$ErrorRetryCount reason=no readable window"
+            )
+            return
+        }
+
+        try {
+            val FreshNodes = CollectVisibleTextNodes(RootNode = FreshRoot)
+            if (!IsErrorSheetScreen(FreshNodes = FreshNodes.map { NodePair -> NodePair.first })) {
+                DiagnosticInfo(
+                    EventName = "ERROR_SHEET_RETRY_ABANDONED",
+                    MessageText = "attempt=$ErrorRetryCount reason=sheet gone before the tap"
+                )
+                ResumeAutomationAfterError()
+                return
+            }
+
+            val RetryBounds = FindErrorRetryBounds(RootNode = FreshRoot)
+            if (RetryBounds == null) {
+                DiagnosticInfo(
+                    EventName = "ERROR_SHEET_RETRY_ABANDONED",
+                    MessageText = "attempt=$ErrorRetryCount reason=Try Again no longer on screen"
+                )
+                ResumeAutomationAfterError()
+                return
+            }
+
+            val TapAccepted = PerformTapGesture(
+                XPos = RetryBounds.exactCenterX(),
+                YPos = RetryBounds.exactCenterY()
+            )
+            DiagnosticInfo(
+                EventName = if (TapAccepted) "ERROR_SHEET_RETRIED" else "ERROR_SHEET_RETRY_REJECTED",
+                MessageText = "attempt=$ErrorRetryCount x=${RetryBounds.exactCenterX()} " +
+                        "y=${RetryBounds.exactCenterY()}"
+            )
+        } finally {
+            RecycleNode(NodeRef = FreshRoot)
+        }
+    }
+
+    /**
+     * SuspendAutomationForError empties the queue, and every mode only re-posts from
+     * its own step. Without this the run simply stops the moment the app recovers.
+     */
+    private fun ResumeAutomationAfterError() {
+        when (CurrentMode) {
+            CaptureMode.POLICY -> {
+                if (!IsPolicyDashboardAutomationRunning) return
+                SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS + ErrorPaceExtraMs) {
+                    StartPolicyPageWork()
+                }
+            }
+
+            CaptureMode.FUP -> {
+                if (!IsRenewalAutomationRunning) return
+                ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS + ErrorPaceExtraMs) {
+                    RunRenewalAutomationStep()
+                }
+            }
+
+            CaptureMode.CUSTOMER -> {
+                if (!IsCustomerAutomationRunning) return
+                ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+                    ReturnToCustomerDashboard(AttemptCount = 0)
+                }
+            }
+
+            else -> return
+        }
+        DiagnosticInfo(
+            EventName = "AUTOMATION_REARMED",
+            MessageText = "mode=${CurrentMode.name} paceExtraMs=$ErrorPaceExtraMs"
+        )
+    }
+
+    /**
+     * Anything already queued was scheduled against the screen behind the sheet, so
+     * letting it fire means tapping coordinates that no longer mean what they meant.
+     */
+    private fun SuspendAutomationForError() {
+        StopAutoScroll()
+        PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        PolicyAutomationRunnable = null
+        RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        RenewalAutomationRunnable = null
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        CustomerAutomationRunnable = null
+    }
+
+    private fun FindErrorRetryBounds(RootNode: AccessibilityNodeInfo): Rect? {
+        for (NodePair in CollectVisibleTextNodes(RootNode = RootNode)) {
+            if (!NodePair.first.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)) continue
+            if (NodePair.second.width() <= 0 || NodePair.second.height() <= 0) continue
+            return NodePair.second
+        }
+        return null
+    }
+
+    private fun GiveUpOnErrorSheet(ReasonText: String) {
+        CancelErrorRetry()
+        ErrorRetryCount = 0
+        ErrorBoundsMissCount = 0
+        ConsecutiveErrorGiveUps++
+        ErrorPaceExtraMs = (ErrorPaceExtraMs + ERROR_SHEET_PACE_STEP_MS)
+            .coerceAtMost(ERROR_SHEET_PACE_CEILING_MS)
+
+        DiagnosticWarning(
+            EventName = "ERROR_SHEET_GIVEUP",
+            MessageText = "$ReasonText consecutive=$ConsecutiveErrorGiveUps " +
+                    "paceExtraMs=$ErrorPaceExtraMs mode=${CurrentMode.name} " +
+                    "customer=$ActiveCustomerName"
+        )
+
+        if (ConsecutiveErrorGiveUps >= ERROR_SHEET_GIVEUP_LIMIT) {
+            StopSessionForErrors()
+            return
+        }
+
+        SkipItemAfterError()
+    }
+
+    private fun SkipItemAfterError() {
+        performGlobalAction(GLOBAL_ACTION_BACK)
+
+        if (CurrentMode != CaptureMode.CUSTOMER) {
+            DiagnosticInfo(
+                EventName = "ERROR_SHEET_DISMISSED",
+                MessageText = "mode=${CurrentMode.name} backed out after the error"
+            )
+            ResumeAutomationAfterError()
+            return
+        }
+
+        DiagnosticInfo(
+            EventName = "CUSTOMER_SKIPPED_AFTER_ERROR",
+            MessageText = "customer=$ActiveCustomerName left unvisited so a later run retries it"
+        )
+        ActiveProfile = null
+        ProfilePaneNodes.clear()
+        PendingSheetKinds.clear()
+        ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
+            ReturnToCustomerDashboard(AttemptCount = 0)
+        }
+    }
+
+    private fun StopSessionForErrors() {
+        CancelErrorRetry()
+        SuspendAutomationForError()
+        DiagnosticWarning(
+            EventName = "SESSION_STOPPED_BY_ERRORS",
+            MessageText = "consecutive=$ConsecutiveErrorGiveUps mode=${CurrentMode.name} " +
+                    "records=${CurrentRecordCount()} nodes=${CapturedNodes.size}"
+        )
+        Toast.makeText(
+            this,
+            getString(R.string.capture_stopped_app_errors),
+            Toast.LENGTH_LONG
+        ).show()
+        FinishCaptureSession()
+    }
+
     private fun ScheduleCustomerAction(DelayMs: Long, ActionRef: () -> Unit) {
         CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
 
@@ -5126,7 +5409,7 @@ class ScreenReaderService : AccessibilityService() {
             ActionRef()
         }
         CustomerAutomationRunnable = WrappedRunnable
-        MainHandler.postDelayed(WrappedRunnable, DelayMs)
+        MainHandler.postDelayed(WrappedRunnable, DelayMs + ErrorPaceExtraMs)
     }
 
     private data class CustomerRow(
@@ -5444,7 +5727,7 @@ class ScreenReaderService : AccessibilityService() {
             DiagnosticWarning(
                 EventName = "CUSTOMER_OPEN_BLOCKED",
                 MessageText = "customer=${RowItem.NameText} tapY=$TapY would hit " +
-                        "${CUSTOMER_CALL_LABEL} at ${RowItem.CallBounds.top}; scrolling instead"
+                        "$CUSTOMER_CALL_LABEL at ${RowItem.CallBounds.top}; scrolling instead"
             )
             ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
                 ScrollCustomerDashboard()
@@ -5454,7 +5737,7 @@ class ScreenReaderService : AccessibilityService() {
         if (RowItem.CallBounds == null && SelectedArrow == null) {
             DiagnosticWarning(
                 EventName = "CUSTOMER_OPEN_BLOCKED",
-                MessageText = "customer=${RowItem.NameText} has no ${CUSTOMER_CALL_LABEL} anchor " +
+                MessageText = "customer=${RowItem.NameText} has no $CUSTOMER_CALL_LABEL anchor " +
                         "and no arrow; refusing a blind tap"
             )
             ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
@@ -5522,7 +5805,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun BeginNextCustomerPage() {
-        if (CustomerTotalPages > 0 && TargetCustomerPage >= CustomerTotalPages) {
+        if (CustomerTotalPages in 1..TargetCustomerPage) {
             CompleteCustomerAutomation(ReasonText = "last customer page reached")
             return
         }
@@ -6233,6 +6516,7 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "customer=$ActiveCustomerName policiesFilled=$FilledCount " +
                     "totalPatches=${ProfilePatchMap.size} gaps=${SessionGapMap.size}"
         )
+        ConsecutiveErrorGiveUps = 0
         RefreshBubble()
         CustomerStageValue = CustomerStage.RETURNING
         ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
@@ -6401,6 +6685,12 @@ class ScreenReaderService : AccessibilityService() {
         ProfilePaneNodes.clear()
         PendingSheetKinds.clear()
         ProcessedCustomerKeys.clear()
+        CancelErrorRetry()
+        ErrorRetryCount = 0
+        ErrorBoundsMissCount = 0
+        ConsecutiveErrorGiveUps = 0
+        ErrorPaceExtraMs = 0L
+        LastHealthyRecordCount = 0
         ProfilePatchMap.clear()
         ProfilePatchNames.clear()
         SessionGapMap.clear()
