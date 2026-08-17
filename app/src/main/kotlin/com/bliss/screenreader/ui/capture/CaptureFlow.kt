@@ -72,7 +72,11 @@ object CaptureFlow {
                 ContextRef = ActivityRef,
                 SessionId = SessionIdVal
             )
-            LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
+            LaunchCustomerCapture(
+                ActivityRef = ActivityRef,
+                SessionIdVal = SessionIdVal,
+                RevisitFilled = true
+            )
         }
         SheetBinding.btnCustomerResumeCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -81,12 +85,17 @@ object CaptureFlow {
         SheetDialog.show()
     }
 
-    private fun LaunchCustomerCapture(ActivityRef: AppCompatActivity, SessionIdVal: String) {
+    private fun LaunchCustomerCapture(
+        ActivityRef: AppCompatActivity,
+        SessionIdVal: String,
+        RevisitFilled: Boolean = false
+    ) {
         Start(
             ActivityRef = ActivityRef,
             ModeVal = CaptureMode.CUSTOMER,
             LaunchTarget = true,
-            ResumeSessionId = SessionIdVal
+            ResumeSessionId = SessionIdVal,
+            RevisitFilled = RevisitFilled
         )
     }
 
@@ -96,7 +105,8 @@ object CaptureFlow {
         LaunchTarget: Boolean = false,
         CapturePolicyDetails: Boolean = false,
         OriginOverride: String = "",
-        ResumeSessionId: String = ""
+        ResumeSessionId: String = "",
+        RevisitFilled: Boolean = false
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -136,7 +146,8 @@ object CaptureFlow {
             ModeVal = ModeVal,
             CapturePolicyDetailsVal = CapturePolicyDetails,
             OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name },
-            ResumeSessionIdVal = ResumeSessionId
+            ResumeSessionIdVal = ResumeSessionId,
+            RevisitFilledVal = RevisitFilled
         )
 
         if (LaunchTarget) {

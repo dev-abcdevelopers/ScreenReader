@@ -15,6 +15,8 @@ import android.content.Intent
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Build
@@ -133,6 +135,17 @@ class ScreenReaderService : AccessibilityService() {
         private const val ERROR_SHEET_PACE_STEP_MS = 400L
         private const val ERROR_SHEET_PACE_CEILING_MS = 2_000L
         private val ERROR_SHEET_BACKOFF_MS = longArrayOf(2_000L, 5_000L, 10_000L)
+        private const val OFFLINE_TITLE = "no internet connection"
+        private const val OFFLINE_SUBTITLE = "check your network"
+        private const val OFFLINE_POLL_MS = 3_000L
+        private const val OFFLINE_MAX_WAIT_MS = 120_000L
+        private const val OFFLINE_LOG_INTERVAL_MS = 15_000L
+        private val OFFLINE_BACKOFF_MS = longArrayOf(5_000L, 15_000L, 30_000L)
+        private const val SCREEN_READY_MIN_TEXT_NODES = 4
+        private const val SCREEN_READY_STABLE_MS = 700L
+        private const val SCREEN_READY_RECHECK_MS = 500L
+        private const val SCREEN_READY_MAX_WAITS = 6
+        private const val SCREEN_READY_LOOK_STALE_MS = 900L
         private const val CUSTOMER_SCROLL_SETTLE_MS = 900L
         private const val CUSTOMER_PAGE_LOAD_DELAY_MS = 2000L
         private const val CUSTOMER_DETAIL_OPEN_DELAY_MS = 1400L
@@ -154,6 +167,7 @@ class ScreenReaderService : AccessibilityService() {
         private const val CUSTOMER_EMPTY_SHEET_LIMIT = 2
         private const val MAX_SHEET_DUMP_NODES = 60
         private const val SHEET_OCR_TOP_FRACTION = 0.55f
+        private const val SHEET_OCR_TIMEOUT_MS = 6_000L
         private const val MAX_SHEET_DUMP_DEPTH = 24
         private const val CUSTOMER_RETURN_ATTEMPT_LIMIT = 8
         private const val CUSTOMER_BACK_LIMIT = 2
@@ -264,6 +278,8 @@ class ScreenReaderService : AccessibilityService() {
     private var EmptySheetReadCount = 0
     private var PendingOcrLines: List<String>? = null
     private var OcrInFlight = false
+    private var RevisitFilledEnabled = false
+    private var OcrWatchdogRunnable: Runnable? = null
     private val OcrAttemptedKinds = mutableSetOf<CustomerProfileParser.ContactKind>()
     private val EmptySheetKindCounts =
         mutableMapOf<CustomerProfileParser.ContactKind, Int>()
@@ -288,6 +304,14 @@ class ScreenReaderService : AccessibilityService() {
     private var ConsecutiveErrorGiveUps = 0
     private var ErrorPaceExtraMs = 0L
     private var LastHealthyRecordCount = 0
+    private var OfflineSinceAt = 0L
+    private var OfflineRetryCount = 0
+    private var OfflineRetryRunnable: Runnable? = null
+    private var OfflineLastLogAt = 0L
+    private var LastScreenSignature = 0
+    private var LastScreenNodeCount = 0
+    private var LastScreenLookAt = 0L
+    private var ScreenStableSinceAt = 0L
     private val SessionGapMap = linkedMapOf<String, SessionGap>()
     private var ActiveProfile: CustomerProfile? = null
     private var PolicyCurrentPage = 0
@@ -1103,9 +1127,11 @@ class ScreenReaderService : AccessibilityService() {
         ModeVal: CaptureMode,
         CapturePolicyDetailsVal: Boolean = false,
         OriginActivityVal: String = "",
-        ResumeSessionIdVal: String = ""
+        ResumeSessionIdVal: String = "",
+        RevisitFilledVal: Boolean = false
     ) {
         CurrentMode = ModeVal
+        RevisitFilledEnabled = RevisitFilledVal
         CancelEventWindowCapture()
         IsResumedSession = ResumeSessionIdVal.isNotBlank()
         CurrentSessionId = ResumeSessionIdVal.ifBlank { UUID.randomUUID().toString() }
@@ -1122,6 +1148,14 @@ class ScreenReaderService : AccessibilityService() {
         ConsecutiveErrorGiveUps = 0
         ErrorPaceExtraMs = 0L
         LastHealthyRecordCount = 0
+        CancelOfflineWatch()
+        OfflineSinceAt = 0L
+        OfflineRetryCount = 0
+        OfflineLastLogAt = 0L
+        LastScreenSignature = 0
+        LastScreenNodeCount = 0
+        LastScreenLookAt = 0L
+        ScreenStableSinceAt = 0L
         LastParsedNodeCount = -1
         LastPackageName = ""
         HasExpandedCurrentPolicyScreen = false
@@ -1290,6 +1324,7 @@ class ScreenReaderService : AccessibilityService() {
                 DiagnosticInfo(
                     EventName = "SESSION_RESUME",
                     MessageText = "session=$CurrentSessionId mode=CUSTOMER " +
+                            "revisitFilled=$RevisitFilledEnabled " +
                             "scopePolicies=${SessionPolicyNumbers.size} " +
                             "alreadyFilled=${FilledPolicyNumbers.size} " +
                             "visitedCustomers=${VisitedCustomerNames.size} " +
@@ -1400,6 +1435,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun TeardownSession() {
         IsCapturing = false
         IsPaused = false
+        CancelOfflineWatch()
         MainHandler.removeCallbacks(TickRunnable)
         StopAutoScroll()
         StopPolicyDashboardAutomation(ResetStateVal = false)
@@ -1437,11 +1473,16 @@ class ScreenReaderService : AccessibilityService() {
         RootNode: AccessibilityNodeInfo,
         VisibleNodes: List<String>
     ) {
-        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE &&
-            IsErrorSheetScreen(FreshNodes = VisibleNodes)
-        ) {
-            HandleErrorSheet(RootNode = RootNode)
-            return
+        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE) {
+            if (IsOfflineScreen(FreshNodes = VisibleNodes)) {
+                HandleOfflineScreen()
+                return
+            }
+            if (IsErrorSheetScreen(FreshNodes = VisibleNodes)) {
+                HandleErrorSheet(RootNode = RootNode)
+                return
+            }
+            NoteScreenSubstance(VisibleNodes = VisibleNodes)
         }
         NoteScreenWithoutError(NodeCount = VisibleNodes.size)
         if (CurrentMode == CaptureMode.POLICY ||
@@ -2773,6 +2814,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun SchedulePolicyAction(DelayMs: Long, ActionRef: () -> Unit) {
         PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
 
+        var RenderWaitCount = 0
         lateinit var WrappedRunnable: Runnable
         WrappedRunnable = Runnable {
             if (!IsPolicyDashboardAutomationRunning ||
@@ -2784,6 +2826,12 @@ class ScreenReaderService : AccessibilityService() {
             if (IsPaused) {
                 PolicyAutomationRunnable = WrappedRunnable
                 MainHandler.postDelayed(WrappedRunnable, TICK_INTERVAL_MS)
+                return@Runnable
+            }
+            if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
+                RenderWaitCount++
+                PolicyAutomationRunnable = WrappedRunnable
+                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
                 return@Runnable
             }
 
@@ -4027,6 +4075,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun ScheduleRenewalAction(DelayMs: Long, ActionRef: () -> Unit) {
         RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
 
+        var RenderWaitCount = 0
         lateinit var WrappedRunnable: Runnable
         WrappedRunnable = Runnable {
             if (!IsRenewalAutomationRunning ||
@@ -4038,6 +4087,12 @@ class ScreenReaderService : AccessibilityService() {
             if (IsPaused) {
                 RenewalAutomationRunnable = WrappedRunnable
                 MainHandler.postDelayed(WrappedRunnable, TICK_INTERVAL_MS)
+                return@Runnable
+            }
+            if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
+                RenderWaitCount++
+                RenewalAutomationRunnable = WrappedRunnable
+                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
                 return@Runnable
             }
 
@@ -5104,7 +5159,11 @@ class ScreenReaderService : AccessibilityService() {
             ConsecutiveErrorGiveUps = 0
         }
 
-        if (ErrorRetryCount == 0 && !ErrorRecoveryScheduled && ErrorBoundsMissCount == 0) return
+        if (ErrorRetryCount == 0 &&
+            !ErrorRecoveryScheduled &&
+            ErrorBoundsMissCount == 0 &&
+            OfflineSinceAt == 0L
+        ) return
         if (NodeCount < ERROR_SHEET_HEALTHY_MIN_NODES) return
 
         val NowMs = System.currentTimeMillis()
@@ -5131,12 +5190,245 @@ class ScreenReaderService : AccessibilityService() {
         ErrorBoundsMissCount = 0
         ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps = 0
+        if (OfflineSinceAt != 0L) {
+            DiagnosticInfo(
+                EventName = "OFFLINE_RECOVERED",
+                MessageText = "retries=$OfflineRetryCount offlineMs=${NowMs - OfflineSinceAt}"
+            )
+            CancelOfflineWatch()
+            OfflineSinceAt = 0L
+            OfflineRetryCount = 0
+            OfflineLastLogAt = 0L
+        }
     }
 
     private fun CancelErrorRetry() {
         ErrorRetryRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         ErrorRetryRunnable = null
         ErrorRecoveryScheduled = false
+    }
+
+    private fun IsOfflineScreen(FreshNodes: List<String>): Boolean {
+        val HasTitle = FreshNodes.any { NodeText ->
+            NodeText.contains(OFFLINE_TITLE, ignoreCase = true) ||
+                    NodeText.contains(OFFLINE_SUBTITLE, ignoreCase = true)
+        }
+        if (!HasTitle) return false
+        return FreshNodes.any { NodeText ->
+            NodeText.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)
+        }
+    }
+
+    private fun HasValidatedNetwork(): Boolean {
+        return try {
+            val ManagerRef = getSystemService(ConnectivityManager::class.java) ?: return true
+            val NetworkRef = ManagerRef.activeNetwork ?: return false
+            val CapabilitiesRef = ManagerRef.getNetworkCapabilities(NetworkRef) ?: return false
+            CapabilitiesRef.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    CapabilitiesRef.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    private fun HandleOfflineScreen() {
+        ErrorHealthySinceAt = 0L
+        SuspendAutomationForError()
+
+        if (OfflineSinceAt == 0L) {
+            OfflineSinceAt = System.currentTimeMillis()
+            OfflineRetryCount = 0
+            OfflineLastLogAt = 0L
+            DiagnosticWarning(
+                EventName = "OFFLINE_SEEN",
+                MessageText = "mode=${CurrentMode.name} customer=$ActiveCustomerName " +
+                        "network=${HasValidatedNetwork()} " +
+                        "page=$PolicyCurrentPage/$PolicyTotalPages nothing is skipped while waiting"
+            )
+        }
+
+        if (OfflineRetryRunnable != null) return
+        ScheduleOfflineWatch(DelayMs = OFFLINE_POLL_MS)
+    }
+
+    private fun ScheduleOfflineWatch(DelayMs: Long) {
+        CancelOfflineWatch()
+        val WatchRunnable = Runnable {
+            OfflineRetryRunnable = null
+            RunOfflineWatch()
+        }
+        OfflineRetryRunnable = WatchRunnable
+        MainHandler.postDelayed(WatchRunnable, DelayMs)
+    }
+
+    private fun CancelOfflineWatch() {
+        OfflineRetryRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        OfflineRetryRunnable = null
+    }
+
+    private fun RunOfflineWatch() {
+        if (!IsCapturing) {
+            OfflineSinceAt = 0L
+            return
+        }
+        if (IsPaused) {
+            ScheduleOfflineWatch(DelayMs = OFFLINE_POLL_MS)
+            return
+        }
+
+        val FreshRoot = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        )
+        if (FreshRoot == null) {
+            ScheduleOfflineWatch(DelayMs = OFFLINE_POLL_MS)
+            return
+        }
+
+        val WaitedMs = System.currentTimeMillis() - OfflineSinceAt
+        try {
+            val FreshTexts = CollectVisibleTextNodes(RootNode = FreshRoot)
+                .map { NodePair -> NodePair.first }
+            if (!IsOfflineScreen(FreshNodes = FreshTexts)) {
+                DiagnosticInfo(
+                    EventName = "OFFLINE_SCREEN_GONE",
+                    MessageText = "retries=$OfflineRetryCount waitedMs=$WaitedMs " +
+                            "nodes=${FreshTexts.size} watching before trusting it"
+                )
+                ResumeAutomationAfterError()
+                return
+            }
+
+            if (WaitedMs >= OFFLINE_MAX_WAIT_MS) {
+                StopSessionForOffline(WaitedMs = WaitedMs)
+                return
+            }
+
+            if (!HasValidatedNetwork()) {
+                val NowMs = System.currentTimeMillis()
+                if (NowMs - OfflineLastLogAt >= OFFLINE_LOG_INTERVAL_MS) {
+                    OfflineLastLogAt = NowMs
+                    DiagnosticInfo(
+                        EventName = "OFFLINE_WAITING",
+                        MessageText = "waitedMs=$WaitedMs the phone has no usable network; " +
+                                "holding the run, no customer is skipped"
+                    )
+                }
+                ScheduleOfflineWatch(DelayMs = OFFLINE_POLL_MS)
+                return
+            }
+
+            val RetryBounds = FindErrorRetryBounds(RootNode = FreshRoot)
+            if (RetryBounds == null) {
+                ScheduleOfflineWatch(DelayMs = OFFLINE_POLL_MS)
+                return
+            }
+
+            val TapAccepted = PerformTapGesture(
+                XPos = RetryBounds.exactCenterX(),
+                YPos = RetryBounds.exactCenterY()
+            )
+            OfflineRetryCount++
+            DiagnosticInfo(
+                EventName = if (TapAccepted) "OFFLINE_RETRIED" else "OFFLINE_RETRY_REJECTED",
+                MessageText = "attempt=$OfflineRetryCount waitedMs=$WaitedMs " +
+                        "x=${RetryBounds.exactCenterX()} y=${RetryBounds.exactCenterY()}"
+            )
+            val BackoffMs = OFFLINE_BACKOFF_MS[
+                (OfflineRetryCount - 1).coerceIn(0, OFFLINE_BACKOFF_MS.size - 1)
+            ]
+            ScheduleOfflineWatch(DelayMs = BackoffMs)
+        } finally {
+            RecycleNode(NodeRef = FreshRoot)
+        }
+    }
+
+    private fun StopSessionForOffline(WaitedMs: Long) {
+        CancelOfflineWatch()
+        CancelErrorRetry()
+        SuspendAutomationForError()
+        OfflineSinceAt = 0L
+        DiagnosticWarning(
+            EventName = "SESSION_STOPPED_OFFLINE",
+            MessageText = "waitedMs=$WaitedMs retries=$OfflineRetryCount " +
+                    "mode=${CurrentMode.name} records=${CurrentRecordCount()} " +
+                    "nodes=${CapturedNodes.size}"
+        )
+        Toast.makeText(
+            this,
+            getString(R.string.capture_stopped_no_network),
+            Toast.LENGTH_LONG
+        ).show()
+        FinishCaptureSession()
+    }
+
+    private fun NoteScreenSubstance(VisibleNodes: List<String>) {
+        val NowMs = System.currentTimeMillis()
+        val SignatureVal = VisibleNodes.hashCode()
+        LastScreenLookAt = NowMs
+        LastScreenNodeCount = VisibleNodes.size
+        if (SignatureVal == LastScreenSignature && ScreenStableSinceAt != 0L) return
+        LastScreenSignature = SignatureVal
+        ScreenStableSinceAt = NowMs
+    }
+
+    private fun RefreshScreenSubstanceLook() {
+        val FreshRoot = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return
+        try {
+            val FreshTexts = mutableListOf<String>()
+            TraverseNode(TargetNode = FreshRoot, ResultList = FreshTexts)
+            NoteScreenSubstance(VisibleNodes = FreshTexts)
+        } finally {
+            RecycleNode(NodeRef = FreshRoot)
+        }
+    }
+
+    private fun IsScreenSettled(WaitCount: Int): Boolean {
+        if (CurrentMode != CaptureMode.POLICY &&
+            CurrentMode != CaptureMode.FUP &&
+            CurrentMode != CaptureMode.CUSTOMER
+        ) return true
+
+        if (WaitCount >= SCREEN_READY_MAX_WAITS) {
+            DiagnosticWarning(
+                EventName = "SCREEN_RENDER_TIMEOUT",
+                MessageText = "waits=$WaitCount nodes=$LastScreenNodeCount " +
+                        "mode=${CurrentMode.name} acting anyway"
+            )
+            return true
+        }
+
+        val NowMs = System.currentTimeMillis()
+        if (LastScreenLookAt == 0L || NowMs - LastScreenLookAt > SCREEN_READY_LOOK_STALE_MS) {
+            RefreshScreenSubstanceLook()
+        }
+        if (LastScreenLookAt == 0L) return true
+
+        if (LastScreenNodeCount < SCREEN_READY_MIN_TEXT_NODES) {
+            NoteScreenStillRendering(
+                ReasonText = "nodes=$LastScreenNodeCount still blank",
+                WaitCount = WaitCount
+            )
+            return false
+        }
+        if (System.currentTimeMillis() - ScreenStableSinceAt < SCREEN_READY_STABLE_MS) {
+            NoteScreenStillRendering(
+                ReasonText = "screen still changing",
+                WaitCount = WaitCount
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun NoteScreenStillRendering(ReasonText: String, WaitCount: Int) {
+        if (WaitCount > 0) return
+        DiagnosticInfo(
+            EventName = "SCREEN_RENDERING",
+            MessageText = "$ReasonText mode=${CurrentMode.name} nodes=$LastScreenNodeCount " +
+                    "holding up to ${SCREEN_READY_MAX_WAITS * SCREEN_READY_RECHECK_MS}ms"
+        )
     }
 
     private fun HandleErrorSheet(RootNode: AccessibilityNodeInfo) {
@@ -5350,6 +5642,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun ScheduleCustomerAction(DelayMs: Long, ActionRef: () -> Unit) {
         CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
 
+        var RenderWaitCount = 0
         lateinit var WrappedRunnable: Runnable
         WrappedRunnable = Runnable {
             if (!IsCustomerAutomationRunning ||
@@ -5361,6 +5654,12 @@ class ScreenReaderService : AccessibilityService() {
             if (IsPaused) {
                 CustomerAutomationRunnable = WrappedRunnable
                 MainHandler.postDelayed(WrappedRunnable, TICK_INTERVAL_MS)
+                return@Runnable
+            }
+            if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
+                RenderWaitCount++
+                CustomerAutomationRunnable = WrappedRunnable
+                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
                 return@Runnable
             }
             CustomerAutomationRunnable = null
@@ -6036,7 +6335,10 @@ class ScreenReaderService : AccessibilityService() {
         val OutstandingNumbers = ActiveCustomerRelevantNumbers.filterNot { NumberText ->
             FilledPolicyNumbers.contains(NumberText)
         }
-        if (ActiveCustomerRelevantNumbers.isNotEmpty() && OutstandingNumbers.isEmpty()) {
+        if (!RevisitFilledEnabled &&
+            ActiveCustomerRelevantNumbers.isNotEmpty() &&
+            OutstandingNumbers.isEmpty()
+        ) {
             DiagnosticInfo(
                 EventName = "CUSTOMER_ALREADY_FILLED",
                 MessageText = "customer=$ActiveCustomerName all " +
@@ -6326,12 +6628,34 @@ class ScreenReaderService : AccessibilityService() {
             OcrInFlight = false
             return
         }
-        CustomerSheetOcr.ReadSheet(
-            ServiceRef = this,
-            ExecutorRef = OcrExecutor,
-            TopFraction = SHEET_OCR_TOP_FRACTION
-        ) { OutcomeVal ->
-            MainHandler.post { FinishSheetOcr(SheetKind = SheetKind, OutcomeVal = OutcomeVal) }
+
+        val WatchdogRunnable = Runnable {
+            if (!OcrInFlight) return@Runnable
+            FinishSheetOcr(
+                SheetKind = SheetKind,
+                OutcomeVal = CustomerSheetOcr.Outcome.Failed(
+                    Reason = "no screenshot callback within ${SHEET_OCR_TIMEOUT_MS}ms"
+                )
+            )
+        }
+        OcrWatchdogRunnable = WatchdogRunnable
+        MainHandler.postDelayed(WatchdogRunnable, SHEET_OCR_TIMEOUT_MS)
+
+        try {
+            CustomerSheetOcr.ReadSheet(
+                ServiceRef = this,
+                ExecutorRef = OcrExecutor,
+                TopFraction = SHEET_OCR_TOP_FRACTION
+            ) { OutcomeVal ->
+                MainHandler.post { FinishSheetOcr(SheetKind = SheetKind, OutcomeVal = OutcomeVal) }
+            }
+        } catch (ErrorRef: Exception) {
+            FinishSheetOcr(
+                SheetKind = SheetKind,
+                OutcomeVal = CustomerSheetOcr.Outcome.Failed(
+                    Reason = "${ErrorRef.javaClass.simpleName}: ${ErrorRef.message.orEmpty()}"
+                )
+            )
         }
     }
 
@@ -6340,6 +6664,8 @@ class ScreenReaderService : AccessibilityService() {
         OutcomeVal: CustomerSheetOcr.Outcome
     ) {
         OcrInFlight = false
+        OcrWatchdogRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        OcrWatchdogRunnable = null
         if (!IsCapturing || ActiveSheetKind != SheetKind) return
 
         when (OutcomeVal) {
