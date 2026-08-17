@@ -52,8 +52,12 @@ object RecordMerge {
             )
         }
 
+        val ExistingHolder = ExistingItem.HolderName.takeIf { NameText ->
+            NameText.isEmpty() || ScreenDataParser.IsPlausibleHolderName(TextValue = NameText)
+        }.orEmpty()
+
         val MergedItem = ExistingItem.copy(
-            HolderName = Resolve("Holder name", ExistingItem.HolderName, IncomingItem.HolderName),
+            HolderName = Resolve("Holder name", ExistingHolder, IncomingItem.HolderName),
             PlanName = Resolve("Plan name", ExistingItem.PlanName, IncomingItem.PlanName),
             PlanCode = Resolve("Plan code", ExistingItem.PlanCode, IncomingItem.PlanCode),
             RenewalDueDate = Resolve(

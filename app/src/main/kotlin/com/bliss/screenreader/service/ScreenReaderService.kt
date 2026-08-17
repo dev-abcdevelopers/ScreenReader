@@ -39,6 +39,7 @@ import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.model.CustomerProfile
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.parser.CustomerProfileParser
+import com.bliss.screenreader.data.parser.SheetOcrParser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
@@ -54,6 +55,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.UUID
 import java.util.Locale
 import kotlin.math.abs
+import java.util.concurrent.Executors
 
 @SuppressLint("AccessibilityPolicy")
 class ScreenReaderService : AccessibilityService() {
@@ -82,9 +84,6 @@ class ScreenReaderService : AccessibilityService() {
         private const val POLICY_DETAIL_SWEEP_LIMIT = 10
         private const val POLICY_DETAIL_SWEEP_SETTLE_MS = 700L
 
-        // A collapsed section header must sit inside this band to be tappable.
-        // Below it the "Pay Premium" bar and the tab strip overlay the content,
-        // so a chevron that looks visible is not actually hittable.
         private const val POLICY_SECTION_VIEWPORT_TOP_RATIO = 0.16f
         private const val POLICY_SECTION_VIEWPORT_BOTTOM_RATIO = 0.72f
         private const val POLICY_SECTION_CHEVRON_X_RATIO = 0.86f
@@ -128,6 +127,8 @@ class ScreenReaderService : AccessibilityService() {
         private const val ERROR_SHEET_RETRY_LABEL = "try again"
         private const val ERROR_SHEET_MAX_RETRIES = 3
         private const val ERROR_SHEET_BOUNDS_MISS_LIMIT = 4
+        private const val ERROR_SHEET_HEALTHY_WINDOW_MS = 6_000L
+        private const val ERROR_SHEET_HEALTHY_MIN_NODES = 25
         private const val ERROR_SHEET_GIVEUP_LIMIT = 3
         private const val ERROR_SHEET_PACE_STEP_MS = 400L
         private const val ERROR_SHEET_PACE_CEILING_MS = 2_000L
@@ -151,6 +152,9 @@ class ScreenReaderService : AccessibilityService() {
         private const val CUSTOMER_SHEET_CLOSE_LIMIT = 2
         private const val CUSTOMER_SHEET_SETTLE_MS = 2500L
         private const val CUSTOMER_EMPTY_SHEET_LIMIT = 2
+        private const val MAX_SHEET_DUMP_NODES = 60
+        private const val SHEET_OCR_TOP_FRACTION = 0.55f
+        private const val MAX_SHEET_DUMP_DEPTH = 24
         private const val CUSTOMER_RETURN_ATTEMPT_LIMIT = 8
         private const val CUSTOMER_BACK_LIMIT = 2
         private const val CUSTOMER_PAGE_WAIT_LIMIT = 5
@@ -258,6 +262,11 @@ class ScreenReaderService : AccessibilityService() {
     private var SheetOpenedAt = 0L
     private var SheetsEverYieldedValues = false
     private var EmptySheetReadCount = 0
+    private var PendingOcrLines: List<String>? = null
+    private var OcrInFlight = false
+    private val OcrAttemptedKinds = mutableSetOf<CustomerProfileParser.ContactKind>()
+    private val EmptySheetKindCounts =
+        mutableMapOf<CustomerProfileParser.ContactKind, Int>()
     private var ProfileSweepCount = 0
     private var LastProfileSweepSignature = 0
     private var CustomerStageValue = CustomerStage.IDLE
@@ -269,11 +278,13 @@ class ScreenReaderService : AccessibilityService() {
     private val VisitedCustomerNames = mutableSetOf<String>()
     private val ProfilePatchMap = linkedMapOf<String, CustomerPolicy>()
     private val ProfilePatchNames = mutableMapOf<String, String>()
+    private val OcrExecutor = Executors.newSingleThreadExecutor()
 
     private var ErrorRetryCount = 0
     private var ErrorRecoveryScheduled = false
     private var ErrorRetryRunnable: Runnable? = null
     private var ErrorBoundsMissCount = 0
+    private var ErrorHealthySinceAt = 0L
     private var ConsecutiveErrorGiveUps = 0
     private var ErrorPaceExtraMs = 0L
     private var LastHealthyRecordCount = 0
@@ -304,11 +315,6 @@ class ScreenReaderService : AccessibilityService() {
     private var PolicyDetailSweepCount = 0
     private var LastPolicyDetailSweepSignature = 0
 
-    /**
-     * Sections with a seek/tap chain still running. A verification round that
-     * fired while a chain was mid-scroll would start a second chain for the
-     * same header, and the extra tap collapses what the first one opened.
-     */
     private val PolicySectionsInFlight = linkedSetOf<String>()
     private val ProcessedPolicyDetailNumbers = linkedSetOf<String>()
     private var PortfolioPoliciesLastAttemptAt = 0L
@@ -414,11 +420,7 @@ class ScreenReaderService : AccessibilityService() {
         ScheduleEventWindowCapture(ExpectedPackage = PackageNameStr)
     }
 
-    /**
-     * Flutter/WebView animations can emit dozens of accessibility events for
-     * one visual change. Walking the complete tree for each event blocks the
-     * accessibility overlay, so capture one settled window per event burst.
-     */
+
     private fun ScheduleEventWindowCapture(ExpectedPackage: String) {
         if (EventCaptureRunnable != null) return
         lateinit var CaptureRunnable: Runnable
@@ -519,9 +521,7 @@ class ScreenReaderService : AccessibilityService() {
             }
         }
 
-        // Accessibility and application overlays can make the active root
-        // transiently unavailable. Inspect the interactive windows as a safe
-        // fallback and prefer the focused target application window.
+
         val WindowList = try {
             windows
         } catch (_: Exception) {
@@ -793,13 +793,7 @@ class ScreenReaderService : AccessibilityService() {
         )
     }
 
-    /**
-     * Renewal cards repeat values across records - two customers can share a
-     * payment mode, an amount or a date - and [AddCapturedNodes] de-duplicates
-     * the flat node list, which would silently strip fields from every card
-     * after the first. So renewal rows are parsed per snapshot and merged into
-     * a policy-number keyed map instead, exactly as the policy dashboard does.
-     */
+
     private fun CaptureRenewalSnapshot(PackageNameVal: String, VisibleNodes: List<String>) {
         val VisibleRecords = try {
             FupDataParser.ParseRenewalHistory(Nodes = VisibleNodes)
@@ -831,8 +825,6 @@ class ScreenReaderService : AccessibilityService() {
             }
             val MergedKey = RenewalRecordKey(RecordItem = MergedRecord)
             if (ExistingRecord != MergedRecord || ExistingKey != MergedKey) {
-                // A card first seen mid-scroll can arrive without its payment
-                // date and gain one later, which changes its identity.
                 if (ExistingKey != null && ExistingKey != MergedKey) {
                     CapturedFupMap.remove(ExistingKey)
                 }
@@ -853,21 +845,10 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * A policy can appear in renewal history more than once, so a record is
-     * identified by its policy number *and* the date the premium was paid.
-     */
     private fun RenewalRecordKey(RecordItem: FupPolicy): String {
-        // Delegated so the capture-time key and the commit-time key cannot
-        // drift apart and start treating the same row as two records.
         return RecordMerge.RenewalKey(RecordItem = RecordItem)
     }
 
-    /**
-     * Finds the entry an incoming card belongs to. An exact key match wins;
-     * otherwise a same-policy entry whose payment date is still blank is
-     * treated as the same partially-read card.
-     */
     private fun FindRenewalRecordKey(IncomingRecord: FupPolicy): String? {
         val ExactKey = RenewalRecordKey(RecordItem = IncomingRecord)
         if (CapturedFupMap.containsKey(ExactKey)) return ExactKey
@@ -1056,14 +1037,17 @@ class ScreenReaderService : AccessibilityService() {
             VisibleNodes.any { NodeText ->
                 NodeText.contains("Detailed Policy View", ignoreCase = true)
             } -> "Detailed Policy View"
+
             VisibleNodes.any { NodeText ->
                 NodeText.contains("servicing", ignoreCase = true) ||
                         NodeText.contains("policy status", ignoreCase = true)
             } -> "Policy Servicing"
+
             VisibleNodes.any { NodeText ->
                 NodeText.contains("renewal history", ignoreCase = true) ||
                         NodeText.equals("FUP", ignoreCase = true)
             } -> "FUP"
+
             VisibleNodes.isEmpty() -> "Empty accessibility tree"
             else -> "Unknown"
         }
@@ -1114,7 +1098,6 @@ class ScreenReaderService : AccessibilityService() {
         )
     }
 
-    // ------------------------------------------------------------- lifecycle
 
     fun StartCaptureSession(
         ModeVal: CaptureMode,
@@ -1135,6 +1118,7 @@ class ScreenReaderService : AccessibilityService() {
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
+        ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps = 0
         ErrorPaceExtraMs = 0L
         LastHealthyRecordCount = 0
@@ -1219,9 +1203,7 @@ class ScreenReaderService : AccessibilityService() {
                     "eventTypes=${ActiveServiceInfo?.eventTypes}"
         )
 
-        // Seeding must happen before the first capture tick: the Rebuild…Nodes
-        // helpers clear CapturedNodes, so anything loaded after a tick has
-        // already run would be wiped.
+
         if (IsResumedSession) SeedFromStoredSession()
 
         CaptureSessionState.OnSessionStarted(
@@ -1316,9 +1298,6 @@ class ScreenReaderService : AccessibilityService() {
             }
 
             CaptureMode.PS -> {
-                // PS has no keyed map, so there is nothing safe to seed. The
-                // commit still merges by key, it just cannot show prior rows
-                // in the live count.
                 DiagnosticInfo(
                     EventName = "SESSION_RESUME",
                     MessageText = "session=$CurrentSessionId mode=PS seeded=0 (unsupported)"
@@ -1345,10 +1324,7 @@ class ScreenReaderService : AccessibilityService() {
         RefreshBubble()
     }
 
-    /**
-     * Ends the capture and parks the result for review. Nothing is written to
-     * storage here; the review sheet decides.
-     */
+
     fun FinishCaptureSession() {
         if (!IsCapturing) return
         val EndedAt = System.currentTimeMillis()
@@ -1367,6 +1343,7 @@ class ScreenReaderService : AccessibilityService() {
                 CaptureMode.POLICY if CapturedPolicyMap.isNotEmpty() -> {
                     CaptureParsers.PreviewPolicies(Policies = CapturedPolicyMap.values.toList())
                 }
+
                 CaptureMode.FUP if CapturedFupMap.isNotEmpty() -> {
                     CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
                 }
@@ -1377,6 +1354,7 @@ class ScreenReaderService : AccessibilityService() {
                         NameMap = ProfilePatchNames
                     )
                 }
+
                 else -> {
                     CaptureParsers.Preview(ModeVal = CurrentMode, Nodes = NodeSnapshot)
                 }
@@ -1453,7 +1431,6 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    // ---------------------------------------------------------- automation
 
     private fun HandleScreenAutomation(
         PackageNameVal: String,
@@ -1466,10 +1443,7 @@ class ScreenReaderService : AccessibilityService() {
             HandleErrorSheet(RootNode = RootNode)
             return
         }
-        NoteScreenWithoutError()
-
-        // Both the policy and renewal flows begin on the agent app's Home
-        // dashboard and branch apart at the bottom navigation bar.
+        NoteScreenWithoutError(NodeCount = VisibleNodes.size)
         if (CurrentMode == CaptureMode.POLICY ||
             CurrentMode == CaptureMode.FUP ||
             CurrentMode == CaptureMode.CUSTOMER
@@ -1544,7 +1518,8 @@ class ScreenReaderService : AccessibilityService() {
             if (IsPolicyDashboardActive || IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)) {
                 IsPolicyDashboardActive = true
                 IsPolicyDetailScreenActive = false
-                IsPolicyDashboardScreenVisible = IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)
+                IsPolicyDashboardScreenVisible =
+                    IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)
                 HasClickedPortfolioPolicies = true
                 PortfolioPoliciesClickAttempts = 0
                 PortfolioPoliciesLastAttemptAt = 0L
@@ -1558,14 +1533,18 @@ class ScreenReaderService : AccessibilityService() {
 
         HasExpandedCurrentPolicyScreen = false
         if (IsAutoScrollScreenReady(PackageNameVal = PackageNameVal, VisibleNodes = VisibleNodes)) {
-            CurrentAutoScrollScreenSignature = VisibleNodes.joinToString(separator = "\u0001").hashCode()
+            CurrentAutoScrollScreenSignature =
+                VisibleNodes.joinToString(separator = "\u0001").hashCode()
             StartAutoScroll(ScreenSignature = CurrentAutoScrollScreenSignature)
         } else if (IsAutoScrolling) {
             StopAutoScroll()
         }
     }
 
-    private fun IsAutoScrollScreenReady(PackageNameVal: String, VisibleNodes: List<String>): Boolean {
+    private fun IsAutoScrollScreenReady(
+        PackageNameVal: String,
+        VisibleNodes: List<String>
+    ): Boolean {
         if (PackageNameVal != ExpectedTargetPackage()) return false
 
         val HasParsedRecord = try {
@@ -1600,7 +1579,6 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    // ------------------------------------------------ policy dashboard flow
 
     private fun IsCustomerPortfolioScreen(VisibleNodes: List<String>): Boolean {
         val HasPortfolioTitle = VisibleNodes.any { NodeText ->
@@ -1618,10 +1596,7 @@ class ScreenReaderService : AccessibilityService() {
         return HasPortfolioTitle && HasPortfolioCard && HasPolicies && HasCustomers
     }
 
-    /**
-     * The agent app's landing screen: a greeting/performance card above the
-     * Home | Customers | Renewals | Profile bottom navigation bar.
-     */
+
     private fun IsAgentHomeScreen(VisibleNodes: List<String>): Boolean {
         if (IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes)) return false
         if (IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)) return false
@@ -1641,11 +1616,7 @@ class ScreenReaderService : AccessibilityService() {
         return VisibleNodes.any { NodeText -> NodeText.trim().equals(TabLabel, ignoreCase = true) }
     }
 
-    /**
-     * The policy flow lives behind the Customers tab and the renewal flow
-     * behind the Renewals tab, so the Home screen handler is shared and only
-     * the target label differs.
-     */
+
     private fun HomeNavTabLabel(): String {
         return if (CurrentMode == CaptureMode.FUP) HOME_TAB_RENEWALS else HOME_TAB_CUSTOMERS
     }
@@ -1737,8 +1708,6 @@ class ScreenReaderService : AccessibilityService() {
                 )
                 if (!IsBottomNavArea) continue
 
-                // Flutter tab bars often report the label as non-clickable, so
-                // tap the visible tab rectangle before the semantic fallback.
                 if (TapBottomNavTab(TabLabel = TabLabel, RowCenterY = MatchBounds.centerY())) {
                     DiagnosticInfo(
                         EventName = "HOME_NAV_CLICKED",
@@ -1929,8 +1898,7 @@ class ScreenReaderService : AccessibilityService() {
                     continue
                 }
 
-                // Flutter can report ACTION_CLICK as accepted without invoking the card.
-                // Target the visible yellow arrow first; it is the actual navigation control.
+
                 if (TapPortfolioPoliciesArrow(LabelBounds = MatchBounds)) {
                     DiagnosticInfo(
                         EventName = "POLICIES_CLICKED",
@@ -2234,12 +2202,6 @@ class ScreenReaderService : AccessibilityService() {
     private fun VerifyPolicySectionExpansionAndReturn() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         val MissingSections = MissingExpandedPolicySections(Nodes = LatestPolicyDetailNodes)
-
-        // Key Dates is the third accordion and sits below the fold, so its
-        // header only becomes tappable once the screen has been scrolled -
-        // and expanding the two sections above pushes it further down. Retry
-        // in rounds rather than once, letting each attempt scroll itself into
-        // view, instead of giving up on whatever was off-screen.
         if (MissingSections.isNotEmpty() &&
             PolicySectionRetryRounds < POLICY_SECTION_RETRY_ROUND_LIMIT
         ) {
@@ -2259,8 +2221,7 @@ class ScreenReaderService : AccessibilityService() {
                     AttemptCount = 0
                 )
             }
-            // Wait past the worst-case seek chain so the next verification does
-            // not fire while a header is still being scrolled into view.
+
             val RetryVerificationDelay =
                 MissingSections.size * POLICY_DETAIL_SECTION_STEP_MS +
                         POLICY_SECTION_ATTEMPT_LIMIT * POLICY_SECTION_SCROLL_SETTLE_MS +
@@ -2278,8 +2239,7 @@ class ScreenReaderService : AccessibilityService() {
                     MissingSections.joinToString().ifEmpty { "none" }
         )
 
-        // Expanded values can extend past the bottom of the screen, so walk the
-        // whole detail page before leaving it.
+
         PolicyDetailSweepCount = 0
         LastPolicyDetailSweepSignature = 0
         SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
@@ -2287,10 +2247,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * Scrolls the expanded detail page to the bottom, capturing at each step.
-     * Stops early once the visible content stops changing.
-     */
+
     private fun SweepPolicyDetailScreen() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         val CurrentSignature = LatestPolicyDetailNodes
@@ -2341,12 +2298,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * Judged against the merged record for this policy, not just the latest
-     * snapshot. Scrolling to reach a lower section pushes an earlier one out of
-     * view, and treating that as "missing" would re-tap its header and collapse
-     * a section that had already been read correctly.
-     */
+
     private fun MissingExpandedPolicySections(Nodes: List<String>): List<String> {
         val MergedRecord = CapturedPolicyMap[PolicyDetailCurrentPolicyNumber]
 
@@ -2669,7 +2621,10 @@ class ScreenReaderService : AccessibilityService() {
             PolicyPageRetryCount = 0
             PolicyScrollStallCount = 0
             PolicyAutomationFailureCount = 0
-            Log.d(LOG_TAG, "Capturing Policy Dashboard page $PolicyCurrentPage of $PolicyTotalPages")
+            Log.d(
+                LOG_TAG,
+                "Capturing Policy Dashboard page $PolicyCurrentPage of $PolicyTotalPages"
+            )
             DiagnosticInfo(
                 EventName = "POLICY_PAGE_LOADED",
                 MessageText = "page=$PolicyCurrentPage total=$PolicyTotalPages " +
@@ -2723,8 +2678,7 @@ class ScreenReaderService : AccessibilityService() {
             EventName = "POLICY_AUTOMATION_COMPLETE",
             MessageText = "captured=${CapturedPolicyMap.size} page=$PolicyCurrentPage/$PolicyTotalPages"
         )
-        // The agent is looking at the target app, not this one, so the finish
-        // signal has to be felt rather than seen.
+
         HapticFeedback.Success(ContextRef = this)
         Toast.makeText(
             this,
@@ -2840,7 +2794,10 @@ class ScreenReaderService : AccessibilityService() {
         MainHandler.postDelayed(WrappedRunnable, DelayMs)
     }
 
-    private fun ClickPolicyPageSelector(RootNode: AccessibilityNodeInfo, CurrentPage: Int): Boolean {
+    private fun ClickPolicyPageSelector(
+        RootNode: AccessibilityNodeInfo,
+        CurrentPage: Int
+    ): Boolean {
         val CandidateLabels = linkedSetOf(
             CurrentPage.toString().padStart(2, '0'),
             CurrentPage.toString()
@@ -2883,10 +2840,16 @@ class ScreenReaderService : AccessibilityService() {
         ) {
             return true
         }
-        return ClickSpinnerNode(TargetNode = RootNode, ActionValue = AccessibilityNodeInfo.ACTION_CLICK)
+        return ClickSpinnerNode(
+            TargetNode = RootNode,
+            ActionValue = AccessibilityNodeInfo.ACTION_CLICK
+        )
     }
 
-    private fun AdvancePolicyPageSelector(RootNode: AccessibilityNodeInfo, CurrentPage: Int): Boolean {
+    private fun AdvancePolicyPageSelector(
+        RootNode: AccessibilityNodeInfo,
+        CurrentPage: Int
+    ): Boolean {
         if (ClickSpinnerNode(
                 TargetNode = RootNode,
                 ActionValue = AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
@@ -3265,7 +3228,11 @@ class ScreenReaderService : AccessibilityService() {
             for (ChildIdx in 0 until TargetNode.childCount) {
                 val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
                 try {
-                    if (ClickSpinnerNode(TargetNode = ChildNode, ActionValue = ActionValue)) return true
+                    if (ClickSpinnerNode(
+                            TargetNode = ChildNode,
+                            ActionValue = ActionValue
+                        )
+                    ) return true
                 } finally {
                     RecycleNode(NodeRef = ChildNode)
                 }
@@ -3996,7 +3963,8 @@ class ScreenReaderService : AccessibilityService() {
         RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         RenewalAutomationRunnable = null
         RenewalAutomationFailureCount++
-        val CanRetryAutomatically = RenewalAutomationFailureCount < RENEWAL_AUTOMATION_RECOVERY_LIMIT
+        val CanRetryAutomatically =
+            RenewalAutomationFailureCount < RENEWAL_AUTOMATION_RECOVERY_LIMIT
         RenewalAutomationRetryAfter = if (CanRetryAutomatically) {
             System.currentTimeMillis() + RENEWAL_FAILURE_RETRY_MS
         } else {
@@ -4154,7 +4122,10 @@ class ScreenReaderService : AccessibilityService() {
         return NodeScrollAccepted || PerformAutoScrollGesture(ForwardVal = ForwardVal)
     }
 
-    private fun PerformScrollOnNode(TargetNode: AccessibilityNodeInfo, ForwardVal: Boolean): Boolean {
+    private fun PerformScrollOnNode(
+        TargetNode: AccessibilityNodeInfo,
+        ForwardVal: Boolean
+    ): Boolean {
         try {
             val ScrollAction = if (ForwardVal) {
                 AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
@@ -4167,7 +4138,11 @@ class ScreenReaderService : AccessibilityService() {
             for (ChildIdx in 0 until TargetNode.childCount) {
                 val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
                 try {
-                    if (PerformScrollOnNode(TargetNode = ChildNode, ForwardVal = ForwardVal)) return true
+                    if (PerformScrollOnNode(
+                            TargetNode = ChildNode,
+                            ForwardVal = ForwardVal
+                        )
+                    ) return true
                 } finally {
                     RecycleNode(NodeRef = ChildNode)
                 }
@@ -4266,12 +4241,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * Keeps the normal movement smooth, but switches to the WebView's native
-     * accessibility scroll action after a gesture produces no new content.
-     * This is the automatic equivalent of the small manual nudge previously
-     * needed to wake the dashboard list.
-     */
+
     private fun PerformPolicyScroll(
         ForwardVal: Boolean,
         PreferAccessibilityAction: Boolean
@@ -4321,12 +4291,10 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
         if (HasExpandedCurrentPolicyScreen) return
-
-        // Verify that at least one of the labels belongs to this accessibility
-        // tree before scheduling clicks against fresh roots.
-        val HasExpandableLabel = listOf("Policy Details", "Commissions", "Key Dates").any { LabelText ->
-            VisibleNodes.any { NodeText -> NodeText.equals(LabelText, ignoreCase = true) }
-        }
+        val HasExpandableLabel =
+            listOf("Policy Details", "Commissions", "Key Dates").any { LabelText ->
+                VisibleNodes.any { NodeText -> NodeText.equals(LabelText, ignoreCase = true) }
+            }
         if (!HasExpandableLabel) return
 
         HasExpandedCurrentPolicyScreen = true
@@ -4339,8 +4307,9 @@ class ScreenReaderService : AccessibilityService() {
         MainHandler.postDelayed({
             if (!IsCapturing || IsPaused || CurrentMode != CaptureMode.POLICY) return@postDelayed
 
-            val FreshRoot = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
-                ?: return@postDelayed
+            val FreshRoot =
+                FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+                    ?: return@postDelayed
             val Expanded = try {
                 ExpandSection(RootNode = FreshRoot, LabelText = LabelText)
             } finally {
@@ -4352,8 +4321,6 @@ class ScreenReaderService : AccessibilityService() {
                         "expanded=$Expanded"
             )
             if (!Expanded) {
-                // Usually means the header is below the fold. Hand over to the
-                // scroll-aware attempt rather than dropping the section.
                 ScheduleSectionExpansionAttempt(
                     LabelText = LabelText,
                     DelayMs = POLICY_SECTION_SCROLL_SETTLE_MS,
@@ -4363,12 +4330,7 @@ class ScreenReaderService : AccessibilityService() {
         }, DelayMs)
     }
 
-    /**
-     * Brings a section header into the tappable band and then taps its chevron,
-     * re-posting itself after each scroll. The previous version only looked for
-     * headers already on screen and abandoned anything below the fold, which is
-     * why Key Dates was never expanded.
-     */
+
     private fun ScheduleSectionExpansionAttempt(
         LabelText: String,
         DelayMs: Long,
@@ -4521,8 +4483,6 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun ExpandSection(RootNode: AccessibilityNodeInfo, LabelText: String): Boolean {
-        // A gesture on the visible chevron is more dependable for this WebView. Its
-        // accessibility ACTION_CLICK often reports success without changing the section.
         if (ExpandSectionByTraversal(TargetNode = RootNode, LabelText = LabelText)) {
             return true
         }
@@ -4538,7 +4498,8 @@ class ScreenReaderService : AccessibilityService() {
                 var OwnsCandidate = false
                 while (CandidateNode != null) {
                     if (CandidateNode.isClickable) {
-                        val Clicked = CandidateNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        val Clicked =
+                            CandidateNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         if (OwnsCandidate) RecycleNode(NodeRef = CandidateNode)
                         if (Clicked) {
                             Log.d(LOG_TAG, "Expanded $LabelText")
@@ -4626,7 +4587,6 @@ class ScreenReaderService : AccessibilityService() {
         return false
     }
 
-    // ------------------------------------------------------- live parse loop
 
     private fun StartParseThread() {
         StopParseThread()
@@ -4641,10 +4601,6 @@ class ScreenReaderService : AccessibilityService() {
         ParseThread = null
     }
 
-    /**
-     * Reparses on a worker thread so the bubble can show records rather than
-     * raw node counts. Skipped when nothing new arrived since the last pass.
-     */
     private fun RequestIncrementalParse() {
         val SnapshotSize = CapturedNodes.size
         if (SnapshotSize == LastParsedNodeCount || SnapshotSize == 0) return
@@ -4676,7 +4632,6 @@ class ScreenReaderService : AccessibilityService() {
         return (System.currentTimeMillis() - SessionStartedAt - PausedSoFar).coerceAtLeast(0L)
     }
 
-    // --------------------------------------------------------------- overlay
 
     @SuppressLint("InflateParams")
     private fun ShowBubble() {
@@ -4684,7 +4639,8 @@ class ScreenReaderService : AccessibilityService() {
 
         try {
             val ThemedContext = ContextThemeWrapper(this, R.style.Theme_DataReaderApp)
-            val RootView = LayoutInflater.from(ThemedContext).inflate(R.layout.view_capture_bubble, null)
+            val RootView =
+                LayoutInflater.from(ThemedContext).inflate(R.layout.view_capture_bubble, null)
             BubbleView = RootView
 
             PillContainer = RootView.findViewById(R.id.pillContainer)
@@ -4692,10 +4648,6 @@ class ScreenReaderService : AccessibilityService() {
             TvBubbleCount = RootView.findViewById(R.id.tvBubbleCount)
             TvBubbleMeta = RootView.findViewById(R.id.tvBubbleMeta)
             TvBubblePause = RootView.findViewById(R.id.btnBubblePause)
-
-            // An accessibility overlay is trusted by the accessibility
-            // framework and does not require the separate draw-over-apps
-            // permission used by ordinary application overlays.
             val LayoutType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
 
             val LayoutParamsObj = WindowManager.LayoutParams(
@@ -4739,11 +4691,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * Drag lives on the pill only, so the buttons in the expanded card keep
-     * their own click handling. A tap under the slop threshold toggles the card
-     * instead of ending the session outright.
-     */
+
     private fun AttachDragHandling(TargetView: View?, LayoutParamsObj: WindowManager.LayoutParams) {
         if (TargetView == null) return
         val TouchSlopPx = resources.displayMetrics.density * 8f
@@ -4924,14 +4872,14 @@ class ScreenReaderService : AccessibilityService() {
         TvBubblePause = null
     }
 
-    // ---------------------------------------------------------------- system
 
     private fun StartForegroundNotification() {
         val ChannelIdStr = "DataReaderServiceChannel"
         val ChannelNameStr = "Screen Reader Automation Service"
 
         val NotificationMgr = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val ChannelObj = NotificationChannel(ChannelIdStr, ChannelNameStr, NotificationManager.IMPORTANCE_LOW)
+        val ChannelObj =
+            NotificationChannel(ChannelIdStr, ChannelNameStr, NotificationManager.IMPORTANCE_LOW)
         NotificationMgr.createNotificationChannel(ChannelObj)
 
         val NotificationObj =
@@ -4948,7 +4896,8 @@ class ScreenReaderService : AccessibilityService() {
         try {
             if (WakeLockObj == null) {
                 val PowerMgr = getSystemService(POWER_SERVICE) as PowerManager
-                WakeLockObj = PowerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DataReaderApp:WakeLock")
+                WakeLockObj =
+                    PowerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DataReaderApp:WakeLock")
             }
             if (WakeLockObj?.isHeld == false) {
                 WakeLockObj?.acquire(WAKE_LOCK_TIMEOUT_MS)
@@ -4966,7 +4915,6 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    // -------------------------------------------------- customer profiles
 
     private enum class CustomerStage {
         IDLE, DASHBOARD, OPENING_CUSTOMER, READING_POLICIES, OPENING_PROFILE,
@@ -5148,7 +5096,8 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun NoteScreenWithoutError() {
+
+    private fun NoteScreenWithoutError(NodeCount: Int) {
         val RecordCountNow = CurrentRecordCount()
         if (RecordCountNow > LastHealthyRecordCount) {
             LastHealthyRecordCount = RecordCountNow
@@ -5156,16 +5105,32 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         if (ErrorRetryCount == 0 && !ErrorRecoveryScheduled && ErrorBoundsMissCount == 0) return
+        if (NodeCount < ERROR_SHEET_HEALTHY_MIN_NODES) return
+
+        val NowMs = System.currentTimeMillis()
+        if (ErrorHealthySinceAt == 0L) {
+            ErrorHealthySinceAt = NowMs
+            CancelErrorRetry()
+            DiagnosticInfo(
+                EventName = "ERROR_SHEET_CLEARED",
+                MessageText = "nodes=$NodeCount retries=$ErrorRetryCount " +
+                        "watching for ${ERROR_SHEET_HEALTHY_WINDOW_MS}ms before trusting it"
+            )
+            ResumeAutomationAfterError()
+            return
+        }
+
+        if (NowMs - ErrorHealthySinceAt < ERROR_SHEET_HEALTHY_WINDOW_MS) return
 
         DiagnosticInfo(
             EventName = "ERROR_SHEET_RECOVERED",
-            MessageText = "retries=$ErrorRetryCount paceExtraMs=$ErrorPaceExtraMs"
+            MessageText = "retries=$ErrorRetryCount paceExtraMs=$ErrorPaceExtraMs " +
+                    "healthyMs=${NowMs - ErrorHealthySinceAt}"
         )
-        CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
+        ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps = 0
-        ResumeAutomationAfterError()
     }
 
     private fun CancelErrorRetry() {
@@ -5175,6 +5140,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun HandleErrorSheet(RootNode: AccessibilityNodeInfo) {
+        ErrorHealthySinceAt = 0L
         if (ErrorRecoveryScheduled) return
 
         SuspendAutomationForError()
@@ -5214,11 +5180,7 @@ class ScreenReaderService : AccessibilityService() {
         MainHandler.postDelayed(RetryRunnable, BackoffMs)
     }
 
-    /**
-     * The bounds read when the sheet appeared are worthless by the time the backoff
-     * expires: the sheet may have gone, and this app places real calls if a tap lands
-     * on the dashboard behind it. Everything is read again here, or nothing is tapped.
-     */
+
     private fun TapErrorRetryNow() {
         if (!IsCapturing || IsPaused) return
 
@@ -5268,10 +5230,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    /**
-     * SuspendAutomationForError empties the queue, and every mode only re-posts from
-     * its own step. Without this the run simply stops the moment the app recovers.
-     */
+
     private fun ResumeAutomationAfterError() {
         when (CurrentMode) {
             CaptureMode.POLICY -> {
@@ -5303,10 +5262,7 @@ class ScreenReaderService : AccessibilityService() {
         )
     }
 
-    /**
-     * Anything already queued was scheduled against the screen behind the sheet, so
-     * letting it fire means tapping coordinates that no longer mean what they meant.
-     */
+
     private fun SuspendAutomationForError() {
         StopAutoScroll()
         PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
@@ -5330,6 +5286,7 @@ class ScreenReaderService : AccessibilityService() {
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
+        ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps++
         ErrorPaceExtraMs = (ErrorPaceExtraMs + ERROR_SHEET_PACE_STEP_MS)
             .coerceAtMost(ERROR_SHEET_PACE_CEILING_MS)
@@ -5338,7 +5295,8 @@ class ScreenReaderService : AccessibilityService() {
             EventName = "ERROR_SHEET_GIVEUP",
             MessageText = "$ReasonText consecutive=$ConsecutiveErrorGiveUps " +
                     "paceExtraMs=$ErrorPaceExtraMs mode=${CurrentMode.name} " +
-                    "customer=$ActiveCustomerName"
+                    "page=$PolicyCurrentPage/$PolicyTotalPages " +
+                    "expectedPage=$PolicyExpectedPage customer=$ActiveCustomerName"
         )
 
         if (ConsecutiveErrorGiveUps >= ERROR_SHEET_GIVEUP_LIMIT) {
@@ -5747,6 +5705,9 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         ActiveCustomerName = RowItem.NameText
+        OcrAttemptedKinds.clear()
+        PendingOcrLines = null
+        OcrInFlight = false
         ProcessedCustomerKeys.add(CustomerKey(NameText = RowItem.NameText))
         CustomerOpenAttempts++
         CustomerStageValue = CustomerStage.OPENING_CUSTOMER
@@ -5908,7 +5869,12 @@ class ScreenReaderService : AccessibilityService() {
         )
         val OptionBounds = try {
             CollectVisibleTextNodes(RootNode = RootNode)
-                .filter { NodePair -> IsPageLabel(NodeText = NodePair.first, Labels = OptionLabels) }
+                .filter { NodePair ->
+                    IsPageLabel(
+                        NodeText = NodePair.first,
+                        Labels = OptionLabels
+                    )
+                }
                 .filter { NodePair -> IsBoundsOnScreen(BoundsObj = NodePair.second) }
                 .minByOrNull { NodePair -> NodePair.second.top }
                 ?.second
@@ -6237,16 +6203,25 @@ class ScreenReaderService : AccessibilityService() {
             FinishActiveCustomer()
             return
         }
-        if (!SheetsEverYieldedValues && EmptySheetReadCount >= CUSTOMER_EMPTY_SHEET_LIMIT) {
-            DiagnosticInfo(
-                EventName = "CUSTOMER_SHEETS_DISABLED",
-                MessageText = "customer=$ActiveCustomerName skipping ${PendingSheetKinds.size} " +
-                        "sheet(s): $EmptySheetReadCount opened so far this run exposed no values, " +
-                        "so the inline value is the best this app gives"
-            )
-            PendingSheetKinds.clear()
-            FinishActiveCustomer()
-            return
+        val DeadKinds = EmptySheetKindCounts.filterValues { CountVal ->
+            CountVal >= CUSTOMER_EMPTY_SHEET_LIMIT
+        }.keys
+        if (!SheetsEverYieldedValues && DeadKinds.isNotEmpty()) {
+            val SkippedKinds = PendingSheetKinds.filter { KindVal -> DeadKinds.contains(KindVal) }
+            if (SkippedKinds.isNotEmpty()) {
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_SHEETS_DISABLED",
+                    MessageText = "customer=$ActiveCustomerName " +
+                            "skipping ${SkippedKinds.joinToString(",") { KindVal -> KindVal.name }}: " +
+                            "each exposed no values twice this run, so the inline value is the " +
+                            "best this app gives; other field kinds are still tried"
+                )
+                PendingSheetKinds.removeAll(SkippedKinds)
+            }
+            if (PendingSheetKinds.isEmpty()) {
+                FinishActiveCustomer()
+                return
+            }
         }
         val LabelText = when (NextKind) {
             CustomerProfileParser.ContactKind.MOBILE -> CustomerProfileParser.LABEL_MOBILE
@@ -6331,6 +6306,119 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
+
+    private fun ShouldTryOcr(SheetKind: CustomerProfileParser.ContactKind): Boolean {
+        if (!CustomerSheetOcr.IsSupported()) return false
+        if (OcrAttemptedKinds.contains(SheetKind)) return false
+        return System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
+    }
+
+    private fun StartSheetOcr(SheetKind: CustomerProfileParser.ContactKind) {
+        OcrAttemptedKinds.add(SheetKind)
+        OcrInFlight = true
+        CustomerStageValue = CustomerStage.READING_SHEET
+        DiagnosticInfo(
+            EventName = "CUSTOMER_SHEET_OCR_START",
+            MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name}"
+        )
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            OcrInFlight = false
+            return
+        }
+        CustomerSheetOcr.ReadSheet(
+            ServiceRef = this,
+            ExecutorRef = OcrExecutor,
+            TopFraction = SHEET_OCR_TOP_FRACTION
+        ) { OutcomeVal ->
+            MainHandler.post { FinishSheetOcr(SheetKind = SheetKind, OutcomeVal = OutcomeVal) }
+        }
+    }
+
+    private fun FinishSheetOcr(
+        SheetKind: CustomerProfileParser.ContactKind,
+        OutcomeVal: CustomerSheetOcr.Outcome
+    ) {
+        OcrInFlight = false
+        if (!IsCapturing || ActiveSheetKind != SheetKind) return
+
+        when (OutcomeVal) {
+            is CustomerSheetOcr.Outcome.Lines -> {
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_SHEET_OCR_READ",
+                    MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                            "lines=${OutcomeVal.TextLines.size}"
+                )
+                PendingOcrLines = OutcomeVal.TextLines
+            }
+
+            is CustomerSheetOcr.Outcome.Failed -> {
+                DiagnosticWarning(
+                    EventName = "CUSTOMER_SHEET_OCR_FAILED",
+                    MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                            "reason=${OutcomeVal.Reason}"
+                )
+                PendingOcrLines = emptyList()
+            }
+        }
+
+        HandleContactSheet(SheetKind = SheetKind, VisibleNodes = CurrentScreenNodes())
+    }
+
+    private fun DumpEmptySheet(SheetKind: CustomerProfileParser.ContactKind) {
+        EmptySheetKindCounts[SheetKind] = (EmptySheetKindCounts[SheetKind] ?: 0) + 1
+
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return
+        try {
+            val Descriptions = mutableListOf<String>()
+            CollectSheetDump(TargetNode = RootNode, ResultList = Descriptions, DepthVal = 0)
+            DiagnosticWarning(
+                EventName = "CUSTOMER_SHEET_DUMP",
+                MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                        "nodes=${Descriptions.size} " +
+                        Descriptions.take(MAX_SHEET_DUMP_NODES).joinToString(" || ")
+            )
+        } catch (_: Exception) {
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun CollectSheetDump(
+        TargetNode: AccessibilityNodeInfo?,
+        ResultList: MutableList<String>,
+        DepthVal: Int
+    ) {
+        if (TargetNode == null || DepthVal > MAX_SHEET_DUMP_DEPTH) return
+        if (ResultList.size >= MAX_SHEET_DUMP_NODES) return
+
+        val TextValue = TargetNode.text?.toString().orEmpty().trim()
+        val DescValue = TargetNode.contentDescription?.toString().orEmpty().trim()
+        if (TextValue.isNotEmpty() || DescValue.isNotEmpty()) {
+            val BoundsObj = Rect()
+            TargetNode.getBoundsInScreen(BoundsObj)
+            ResultList.add(
+                "[${TargetNode.className}] text='$TextValue' desc='$DescValue' " +
+                        "y=${BoundsObj.top}"
+            )
+        }
+        for (ChildIndex in 0 until TargetNode.childCount) {
+            val ChildNode = try {
+                TargetNode.getChild(ChildIndex)
+            } catch (_: Exception) {
+                null
+            }
+            CollectSheetDump(
+                TargetNode = ChildNode,
+                ResultList = ResultList,
+                DepthVal = DepthVal + 1
+            )
+            RecycleNode(NodeRef = ChildNode)
+        }
+    }
+
     private fun IsProfileFieldLabel(NodeText: String): Boolean {
         val Trimmed = NodeText.trim()
         return Trimmed.equals(CustomerProfileParser.LABEL_MOBILE, true) ||
@@ -6364,6 +6452,7 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
         if (ActiveSheetKind != null && ActiveSheetKind != SheetKind) return
+        if (OcrInFlight) return
 
         val SheetNodes = CurrentScreenNodesWithDescriptions().ifEmpty { VisibleNodes }
         val SheetRead = CustomerProfileParser.ReadContactSheet(
@@ -6371,9 +6460,17 @@ class ScreenReaderService : AccessibilityService() {
             KindVal = SheetKind,
             SelectedIndexVal = -1
         )
-        val ValueList = SheetRead.Values
 
-        val WaitedLongEnough = System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
+        val OcrLines = PendingOcrLines
+        PendingOcrLines = null
+        val ValueList = if (OcrLines != null) {
+            SheetOcrParser.ParseSheetText(Lines = OcrLines, KindVal = SheetKind)
+        } else {
+            SheetRead.Values
+        }
+
+        val WaitedLongEnough =
+            System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
         if (ValueList.isEmpty() &&
             SheetRead.RelatedGroupCount > 0 &&
             !WaitedLongEnough
@@ -6389,6 +6486,11 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
 
+        if (ValueList.isEmpty() && ShouldTryOcr(SheetKind = SheetKind)) {
+            StartSheetOcr(SheetKind = SheetKind)
+            return
+        }
+
         CustomerStageValue = CustomerStage.RETURNING
 
         val ProfileObj = ActiveProfile
@@ -6401,6 +6503,7 @@ class ScreenReaderService : AccessibilityService() {
         }
         if (ValueList.isEmpty()) {
             EmptySheetReadCount++
+            DumpEmptySheet(SheetKind = SheetKind)
         } else {
             SheetsEverYieldedValues = true
         }
@@ -6688,6 +6791,7 @@ class ScreenReaderService : AccessibilityService() {
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
+        ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps = 0
         ErrorPaceExtraMs = 0L
         LastHealthyRecordCount = 0
@@ -6699,6 +6803,10 @@ class ScreenReaderService : AccessibilityService() {
         VisitedCustomerNames.clear()
         SheetsEverYieldedValues = false
         EmptySheetReadCount = 0
+        EmptySheetKindCounts.clear()
+        OcrAttemptedKinds.clear()
+        PendingOcrLines = null
+        OcrInFlight = false
     }
 
     override fun onInterrupt() {

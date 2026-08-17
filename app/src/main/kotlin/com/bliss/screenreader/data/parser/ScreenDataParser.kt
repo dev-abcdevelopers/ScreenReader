@@ -15,6 +15,10 @@ object ScreenDataParser {
     )
     private val PLAN_CODE_REGEX = Regex("^(\\d{1,4})\\s*[-–]")
     private val HOLDER_NAME_REGEX = Regex("^[\\p{L}.']+(?:\\s+[\\p{L}.']+){1,4}$")
+    private val ROLE_MARKED_NAME_REGEX = Regex("\\((?:A|P)\\)", RegexOption.IGNORE_CASE)
+    private val ROLE_SUFFIX_REGEX = Regex("\\s*\\((?:A|P)\\)\\s*$", RegexOption.IGNORE_CASE)
+    private val CURRENCY_ONLY_REGEX = Regex("^[₹Rs.\\s]*$", RegexOption.IGNORE_CASE)
+    private val AMOUNT_REGEX = Regex("\\d[\\d,]*(?:\\.\\d+)?")
 
     private val ICON_WORDS = setOf(
         "icon", "arrow", "chevron", "image", "svg", "vector", "logo", "banner",
@@ -126,10 +130,13 @@ object ScreenDataParser {
                     ForwardIdx++
                     continue
                 }
-                if (HolderName.isEmpty() && LooksLikePolicyHolder(CurrentText)) {
-                    HolderName = CurrentText
-                    ForwardIdx++
-                    continue
+                if (HolderName.isEmpty()) {
+                    val CandidateName = NormaliseHolderName(TextValue = CurrentText)
+                    if (CandidateName.isNotEmpty() && LooksLikePolicyHolder(CandidateName)) {
+                        HolderName = CandidateName
+                        ForwardIdx++
+                        continue
+                    }
                 }
                 if (CurrentText.equals("Enabled", ignoreCase = true) ||
                     CurrentText.equals("Disabled", ignoreCase = true)
@@ -152,14 +159,15 @@ object ScreenDataParser {
                     ForwardIdx++
                     continue
                 }
-                if (CurrentText.startsWith("₹") ||
-                    (CurrentText.any { CharacterVal -> CharacterVal.isDigit() } &&
-                            listOf("/Month", "/Year", "/Quarter", "/Half").any {
-                                FrequencyText -> CurrentText.contains(FrequencyText, ignoreCase = true)
-                            })
+                val PreviousNode = if (ForwardIdx > 0) CleanNodes[ForwardIdx - 1].trim() else ""
+                val FollowsPremiumLabel = PreviousNode.contains("Premium Amount", ignoreCase = true) ||
+                        CURRENCY_ONLY_REGEX.matches(PreviousNode)
+                if (PremiumAmount.isEmpty() &&
+                    (FollowsPremiumLabel || CurrentText.trim().startsWith("₹")) &&
+                    LooksLikePremium(TextValue = CurrentText)
                 ) {
                     val PremiumParts = CurrentText.split("/", limit = 2)
-                    PremiumAmount = PremiumParts.first().trim()
+                    PremiumAmount = AMOUNT_REGEX.find(PremiumParts.first())?.value.orEmpty()
                     if (PremiumParts.size > 1) PremiumFrequency = PremiumParts[1].trim()
                 }
                 ForwardIdx++
@@ -264,6 +272,18 @@ object ScreenDataParser {
         ).any { TypeText -> LowerValue.contains(TypeText) }
     }
 
+    /**
+     * A stored name that could never have been a name — "Contact Details Absent" and
+     * friends, written by the badge-matching bug fixed on 2026-08-16. The corrected
+     * parser produces nothing for those cards, and a merge keeps the old value when
+     * the incoming one is empty, so without this check the bad name outlives the fix.
+     */
+    fun IsPlausibleHolderName(TextValue: String): Boolean {
+        val CleanedValue = NormaliseHolderName(TextValue = TextValue)
+        if (CleanedValue.isEmpty()) return false
+        return LooksLikePolicyHolder(TextValue = CleanedValue)
+    }
+
     private fun LooksLikePolicyHolder(TextValue: String): Boolean {
         val TrimmedValue = TextValue.trim()
         val LowerValue = TrimmedValue.lowercase()
@@ -273,8 +293,43 @@ object ScreenDataParser {
         if (TrimmedValue.contains("LIC", ignoreCase = true)) return false
         if (LowerValue.contains("not updated")) return false
         if (LooksLikeIconDescription(LowerValue = LowerValue)) return false
-        if (NON_HOLDER_PHRASES.any { PhraseText -> LowerValue == PhraseText }) return false
+        if (NON_HOLDER_PHRASES.any { PhraseText -> LowerValue.startsWith(PhraseText) }) return false
         return true
+    }
+
+    /**
+     * The dashboard writes the lives on a policy as "Aarvi Khulbe(A),Pushpender
+     * Khulbe(P)" — (A) the life assured, (P) the proposer. The raw string fails the
+     * holder regex on its brackets and comma, which is why those rows read "Unknown".
+     * The assured is the holder; fall back to the first name when no role is marked.
+     */
+    fun NormaliseHolderName(TextValue: String): String {
+        val TrimmedValue = TextValue.trim()
+        if (!ROLE_MARKED_NAME_REGEX.containsMatchIn(TrimmedValue)) return TrimmedValue
+
+        val Parts = TrimmedValue.split(",").map { PartText -> PartText.trim() }
+        val AssuredPart = Parts.firstOrNull { PartText ->
+            PartText.endsWith("(A)", ignoreCase = true)
+        }
+        val ChosenPart = AssuredPart ?: Parts.firstOrNull().orEmpty()
+        return ChosenPart.replace(ROLE_SUFFIX_REGEX, "").trim()
+    }
+
+    /**
+     * The amount arrives split across two nodes, "₹" then "50,467/Single Premium".
+     * The old rule accepted anything starting with "₹" and only recognised the four
+     * common frequencies, so a single-premium policy kept the bare symbol as its
+     * amount and dropped the figure entirely.
+     */
+    private fun LooksLikePremium(TextValue: String): Boolean {
+        val TrimmedValue = TextValue.trim()
+        if (TrimmedValue.isEmpty()) return false
+        if (CURRENCY_ONLY_REGEX.matches(TrimmedValue)) return false
+        if (!TrimmedValue.any { CharacterVal -> CharacterVal.isDigit() }) return false
+        if (DISPLAY_DATE_REGEX.matches(TrimmedValue) || IsValidDate(InputStr = TrimmedValue)) {
+            return false
+        }
+        return AMOUNT_REGEX.containsMatchIn(TrimmedValue)
     }
 
     private fun LooksLikeIconDescription(LowerValue: String): Boolean {

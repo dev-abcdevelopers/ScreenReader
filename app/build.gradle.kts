@@ -106,6 +106,9 @@ dependencies {
     // Excel Export (Apache POI)
     implementation("org.apache.poi:poi-ooxml:5.5.1")
 
+    // On-device OCR for contact sheets the app hides from accessibility
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+
     // Gson for JSON operations
     implementation("com.google.code.gson:gson:2.14.0")
 

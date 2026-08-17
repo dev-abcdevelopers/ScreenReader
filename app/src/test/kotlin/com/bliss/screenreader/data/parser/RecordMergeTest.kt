@@ -215,4 +215,28 @@ class RecordMergeTest {
         assertEquals(false, RecordMerge.HasCompletePolicyDetails(PolicyItem = MissingKeyDates))
         assertEquals(true, RecordMerge.HasCompletePolicyDetails(PolicyItem = CompletePolicy))
     }
+
+    @Test
+    fun `a badge stored as a holder name does not survive the next capture`() {
+        val Poisoned = CustomerPolicy(
+            PolicyNumber = "125226685",
+            HolderName = "Contact Details Absent"
+        )
+        val Incoming = CustomerPolicy(PolicyNumber = "125226685", HolderName = "")
+
+        val Outcome = RecordMerge.MergePolicy(ExistingItem = Poisoned, IncomingItem = Incoming)
+        assertEquals("", Outcome.Record.HolderName)
+    }
+
+    @Test
+    fun `a real stored name is kept when the card carries none`() {
+        val Existing = CustomerPolicy(
+            PolicyNumber = "156260854",
+            HolderName = "Narender Rathor"
+        )
+        val Incoming = CustomerPolicy(PolicyNumber = "156260854", HolderName = "")
+
+        val Outcome = RecordMerge.MergePolicy(ExistingItem = Existing, IncomingItem = Incoming)
+        assertEquals("Narender Rathor", Outcome.Record.HolderName)
+    }
 }
