@@ -20,6 +20,7 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
@@ -101,7 +102,7 @@ class PoliciesFragment : Fragment() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 SearchQuery = s?.toString().orEmpty()
-                RenderList()
+                RenderList(ResetScroll = true)
             }
         })
 
@@ -111,7 +112,7 @@ class PoliciesFragment : Fragment() {
                 R.id.chipLapsed -> FILTER_LAPSED
                 else -> FILTER_ALL
             }
-            RenderList()
+            RenderList(ResetScroll = true)
         }
 
         BindingObj.btnExportPdf.setOnClickListener { ExportPdf() }
@@ -190,11 +191,19 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    private fun RenderList() {
+    private fun RenderList(ResetScroll: Boolean = false) {
         when {
             SelectedSessionId.isEmpty() -> RenderSessions()
             SelectedSessionMode == CaptureMode.FUP -> RenderRenewals()
             else -> RenderPolicies()
+        }
+        if (ResetScroll) ViewBindingObj?.rvPolicies?.scrollToPosition(0)
+    }
+
+    private fun BindListAdapter(TargetAdapter: RecyclerView.Adapter<*>) {
+        val BindingObj = ViewBindingObj ?: return
+        if (BindingObj.rvPolicies.adapter !== TargetAdapter) {
+            BindingObj.rvPolicies.adapter = TargetAdapter
         }
     }
 
@@ -202,7 +211,7 @@ class PoliciesFragment : Fragment() {
     private fun RenderRenewals() {
         val BindingObj = ViewBindingObj ?: return
         val VisibleList = VisibleRenewals()
-        BindingObj.rvPolicies.adapter = RenewalAdapterObj
+        BindListAdapter(TargetAdapter = RenewalAdapterObj)
         RenewalAdapterObj.UpdateData(NewRenewals = VisibleList)
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
@@ -239,7 +248,7 @@ class PoliciesFragment : Fragment() {
 
     private fun RenderSessions() {
         val BindingObj = ViewBindingObj ?: return
-        BindingObj.rvPolicies.adapter = SessionAdapterObj
+        BindListAdapter(TargetAdapter = SessionAdapterObj)
         SessionAdapterObj.UpdateData(NewSessions = SessionList)
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_heading)
         BindingObj.tvPolicyCount.text = getString(R.string.sessions_count_format, SessionList.size)
@@ -263,7 +272,7 @@ class PoliciesFragment : Fragment() {
     private fun RenderPolicies() {
         val BindingObj = ViewBindingObj ?: return
         val VisibleList = VisiblePolicies()
-        BindingObj.rvPolicies.adapter = AdapterObj
+        BindListAdapter(TargetAdapter = AdapterObj)
         AdapterObj.UpdateData(NewPolicies = VisibleList)
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_policies_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
@@ -323,7 +332,7 @@ class PoliciesFragment : Fragment() {
         ViewBindingObj?.etSearch?.setText("")
         ViewBindingObj?.chipAll?.isChecked = true
         LoadSessionRecords()
-        RenderList()
+        RenderList(ResetScroll = true)
     }
 
 
@@ -425,20 +434,23 @@ class PoliciesFragment : Fragment() {
         AllPolicies = emptyList()
         AllRenewals = emptyList()
         LoadSessions()
-        RenderList()
+        RenderList(ResetScroll = true)
     }
 
     private fun ApplyExportBarMode(ShowPdf: Boolean) {
         val BindingObj = ViewBindingObj ?: return
-        val UploadMode = SessionUploader.IsEnabled()
-        BindingObj.exportButtonRow.visibility = if (UploadMode) View.GONE else View.VISIBLE
+        val ShowUpload = SessionUploader.IsEnabled() && IsUploadableSession()
+        BindingObj.exportButtonRow.visibility = if (ShowUpload) View.GONE else View.VISIBLE
         BindingObj.btnExportPdf.visibility = if (ShowPdf) View.VISIBLE else View.GONE
-        BindingObj.btnUploadSync.visibility = if (UploadMode) View.VISIBLE else View.GONE
+        BindingObj.btnUploadSync.visibility = if (ShowUpload) View.VISIBLE else View.GONE
     }
+
+    private fun IsUploadableSession(): Boolean =
+        SelectedSessionId.isNotEmpty() && SelectedSessionMode == CaptureMode.POLICY
 
     private fun UploadSession() {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
-        if (SelectedSessionId.isEmpty()) return
+        if (!IsUploadableSession()) return
 
         val AppContext = requireContext().applicationContext
         val SavedCode = PolicyRepository.GetAgencyCode(

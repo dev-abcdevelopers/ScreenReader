@@ -42,6 +42,24 @@ data class CustomerProfile(
         return (DefaultMatch ?: Values.first()).Value
     }
 
+    fun OrderedValuesFor(PolicyNumber: String, Values: List<ContactValue>): List<String> {
+        if (Values.isEmpty()) return emptyList()
+        val UniqueValues = Values
+            .map { ContactItem -> ContactItem.Value.trim() }
+            .filter { ValueText -> ValueText.isNotEmpty() }
+            .distinct()
+        if (UniqueValues.isEmpty()) return emptyList()
+        val PickedValue = ValueFor(PolicyNumber = PolicyNumber, Values = Values).trim()
+        if (PickedValue.isEmpty()) return UniqueValues
+        return listOf(PickedValue) + UniqueValues.filter { ValueText -> ValueText != PickedValue }
+    }
+
+    private fun OthersFor(PolicyNumber: String, Values: List<ContactValue>): List<String>? {
+        val Ordered = OrderedValuesFor(PolicyNumber = PolicyNumber, Values = Values)
+        if (Ordered.size <= 1) return null
+        return Ordered.drop(1)
+    }
+
     fun ToPolicyPatch(PolicyNumber: String): CustomerPolicy {
         return CustomerPolicy(
             HolderName = "",
@@ -49,6 +67,9 @@ data class CustomerProfile(
             MobileNumber = ValueFor(PolicyNumber = PolicyNumber, Values = Mobiles),
             Email = ValueFor(PolicyNumber = PolicyNumber, Values = Emails),
             Address = ValueFor(PolicyNumber = PolicyNumber, Values = Addresses),
+            MobileNumberOthers = OthersFor(PolicyNumber = PolicyNumber, Values = Mobiles),
+            EmailOthers = OthersFor(PolicyNumber = PolicyNumber, Values = Emails),
+            AddressOthers = OthersFor(PolicyNumber = PolicyNumber, Values = Addresses),
             Dob = Dob,
             Gender = Gender,
             Education = Education,

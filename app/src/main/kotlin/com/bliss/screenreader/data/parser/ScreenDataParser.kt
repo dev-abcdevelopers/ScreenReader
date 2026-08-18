@@ -16,9 +16,10 @@ object ScreenDataParser {
         RegexOption.IGNORE_CASE
     )
     private val PLAN_CODE_REGEX = Regex("^(\\d{1,4})\\s*[-–]")
-    private val HOLDER_NAME_REGEX = Regex("^[\\p{L}.']+(?:\\s+[\\p{L}.']+){1,4}$")
-    private val ROLE_MARKED_NAME_REGEX = Regex("\\((?:A|P)\\)", RegexOption.IGNORE_CASE)
-    private val ROLE_SUFFIX_REGEX = Regex("\\s*\\((?:A|P)\\)\\s*$", RegexOption.IGNORE_CASE)
+    private val HOLDER_NAME_REGEX = Regex("^[\\p{L}.']+(?:\\s+[\\p{L}.']+){0,4}$")
+    private val ROLE_MARKED_NAME_REGEX =
+        Regex("\\(\\s*(A|P|LA)\\s*\\)", RegexOption.IGNORE_CASE)
+    private val ROLE_PART_SEPARATORS = charArrayOf(',', ';', '/', '&', '-')
     private val CURRENCY_ONLY_REGEX = Regex("^[₹Rs.\\s]*$", RegexOption.IGNORE_CASE)
     private val AMOUNT_REGEX = Regex("\\d[\\d,]*(?:\\.\\d+)?")
 
@@ -28,18 +29,32 @@ object ScreenDataParser {
         "indicator", "checkbox", "radio", "toggle", "spinner", "loader"
     )
 
+    private val NON_HOLDER_WORDS = setOf(
+        "enabled", "disabled", "close", "back", "home", "profile", "renewals", "renewal",
+        "customers", "customer", "add", "of", "info", "page", "policies", "policy",
+        "none", "null", "na", "n/a", "yes", "no", "today", "tomorrow", "yesterday",
+        "birthday", "anniversary", "commission", "commissions", "details", "premium",
+        "amount", "date", "dates", "status", "active", "inactive", "pending", "paid",
+        "unpaid", "male", "female", "lapsed", "inforce", "expired", "matured"
+    )
+
     private val NON_HOLDER_PHRASES = setOf(
         "call customer", "send reminder", "view all", "filter sort", "add favourite",
         "remove favourite", "share greetings", "share posters", "based on selected filters",
         "customer portfolio", "customer dashboard", "detailed customer view",
         "detailed policy view", "policy dashboard", "your portfolio", "contact details",
-        "personal details", "total sum assured", "annualized premium", "relationship with customer"
+        "personal details", "total sum assured", "annualized premium",
+        "relationship with customer", "customer details", "loan and payments",
+        "claim benefits", "renewals and claims", "pay premium", "key dates",
+        "policy details", "coming soon", "commission details"
     )
 
     private val POLICY_LABELS = setOf(
         "auto pay", "premium amount", "premium amount (excl. gst)", "send reminder",
         "filter & sort", "all date ranges", "special revival campaign eligible",
-        "based on selected filters", "policy dashboard", "page", "policies"
+        "based on selected filters", "policy dashboard", "page", "policies",
+        "grace expiry", "renewal due date", "next premium", "revival without",
+        "date of", "sum assured", "mode of payment", "policy status"
     )
 
     fun IsValidDate(InputStr: String): Boolean {
@@ -132,18 +147,17 @@ object ScreenDataParser {
                     ForwardIdx++
                     continue
                 }
-                if (HolderName.isEmpty()) {
-                    val CandidateName = NormaliseHolderName(TextValue = CurrentText)
-                    if (CandidateName.isNotEmpty() && LooksLikePolicyHolder(CandidateName)) {
-                        HolderName = CandidateName
-                        ForwardIdx++
-                        continue
-                    }
-                }
                 if (CurrentText.equals("Enabled", ignoreCase = true) ||
                     CurrentText.equals("Disabled", ignoreCase = true)
                 ) {
                     AutoPay = CurrentText
+                    ForwardIdx++
+                    continue
+                }
+                if (HolderName.isEmpty() &&
+                    IsPlausibleHolderName(TextValue = CurrentText)
+                ) {
+                    HolderName = CurrentText.trim()
                     ForwardIdx++
                     continue
                 }
@@ -285,6 +299,7 @@ object ScreenDataParser {
         val TrimmedValue = TextValue.trim()
         val LowerValue = TrimmedValue.lowercase()
         if (!HOLDER_NAME_REGEX.matches(TrimmedValue)) return false
+        if (!LowerValue.contains(' ') && NON_HOLDER_WORDS.contains(LowerValue)) return false
         if (POLICY_LABELS.any { LabelText -> LowerValue.startsWith(LabelText) }) return false
         if (IsPolicyStatus(TextValue = TrimmedValue) || IsRenewalType(TextValue = TrimmedValue)) return false
         if (TrimmedValue.contains("LIC", ignoreCase = true)) return false
@@ -299,12 +314,29 @@ object ScreenDataParser {
         val TrimmedValue = TextValue.trim()
         if (!ROLE_MARKED_NAME_REGEX.containsMatchIn(TrimmedValue)) return TrimmedValue
 
-        val Parts = TrimmedValue.split(",").map { PartText -> PartText.trim() }
-        val AssuredPart = Parts.firstOrNull { PartText ->
-            PartText.endsWith("(A)", ignoreCase = true)
+        val PartList = mutableListOf<Pair<String, String>>()
+        var CursorIdx = 0
+        for (MatchItem in ROLE_MARKED_NAME_REGEX.findAll(TrimmedValue)) {
+            val NamePart = TrimmedValue
+                .substring(CursorIdx, MatchItem.range.first)
+                .trim()
+                .trim(*ROLE_PART_SEPARATORS)
+                .trim()
+            if (NamePart.isNotEmpty()) {
+                PartList.add(NamePart to MatchItem.groupValues[1].lowercase())
+            }
+            CursorIdx = MatchItem.range.last + 1
         }
-        val ChosenPart = AssuredPart ?: Parts.firstOrNull().orEmpty()
-        return ChosenPart.replace(ROLE_SUFFIX_REGEX, "").trim()
+        if (PartList.isEmpty()) {
+            return TrimmedValue.replace(ROLE_MARKED_NAME_REGEX, " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
+
+        val AssuredPart = PartList.firstOrNull { PartItem ->
+            PartItem.second == "a" || PartItem.second == "la"
+        }
+        return (AssuredPart ?: PartList.first()).first
     }
 
 
@@ -396,7 +428,7 @@ object ScreenDataParser {
         var PlanName = ""
         for (NodeIndex in PolicyIndex + 1 until minOf(CleanNodes.size, PolicyIndex + 8)) {
             val NodeText = CleanNodes[NodeIndex]
-            if (HolderName.isEmpty() && LooksLikePolicyHolder(NodeText) &&
+            if (HolderName.isEmpty() && IsPlausibleHolderName(TextValue = NodeText) &&
                 !NodeText.contains("Detailed Policy View", ignoreCase = true)
             ) {
                 HolderName = NodeText

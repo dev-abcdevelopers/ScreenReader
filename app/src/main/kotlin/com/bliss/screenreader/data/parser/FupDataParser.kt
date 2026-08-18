@@ -232,10 +232,12 @@ object FupDataParser {
             }
             if (IsNonValueNode(TextValue = NodeText)) continue
             if (NodeText.any { CharValue -> CharValue.isDigit() }) continue
-            if (NodeText.length !in 2..40) continue
             if (PAYMENT_MODES.contains(NodeText.lowercase())) continue
             if (STATUS_VALUES.contains(NodeText.lowercase())) continue
-            if (HOLDER_NAME_REGEX.matches(NodeText)) return NodeText
+            if (NodeText.length !in 2..60) continue
+            val CandidateName = ScreenDataParser.NormaliseHolderName(TextValue = NodeText)
+            if (CandidateName.length !in 2..40) continue
+            if (HOLDER_NAME_REGEX.matches(CandidateName)) return NodeText
         }
         return ""
     }

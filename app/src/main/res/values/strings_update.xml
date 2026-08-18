@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="update_title_available">A new version is ready</string>
+    <string name="update_title_required">Update required</string>
+    <string name="update_title_downloading">Downloading…</string>
+    <string name="update_title_ready">Download complete</string>
+    <string name="update_title_failed">Download failed</string>
+
+    <string name="update_subtitle_size">%1$s · %2$s download</string>
+    <string name="update_subtitle_size_unknown">%1$s · size unknown</string>
+    <string name="update_subtitle_required">This version can no longer be used</string>
+    <string name="update_subtitle_progress">%1$s / %2$s</string>
+    <string name="update_subtitle_progress_unknown">%1$s downloaded</string>
+    <string name="update_subtitle_ready">Android will ask you to confirm the install</string>
+
+    <string name="update_version_arrow">%1$s   →   %2$s</string>
+    <string name="update_percent_format">%1$d%%</string>
+    <string name="update_size_mb">%1$s MB</string>
+
+    <string name="update_notes_label">What\'s new</string>
+    <string name="update_notes_none">No release notes were provided.</string>
+    <string name="update_note_bullet">•  %1$s</string>
+
+    <string name="update_action_download">Download &amp; install</string>
+    <string name="update_action_install">Install now</string>
+    <string name="update_action_retry">Try again</string>
+    <string name="update_action_later">Remind me later</string>
+    <string name="update_action_cancel">Cancel</string>
+    <string name="update_action_close_app">Close app</string>
+    <string name="update_action_allow_installs">Allow installs, then continue</string>
+
+    <string name="update_phase_check">Checked for updates</string>
+    <string name="update_phase_download">Downloading the APK</string>
+    <string name="update_phase_install">Install</string>
+
+    <string name="update_check_now">Check for updates</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_up_to_date">You\'re on the latest version (%1$s)</string>
+    <string name="update_check_failed">Could not check for updates: %1$s</string>
+    <string name="update_not_configured">Updates are not configured for this build</string>
+    <string name="update_install_blocked">Allow this app to install unknown apps, then tap Install.</string>
+    <string name="update_install_failed">Could not open the installer for this file.</string>
+    <string name="update_cancelled">Download cancelled</string>
+
+</resources>

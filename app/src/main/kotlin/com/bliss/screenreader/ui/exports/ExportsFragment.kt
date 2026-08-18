@@ -23,8 +23,12 @@ import com.bliss.screenreader.sync.SessionPayloadBuilder
 import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.ExportRowAdapter
 import com.bliss.screenreader.ui.capture.CaptureFlow
+import com.bliss.screenreader.ui.update.UpdateSheet
+import com.bliss.screenreader.update.UpdateChecker
+import com.bliss.screenreader.update.UpdateVersion
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.snackbar.Snackbar
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -76,6 +80,59 @@ class ExportsFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             ShowTransferSheet()
         }
+
+        BindingObj.btnCheckUpdate.isVisible = UpdateChecker.IsConfigured()
+        BindingObj.btnCheckUpdate.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            RunManualUpdateCheck()
+        }
+    }
+
+    private fun RunManualUpdateCheck() {
+        val BindingObj = ViewBindingObj ?: return
+        BindingObj.btnCheckUpdate.isEnabled = false
+        BindingObj.btnCheckUpdate.setText(R.string.update_checking)
+
+        UpdateChecker.Check(ContextRef = requireContext(), ManualCheck = true) { OutcomeRef ->
+            val LiveBinding = ViewBindingObj ?: return@Check
+            LiveBinding.btnCheckUpdate.isEnabled = true
+            LiveBinding.btnCheckUpdate.setText(R.string.update_check_now)
+
+            when (OutcomeRef) {
+                is UpdateChecker.Outcome.Available -> UpdateSheet.Show(
+                    ManagerRef = parentFragmentManager,
+                    ManifestObj = OutcomeRef.ManifestObj,
+                    SizeBytes = OutcomeRef.SizeBytes
+                )
+
+                is UpdateChecker.Outcome.Failed -> ShowUpdateMessage(
+                    MessageText = getString(R.string.update_check_failed, OutcomeRef.MessageText)
+                )
+
+                UpdateChecker.Outcome.NotConfigured -> ShowUpdateMessage(
+                    MessageText = getString(R.string.update_not_configured)
+                )
+
+                else -> ShowUpdateMessage(
+                    MessageText = getString(
+                        R.string.update_up_to_date,
+                        UpdateVersion.Describe(
+                            VersionName = UpdateChecker.LocalVersionName(
+                                ContextRef = requireContext()
+                            ),
+                            VersionCode = UpdateChecker.LocalVersionCode(
+                                ContextRef = requireContext()
+                            )
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    private fun ShowUpdateMessage(MessageText: String) {
+        val BindingObj = ViewBindingObj ?: return
+        Snackbar.make(BindingObj.root, MessageText, Snackbar.LENGTH_LONG).show()
     }
 
     private fun ShowTransferSheet() {

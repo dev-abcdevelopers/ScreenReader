@@ -15,6 +15,8 @@ import com.bliss.screenreader.databinding.ActivityMainBinding
 import com.bliss.screenreader.ui.capture.CaptureFragment
 import com.bliss.screenreader.ui.exports.ExportsFragment
 import com.bliss.screenreader.ui.policies.PoliciesFragment
+import com.bliss.screenreader.ui.update.UpdateSheet
+import com.bliss.screenreader.update.UpdateChecker
 
 
 class MainActivity : AppCompatActivity() {
@@ -38,6 +40,20 @@ class MainActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             ShowTab(ItemId = R.id.tabCapture)
+            CheckForUpdate()
+        }
+    }
+
+
+    private fun CheckForUpdate() {
+        UpdateChecker.Check(ContextRef = this, ManualCheck = false) { OutcomeRef ->
+            if (isFinishing || isDestroyed) return@Check
+            if (OutcomeRef !is UpdateChecker.Outcome.Available) return@Check
+            UpdateSheet.Show(
+                ManagerRef = supportFragmentManager,
+                ManifestObj = OutcomeRef.ManifestObj,
+                SizeBytes = OutcomeRef.SizeBytes
+            )
         }
     }
 

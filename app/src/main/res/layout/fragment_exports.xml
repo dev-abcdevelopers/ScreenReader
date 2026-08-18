@@ -5,15 +5,34 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingStart="@dimen/screen_margin"
         android:paddingTop="@dimen/space_md"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingBottom="@dimen/space_md"
-        android:text="@string/exports_heading"
-        android:textAppearance="@style/TextAppearance.App.Title" />
+        android:paddingEnd="@dimen/space_sm"
+        android:paddingBottom="@dimen/space_md">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/exports_heading"
+            android:textAppearance="@style/TextAppearance.App.Title" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCheckUpdate"
+            style="@style/Widget.App.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/update_check_now"
+            app:icon="@drawable/ic_update"
+            app:iconGravity="textStart" />
+
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"

@@ -41,6 +41,7 @@ import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.model.CustomerProfile
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.parser.CustomerProfileParser
+import com.bliss.screenreader.data.parser.RenewalDateRange
 import com.bliss.screenreader.data.parser.SheetOcrParser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
@@ -371,6 +372,8 @@ class ScreenReaderService : AccessibilityService() {
     private var RenewalDropdownAttempts = 0
     private var RenewalDropdownBaselineTexts: Set<String> = emptySet()
     private var RenewalDropdownScrollPasses = 0
+    private var RenewalDropdownSeenOptions: Set<String> = emptySet()
+    private var RenewalChipBounds: Rect? = null
     private var RenewalUnknownScreenCount = 0
     private var LatestRenewalVisibleNodes: List<String> = emptyList()
     private var RenewalCurrentPage = 0
@@ -1250,6 +1253,15 @@ class ScreenReaderService : AccessibilityService() {
                     "eventTypes=${ActiveServiceInfo?.eventTypes}"
         )
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !IsDeclaredAccessibilityTool) {
+            DiagnosticWarning(
+                EventName = "ACCESSIBILITY_TOOL_MISSING",
+                MessageText = "service is not registered as an accessibility tool; " +
+                        "screens that mark their views accessibilityDataSensitive will return " +
+                        "a null window root and nothing can be read, tapped or scrolled"
+            )
+        }
+
 
         if (IsResumedSession) SeedFromStoredSession()
 
@@ -1762,7 +1774,7 @@ class ScreenReaderService : AccessibilityService() {
                 )
                 if (!IsBottomNavArea) continue
 
-                if (TapBottomNavTab(TabLabel = TabLabel, RowCenterY = MatchBounds.centerY())) {
+                if (TapBottomNavTab(TabLabel = TabLabel, TabBounds = MatchBounds)) {
                     DiagnosticInfo(
                         EventName = "HOME_NAV_CLICKED",
                         MessageText = "tab=$TabLabel coordinate tap accepted for " +
@@ -1821,7 +1833,7 @@ class ScreenReaderService : AccessibilityService() {
                         MessageText = "tab=$TabLabel text=[$MatchText] class=${TargetNode.className} " +
                                 "clickable=${TargetNode.isClickable} bounds=$MatchBounds"
                     )
-                    if (TapBottomNavTab(TabLabel = TabLabel, RowCenterY = MatchBounds.centerY())) {
+                    if (TapBottomNavTab(TabLabel = TabLabel, TabBounds = MatchBounds)) {
                         return true
                     }
                     if (ClickNodeOrParent(StartNode = TargetNode)) return true
@@ -1856,14 +1868,25 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun TapBottomNavTab(TabLabel: String, RowCenterY: Int): Boolean {
+    private fun TapBottomNavTab(TabLabel: String, TabBounds: Rect): Boolean {
         val DisplayMetricsObj = resources.displayMetrics
-        val TargetX = DisplayMetricsObj.widthPixels * BottomNavTabXRatio(TabLabel = TabLabel)
-        val TapAccepted = PerformTapGesture(XPos = TargetX, YPos = RowCenterY.toFloat())
+        val CentreX = TabBounds.centerX()
+        val UseNodeCentre = !TabBounds.isEmpty &&
+                CentreX > 0 &&
+                CentreX < DisplayMetricsObj.widthPixels
+        val TargetX =
+            if (UseNodeCentre) CentreX.toFloat()
+            else DisplayMetricsObj.widthPixels * BottomNavTabXRatio(TabLabel = TabLabel)
+
+        val TapAccepted = PerformTapGesture(
+            XPos = TargetX,
+            YPos = TabBounds.centerY().toFloat()
+        )
         DiagnosticInfo(
             EventName = "HOME_NAV_TAB_TAP",
-            MessageText = "tab=$TabLabel x=$TargetX y=$RowCenterY accepted=$TapAccepted " +
-                    "source=nav-row"
+            MessageText = "tab=$TabLabel x=$TargetX y=${TabBounds.centerY()} " +
+                    "bounds=$TabBounds accepted=$TapAccepted " +
+                    "source=${if (UseNodeCentre) "node-bounds" else "width-ratio"}"
         )
         return TapAccepted
     }
@@ -3556,6 +3579,8 @@ class ScreenReaderService : AccessibilityService() {
 
         RenewalDropdownBaselineTexts = LatestRenewalVisibleNodes.toSet()
         RenewalDropdownScrollPasses = 0
+        RenewalDropdownSeenOptions = emptySet()
+        RenewalChipBounds = null
 
         val ChipTapped = try {
             TapRenewalDateRangeChip(RootNode = RootNode)
@@ -3589,10 +3614,16 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
+    private data class RenewalRangeOption(
+        val TextValue: String,
+        val BoundsObj: Rect,
+        val SpanDays: Int
+    )
+
     private fun TapRenewalDateRangeChip(RootNode: AccessibilityNodeInfo): Boolean {
         val TextNodes = CollectVisibleTextNodes(RootNode = RootNode)
         val ChipEntry = TextNodes.firstOrNull { NodeEntry ->
-            IsDateRangeLabel(TextValue = NodeEntry.first)
+            RenewalDateRange.IsRangeLabel(TextValue = NodeEntry.first)
         } ?: run {
             DiagnosticWarning(
                 EventName = "RENEWAL_DATE_RANGE_CHIP",
@@ -3600,6 +3631,8 @@ class ScreenReaderService : AccessibilityService() {
             )
             return false
         }
+
+        RenewalChipBounds = Rect(ChipEntry.second)
 
         val TapAccepted = PerformTapGesture(
             XPos = ChipEntry.second.centerX().toFloat(),
@@ -3612,18 +3645,12 @@ class ScreenReaderService : AccessibilityService() {
         return TapAccepted
     }
 
-    private fun IsDateRangeLabel(TextValue: String): Boolean {
-        val NormalisedText = TextValue.trim().replace(Regex("\\s+"), " ")
-        return Regex("(?i)^Last\\s+\\d+\\s+(Day|Days|Week|Weeks|Month|Months|Year|Years)$")
-            .matches(NormalisedText) ||
-                Regex("(?i)^(Today|Yesterday|This Month|This Year|All Time|Custom)$")
-                    .matches(NormalisedText)
-    }
 
     /**
-     * The dropdown is a Flutter overlay, so its options are identified as the
-     * text nodes that were not present before the chip was tapped. The
-     * bottom-most of those is the last entry.
+     * The dropdown is a Flutter overlay, so its options are identified by
+     * parsing every visible label as a date range and keeping the widest one.
+     * Picking the bottom-most new node instead used to tap whatever the sheet
+     * rendered below the list, which left the filter on its default.
      */
     private fun SelectLastRenewalDateRangeOption() {
         val RootNode = FindReadableRoot(
@@ -3635,25 +3662,42 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
 
-        val OptionEntries = try {
-            CollectVisibleTextNodes(RootNode = RootNode).filter { NodeEntry ->
-                val OptionText = NodeEntry.first.trim()
-                OptionText.isNotEmpty() &&
-                        OptionText.length <= 40 &&
-                        !RenewalDropdownBaselineTexts.contains(NodeEntry.first)
-            }
+        val VisibleEntries = try {
+            CollectVisibleTextNodes(RootNode = RootNode)
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
 
+        val ChipCentreY = RenewalChipBounds?.centerY()
+        val RangeOptions = VisibleEntries.mapNotNull { NodeEntry ->
+            val SpanDays = RenewalDateRange.SpanDays(TextValue = NodeEntry.first)
+            when {
+                SpanDays == null -> null
+                ChipCentreY != null && NodeEntry.second.centerY() <= ChipCentreY -> null
+                else -> RenewalRangeOption(
+                    TextValue = NodeEntry.first,
+                    BoundsObj = NodeEntry.second,
+                    SpanDays = SpanDays
+                )
+            }
+        }
+
+        val OptionEntries = VisibleEntries.filter { NodeEntry ->
+            val OptionText = NodeEntry.first.trim()
+            OptionText.isNotEmpty() &&
+                    OptionText.length <= 40 &&
+                    !RenewalDropdownBaselineTexts.contains(NodeEntry.first)
+        }
+
         DiagnosticInfo(
             EventName = "RENEWAL_DATE_RANGE_OPTIONS",
-            MessageText = "newOptions=${OptionEntries.size} " +
+            MessageText = "ranges=${RangeOptions.map { Entry -> Entry.TextValue }} " +
+                    "newOptions=${OptionEntries.size} " +
                     "texts=${OptionEntries.take(12).map { Entry -> Entry.first }} " +
                     "scrollPasses=$RenewalDropdownScrollPasses"
         )
 
-        if (OptionEntries.isEmpty()) {
+        if (RangeOptions.isEmpty() && OptionEntries.isEmpty()) {
             RenewalDropdownAttempts++
             if (RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
                 DiagnosticWarning(
@@ -3673,14 +3717,23 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
 
-        val BottomOption = OptionEntries.maxByOrNull { NodeEntry -> NodeEntry.second.centerY() }
+        val RangeTexts = RangeOptions.map { Entry -> Entry.TextValue }.toSet()
+        val FoundNewOptions =
+            RangeOptions.isEmpty() || !RenewalDropdownSeenOptions.containsAll(RangeTexts)
+        RenewalDropdownSeenOptions = RenewalDropdownSeenOptions + RangeTexts
+
+        val BottomOption = RangeOptions
+            .map { Entry -> Entry.TextValue to Entry.BoundsObj }
+            .ifEmpty { OptionEntries }
+            .maxByOrNull { NodeEntry -> NodeEntry.second.centerY() }
             ?: return
 
         // A list that runs to the bottom edge probably has more entries below,
-        // so scroll once and re-read before committing to a choice.
+        // so scroll once and re-read before committing to a choice. Stop as
+        // soon as a pass stops revealing ranges we have not already seen.
         val ScreenHeight = resources.displayMetrics.heightPixels
         val LooksClipped = BottomOption.second.bottom >= ScreenHeight * 0.92f
-        if (LooksClipped && RenewalDropdownScrollPasses < 3) {
+        if (LooksClipped && FoundNewOptions && RenewalDropdownScrollPasses < 3) {
             RenewalDropdownScrollPasses++
             val ScrollAccepted = PerformPolicyScroll(
                 ForwardVal = true,
@@ -3697,13 +3750,25 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
 
+        val WidestOption = RangeOptions.maxWithOrNull(
+            compareBy<RenewalRangeOption>(
+                { Entry -> Entry.SpanDays },
+                { Entry -> Entry.BoundsObj.centerY() }
+            )
+        )
+        val ChosenOption = WidestOption
+            ?.let { Entry -> Entry.TextValue to Entry.BoundsObj }
+            ?: BottomOption
+
         val TapAccepted = PerformTapGesture(
-            XPos = BottomOption.second.centerX().toFloat(),
-            YPos = BottomOption.second.centerY().toFloat()
+            XPos = ChosenOption.second.centerX().toFloat(),
+            YPos = ChosenOption.second.centerY().toFloat()
         )
         DiagnosticInfo(
             EventName = "RENEWAL_DATE_RANGE_SELECTED",
-            MessageText = "text=[${BottomOption.first}] bounds=${BottomOption.second} " +
+            MessageText = "text=[${ChosenOption.first}] bounds=${ChosenOption.second} " +
+                    "spanDays=${WidestOption?.SpanDays} " +
+                    "source=${if (WidestOption != null) "widest-range" else "bottom-most"} " +
                     "accepted=$TapAccepted"
         )
         if (!TapAccepted) {
@@ -3818,11 +3883,45 @@ class ScreenReaderService : AccessibilityService() {
             return
         }
 
+        if (RenewalTotalPages <= 0 &&
+            IsRenewalHistoryEmpty(VisibleNodes = LatestRenewalVisibleNodes)
+        ) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_HISTORY_EMPTY",
+                MessageText = "the filter returned no rows, so there is no page selector to " +
+                        "return to; finishing instead of scrolling back"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+
         RenewalReturnToTopCount = 0
         RenewalPageRetryCount = 0
         ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
             ReturnToRenewalPageSelector()
         }
+    }
+
+    private fun IsRenewalHistoryEmpty(VisibleNodes: List<String>): Boolean {
+        if (VisibleNodes.isEmpty()) return false
+
+        val HasEmptyMessage = VisibleNodes.any { NodeText ->
+            NodeText.contains("no recent policy renewal", ignoreCase = true) ||
+                    NodeText.contains("no data found", ignoreCase = true) ||
+                    NodeText.contains("no policies found", ignoreCase = true)
+        }
+        if (HasEmptyMessage) return true
+
+        val HasPoliciesLabel = VisibleNodes.any { NodeText ->
+            NodeText.trim().equals("Policies", ignoreCase = true)
+        }
+        val HasZeroCount = VisibleNodes.any { NodeText ->
+            val TrimmedText = NodeText.trim()
+            TrimmedText.isNotEmpty() &&
+                    TrimmedText.length <= 3 &&
+                    TrimmedText.all { CharVal -> CharVal == '0' }
+        }
+        return HasPoliciesLabel && HasZeroCount
     }
 
     private fun ReturnToRenewalPageSelector() {
@@ -4070,6 +4169,8 @@ class ScreenReaderService : AccessibilityService() {
             RenewalDropdownAttempts = 0
             RenewalDropdownScrollPasses = 0
             RenewalDropdownBaselineTexts = emptySet()
+            RenewalDropdownSeenOptions = emptySet()
+            RenewalChipBounds = null
             RenewalUnknownScreenCount = 0
             RenewalCurrentPage = 0
             RenewalTotalPages = 0

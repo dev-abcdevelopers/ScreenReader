@@ -2,6 +2,8 @@
 
 package com.bliss.screenreader.data.model
 
+import com.bliss.screenreader.data.parser.ContactValueSplit
+
 object PolicyCompleteness {
 
     data class FieldEntry(
@@ -113,17 +115,41 @@ object PolicyCompleteness {
                 Title = Labels.CustomerTitle,
                 IsCountedTowardTotal = false,
                 IsCapturable = false,
-                Fields = listOf(
-                    FieldEntry(Labels.Mobile, PolicyItem.MobileNumber),
-                    FieldEntry(Labels.Dob, PolicyItem.Dob, IsDate = true),
-                    FieldEntry(Labels.Address, PolicyItem.Address),
-                    FieldEntry(Labels.Email, PolicyItem.Email),
-                    FieldEntry(Labels.Gender, PolicyItem.Gender),
-                    FieldEntry(Labels.Education, PolicyItem.Education),
-                    FieldEntry(Labels.Occupation, PolicyItem.Occupation),
-                    FieldEntry(Labels.MaritalStatus, PolicyItem.MaritalStatus),
-                    FieldEntry(Labels.AnnualIncome, PolicyItem.AnnualIncome)
-                )
+                Fields = buildList {
+                    addAll(
+                        ContactFields(
+                            Label = Labels.Mobile,
+                            ValuesList = ContactValueSplit.Explode(
+                                PrimaryValue = PolicyItem.MobileNumber,
+                                OtherValues = PolicyItem.MobileNumberOthers
+                            )
+                        )
+                    )
+                    add(FieldEntry(Labels.Dob, PolicyItem.Dob, IsDate = true))
+                    addAll(
+                        ContactFields(
+                            Label = Labels.Address,
+                            ValuesList = ContactValueSplit.Explode(
+                                PrimaryValue = PolicyItem.Address,
+                                OtherValues = PolicyItem.AddressOthers
+                            )
+                        )
+                    )
+                    addAll(
+                        ContactFields(
+                            Label = Labels.Email,
+                            ValuesList = ContactValueSplit.Explode(
+                                PrimaryValue = PolicyItem.Email,
+                                OtherValues = PolicyItem.EmailOthers
+                            )
+                        )
+                    )
+                    add(FieldEntry(Labels.Gender, PolicyItem.Gender))
+                    add(FieldEntry(Labels.Education, PolicyItem.Education))
+                    add(FieldEntry(Labels.Occupation, PolicyItem.Occupation))
+                    add(FieldEntry(Labels.MaritalStatus, PolicyItem.MaritalStatus))
+                    add(FieldEntry(Labels.AnnualIncome, PolicyItem.AnnualIncome))
+                }
             )
         )
 
@@ -133,6 +159,13 @@ object PolicyCompleteness {
             CapturedCount = CountedGroups.sumOf { GroupRef -> GroupRef.CapturedCount },
             TotalCount = CountedGroups.sumOf { GroupRef -> GroupRef.TotalCount }
         )
+    }
+
+    private fun ContactFields(Label: String, ValuesList: List<String>): List<FieldEntry> {
+        if (ValuesList.isEmpty()) return listOf(FieldEntry(Label, ""))
+        return ValuesList.mapIndexed { ValueIndex, ValueText ->
+            FieldEntry(if (ValueIndex == 0) Label else "$Label $ValueIndex", ValueText)
+        }
     }
 
     fun StatusFlags(PolicyItem: CustomerPolicy, Labels: LabelSet): List<String> {

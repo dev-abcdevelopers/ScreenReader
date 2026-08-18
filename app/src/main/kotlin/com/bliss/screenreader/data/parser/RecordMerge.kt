@@ -13,6 +13,14 @@ object RecordMerge {
         val Changes: List<RecordFieldChange>
     )
 
+    private fun ResolveOthers(
+        ExistingValues: List<String>?,
+        IncomingValues: List<String>?
+    ): List<String>? {
+        if (!IncomingValues.isNullOrEmpty()) return IncomingValues
+        return ExistingValues
+    }
+
     fun ResolveField(
         RecordKey: String,
         FieldName: String,
@@ -84,6 +92,13 @@ object RecordMerge {
             Dob = Resolve("Date of birth", ExistingItem.Dob, IncomingItem.Dob),
             Address = Resolve("Address", ExistingItem.Address, IncomingItem.Address),
             Email = Resolve("Email", ExistingItem.Email, IncomingItem.Email),
+            MobileNumberOthers = ResolveOthers(
+                ExistingItem.MobileNumberOthers, IncomingItem.MobileNumberOthers
+            ),
+            EmailOthers = ResolveOthers(ExistingItem.EmailOthers, IncomingItem.EmailOthers),
+            AddressOthers = ResolveOthers(
+                ExistingItem.AddressOthers, IncomingItem.AddressOthers
+            ),
             Gender = Resolve("Gender", ExistingItem.Gender, IncomingItem.Gender),
             Education = Resolve("Education", ExistingItem.Education, IncomingItem.Education),
             Occupation = Resolve(

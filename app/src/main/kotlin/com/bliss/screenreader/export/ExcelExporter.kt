@@ -6,6 +6,7 @@ import android.content.Context
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.PsPolicy
+import com.bliss.screenreader.data.parser.ContactValueSplit
 import com.bliss.screenreader.service.CaptureDiagnostics
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
@@ -24,66 +25,131 @@ object ExcelExporter {
     ): File {
         ExportFormat.ResetDiagnostics()
 
+        val MobileValues = Policies.map { PolicyItem ->
+            ContactValueSplit.Explode(
+                PrimaryValue = PolicyItem.MobileNumber,
+                OtherValues = PolicyItem.MobileNumberOthers
+            )
+        }
+        val AddressValues = Policies.map { PolicyItem ->
+            ContactValueSplit.Explode(
+                PrimaryValue = PolicyItem.Address,
+                OtherValues = PolicyItem.AddressOthers
+            )
+        }
+        val EmailValues = Policies.map { PolicyItem ->
+            ContactValueSplit.Explode(
+                PrimaryValue = PolicyItem.Email,
+                OtherValues = PolicyItem.EmailOthers
+            )
+        }
+
+        val MobileExtras = ExtraColumnCount(ValueLists = MobileValues)
+        val AddressExtras = ExtraColumnCount(ValueLists = AddressValues)
+        val EmailExtras = ExtraColumnCount(ValueLists = EmailValues)
+
         val WorkbookObj = XSSFWorkbook()
         val SheetObj = WorkbookObj.createSheet("Customer Policies")
 
-        WriteHeaders(
-            RowRef = SheetObj.createRow(0),
-            HeadersList = arrayOf(
-                "Agency Code", "Policy Number", "Holder Name", "Plan Code", "Plan Name",
-                "Status",
-                "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
-                "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
-                "Term Years", "PPT Years", "Date of Commencement",
-                "End of Premium Paying Term", "Date of Maturity", "Mobile", "DOB",
-                "Address", "Email", "Gender", "Education", "Occupation",
-                "Marital Status", "Annual Income", "Date of Premium Payment",
-                "Date of Commission Payment", "Commission Type", "Bonus Commission",
-                "Commission Paid Amount"
+        val HeadersList = mutableListOf(
+            "Agency Code", "Policy Number", "Holder Name", "Plan Code", "Plan Name",
+            "Status",
+            "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
+            "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
+            "Term Years", "PPT Years", "Date of Commencement",
+            "End of Premium Paying Term", "Date of Maturity"
+        )
+        AddContactHeaders(HeadersList = HeadersList, BaseName = "Mobile", ExtraCount = MobileExtras)
+        HeadersList.add("DOB")
+        AddContactHeaders(
+            HeadersList = HeadersList,
+            BaseName = "Address",
+            ExtraCount = AddressExtras
+        )
+        AddContactHeaders(HeadersList = HeadersList, BaseName = "Email", ExtraCount = EmailExtras)
+        HeadersList.addAll(
+            listOf(
+                "Gender", "Education", "Occupation", "Marital Status", "Annual Income",
+                "Date of Premium Payment", "Date of Commission Payment", "Commission Type",
+                "Bonus Commission", "Commission Paid Amount"
             )
         )
 
+        WriteHeaders(RowRef = SheetObj.createRow(0), HeadersList = HeadersList.toTypedArray())
+
         var RowIdx = 1
-        for (PolicyItem in Policies) {
+        for (PolicyIndex in Policies.indices) {
+            val PolicyItem = Policies[PolicyIndex]
             val DataRow = SheetObj.createRow(RowIdx++)
-            WriteText(DataRow, 0, AgencyCode)
-            WriteText(DataRow, 1, ExportFormat.Identifier(PolicyItem.PolicyNumber))
-            WriteText(DataRow, 2, PolicyItem.HolderName)
-            WriteText(DataRow, 3, PolicyItem.PlanCode)
-            WriteText(DataRow, 4, PolicyItem.PlanName)
-            WriteText(DataRow, 5, PolicyItem.NormalizedStatus)
-            WriteNumber(DataRow, 6, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
+            var ColumnIdx = 0
+            WriteText(DataRow, ColumnIdx++, AgencyCode)
+            WriteText(DataRow, ColumnIdx++, ExportFormat.Identifier(PolicyItem.PolicyNumber))
+            WriteText(DataRow, ColumnIdx++, PolicyItem.HolderName)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.PlanCode)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.PlanName)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.NormalizedStatus)
+            WriteNumber(DataRow, ColumnIdx++, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
             WriteText(
-                DataRow, 7,
+                DataRow, ColumnIdx++,
                 PolicyItem.PremiumFrequency.ifEmpty {
                     ExportFormat.AmountFrequency(PolicyItem.PremiumAmount)
                 }
             )
-            WriteText(DataRow, 8, PolicyItem.AutoPay)
-            WriteText(DataRow, 9, PolicyItem.RenewalType)
-            WriteText(DataRow, 10, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
-            WriteText(DataRow, 11, PolicyItem.KycStatus)
-            WriteText(DataRow, 12, PolicyItem.NeftStatus)
-            WriteNumber(DataRow, 13, ExportFormat.PlainNumber(PolicyItem.SumAssured))
-            WriteNumber(DataRow, 14, ExportFormat.TermYears(PolicyItem.TermPPT))
-            WriteNumber(DataRow, 15, ExportFormat.PptYears(PolicyItem.TermPPT))
-            WriteText(DataRow, 16, ExportFormat.IsoDate(PolicyItem.DateOfCommencement))
-            WriteText(DataRow, 17, ExportFormat.IsoDate(PolicyItem.EndOfPremiumPayingTerm))
-            WriteText(DataRow, 18, ExportFormat.IsoDate(PolicyItem.DateOfMaturity))
-            WriteText(DataRow, 19, ExportFormat.Identifier(PolicyItem.MobileNumber))
-            WriteText(DataRow, 20, ExportFormat.IsoDate(PolicyItem.Dob))
-            WriteText(DataRow, 21, PolicyItem.Address)
-            WriteText(DataRow, 22, PolicyItem.Email)
-            WriteText(DataRow, 23, PolicyItem.Gender)
-            WriteText(DataRow, 24, PolicyItem.Education)
-            WriteText(DataRow, 25, PolicyItem.Occupation)
-            WriteText(DataRow, 26, PolicyItem.MaritalStatus)
-            WriteText(DataRow, 27, PolicyItem.AnnualIncome)
-            WriteText(DataRow, 28, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPremiumPayment))
-            WriteText(DataRow, 29, ExportFormat.IsoDate(PolicyItem.CommissionDateOfPayment))
-            WriteText(DataRow, 30, PolicyItem.CommissionType)
-            WriteNumber(DataRow, 31, ExportFormat.PlainNumber(PolicyItem.BonusCommission))
-            WriteNumber(DataRow, 32, ExportFormat.PlainNumber(PolicyItem.CommissionPaidAmount))
+            WriteText(DataRow, ColumnIdx++, PolicyItem.AutoPay)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.RenewalType)
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
+            WriteText(DataRow, ColumnIdx++, PolicyItem.KycStatus)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.NeftStatus)
+            WriteNumber(DataRow, ColumnIdx++, ExportFormat.PlainNumber(PolicyItem.SumAssured))
+            WriteNumber(DataRow, ColumnIdx++, ExportFormat.TermYears(PolicyItem.TermPPT))
+            WriteNumber(DataRow, ColumnIdx++, ExportFormat.PptYears(PolicyItem.TermPPT))
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.DateOfCommencement))
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.EndOfPremiumPayingTerm))
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.DateOfMaturity))
+            ColumnIdx = WriteContactGroup(
+                RowRef = DataRow,
+                StartColumn = ColumnIdx,
+                ValuesList = MobileValues[PolicyIndex],
+                ExtraCount = MobileExtras,
+                AsIdentifier = true
+            )
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.Dob))
+            ColumnIdx = WriteContactGroup(
+                RowRef = DataRow,
+                StartColumn = ColumnIdx,
+                ValuesList = AddressValues[PolicyIndex],
+                ExtraCount = AddressExtras,
+                AsIdentifier = false
+            )
+            ColumnIdx = WriteContactGroup(
+                RowRef = DataRow,
+                StartColumn = ColumnIdx,
+                ValuesList = EmailValues[PolicyIndex],
+                ExtraCount = EmailExtras,
+                AsIdentifier = false
+            )
+            WriteText(DataRow, ColumnIdx++, PolicyItem.Gender)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.Education)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.Occupation)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.MaritalStatus)
+            WriteText(DataRow, ColumnIdx++, PolicyItem.AnnualIncome)
+            WriteText(
+                DataRow, ColumnIdx++,
+                ExportFormat.IsoDate(PolicyItem.CommissionDateOfPremiumPayment)
+            )
+            WriteText(
+                DataRow, ColumnIdx++,
+                ExportFormat.IsoDate(PolicyItem.CommissionDateOfPayment)
+            )
+            WriteText(DataRow, ColumnIdx++, PolicyItem.CommissionType)
+            WriteNumber(
+                DataRow, ColumnIdx++,
+                ExportFormat.PlainNumber(PolicyItem.BonusCommission)
+            )
+            WriteNumber(
+                DataRow, ColumnIdx,
+                ExportFormat.PlainNumber(PolicyItem.CommissionPaidAmount)
+            )
         }
 
         return FinishWorkbook(
@@ -91,6 +157,39 @@ object ExcelExporter {
             WorkbookObj = WorkbookObj,
             FilePrefix = "Policy_Export"
         )
+    }
+
+    private fun ExtraColumnCount(ValueLists: List<List<String>>): Int {
+        val Largest = ValueLists.maxOfOrNull { ValuesList -> ValuesList.size } ?: 0
+        return if (Largest > 1) Largest - 1 else 0
+    }
+
+    private fun AddContactHeaders(
+        HeadersList: MutableList<String>,
+        BaseName: String,
+        ExtraCount: Int
+    ) {
+        HeadersList.add(BaseName)
+        for (ExtraIndex in 1..ExtraCount) HeadersList.add("$BaseName $ExtraIndex")
+    }
+
+    private fun WriteContactGroup(
+        RowRef: Row,
+        StartColumn: Int,
+        ValuesList: List<String>,
+        ExtraCount: Int,
+        AsIdentifier: Boolean
+    ): Int {
+        var ColumnIdx = StartColumn
+        for (ValueIndex in 0..ExtraCount) {
+            val ValueText = ValuesList.getOrNull(ValueIndex).orEmpty()
+            WriteText(
+                RowRef,
+                ColumnIdx++,
+                if (AsIdentifier) ExportFormat.Identifier(ValueText) else ValueText
+            )
+        }
+        return ColumnIdx
     }
 
     fun ExportFupPolicies(

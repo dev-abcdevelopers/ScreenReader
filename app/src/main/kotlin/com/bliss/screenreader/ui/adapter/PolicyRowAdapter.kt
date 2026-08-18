@@ -2,11 +2,11 @@
 
 package com.bliss.screenreader.ui.adapter
 
-import android.annotation.SuppressLint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CustomerPolicy
@@ -89,9 +89,26 @@ class PolicyRowAdapter(
         )
     }
 
-    @SuppressLint("NotifyDataSetChanged")
     fun UpdateData(NewPolicies: List<CustomerPolicy>) {
+        val DiffResult = DiffUtil.calculateDiff(
+            PolicyDiffCallback(OldList = PolicyList, NewList = NewPolicies)
+        )
         PolicyList = NewPolicies
-        notifyDataSetChanged()
+        DiffResult.dispatchUpdatesTo(this)
+    }
+
+    private class PolicyDiffCallback(
+        private val OldList: List<CustomerPolicy>,
+        private val NewList: List<CustomerPolicy>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = OldList.size
+
+        override fun getNewListSize(): Int = NewList.size
+
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            OldList[oldItemPosition].PolicyNumber == NewList[newItemPosition].PolicyNumber
+
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            OldList[oldItemPosition] == NewList[newItemPosition]
     }
 }

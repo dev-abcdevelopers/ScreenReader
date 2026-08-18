@@ -35,6 +35,28 @@
         <item name="backgroundTint">@color/surface_light</item>
     </style>
 
+    <!--
+      The update sheet paints a coloured band right up to its own top corners, so
+      the sheet shape has to match the band's radius exactly or the sheet
+      background shows through as two pale triangles.
+    -->
+    <style name="Theme.DataReaderApp.BottomSheet.Update" parent="Theme.DataReaderApp.BottomSheet">
+        <item name="bottomSheetStyle">@style/Widget.App.BottomSheet.Update</item>
+    </style>
+
+    <style name="Widget.App.BottomSheet.Update" parent="Widget.App.BottomSheet">
+        <item name="shapeAppearance">@style/ShapeAppearance.App.BottomSheet.Update</item>
+        <item name="shapeAppearanceOverlay">@null</item>
+    </style>
+
+    <style name="ShapeAppearance.App.BottomSheet.Update" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">@dimen/radius_lg</item>
+        <item name="cornerSizeTopRight">@dimen/radius_lg</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
     <!-- ==================================================== type scale ==== -->
 
     <style name="TextAppearance.App.Title" parent="TextAppearance.Material3.TitleLarge">

@@ -42,7 +42,11 @@ data class CustomerPolicy(
     var CommissionDateOfPayment: String = "",
     var CommissionType: String = "",
     var BonusCommission: String = "",
-    var CommissionPaidAmount: String = ""
+    var CommissionPaidAmount: String = "",
+
+    var MobileNumberOthers: List<String>? = null,
+    var EmailOthers: List<String>? = null,
+    var AddressOthers: List<String>? = null
 ) {
     val NormalizedStatus: String
         get() {

@@ -51,4 +51,15 @@
     <color name="bubble_meta_text">#DBEAFE</color>
     <color name="bubble_on_surface">#FFFFFF</color>
 
+    <color name="update_hero_start">#1D4ED8</color>
+    <color name="update_hero_end">#172554</color>
+    <color name="update_hero_forced_start">#9A3412</color>
+    <color name="update_hero_forced_end">#6B2610</color>
+    <color name="update_hero_text">#FFFFFF</color>
+    <color name="update_hero_subtitle">#C7D8FF</color>
+    <color name="update_hero_subtitle_forced">#FDE9C8</color>
+    <color name="update_hero_fill">#29FFFFFF</color>
+    <color name="update_hero_track">#38FFFFFF</color>
+    <color name="update_handle_light">#73FFFFFF</color>
+
 </resources>

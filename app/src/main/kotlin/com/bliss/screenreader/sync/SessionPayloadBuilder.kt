@@ -16,7 +16,7 @@ import java.util.Locale
 
 object SessionPayloadBuilder {
 
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
 
     private const val UPLOAD_DIR_NAME = "Upload"
     private const val FALLBACK_AGENCY_CODE = "unknown"

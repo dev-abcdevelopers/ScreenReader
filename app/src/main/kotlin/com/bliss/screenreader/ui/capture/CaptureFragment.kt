@@ -3,6 +3,7 @@
 package com.bliss.screenreader.ui.capture
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -21,6 +22,7 @@ import com.bliss.screenreader.databinding.PartialPreflightRowBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.service.CaptureSessionState
+import com.bliss.screenreader.service.CustomerSheetOcr
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
@@ -165,29 +167,51 @@ class CaptureFragment : Fragment() {
         if (!ScreenReaderService.IsServiceRunning()) {
             AddPreflightRow(
                 TitleRes = R.string.preflight_accessibility_title,
-                BodyRes = R.string.preflight_accessibility_body
+                BodyText = getString(R.string.preflight_accessibility_body)
             ) { OpenAccessibilitySettings() }
         }
 
         if (AppLauncherUtils.IsBatteryOptimized(ContextRef = ContextRef)) {
             AddPreflightRow(
                 TitleRes = R.string.preflight_battery_title,
-                BodyRes = R.string.preflight_battery_body
+                BodyText = getString(R.string.preflight_battery_body)
             ) { AppLauncherUtils.RequestBatteryOptimizationExemption(ContextRef = ContextRef) }
+        }
+
+        if (!CustomerSheetOcr.IsSupported()) {
+            AddPreflightRow(
+                TitleRes = R.string.preflight_screenshot_title,
+                BodyText = getString(
+                    R.string.preflight_screenshot_body,
+                    Build.VERSION.RELEASE.orEmpty()
+                ),
+                OnFix = null
+            )
         }
     }
 
-    private fun AddPreflightRow(TitleRes: Int, BodyRes: Int, OnFix: () -> Unit) {
+    private fun AddPreflightRow(
+        TitleRes: Int,
+        BodyText: CharSequence,
+        OnFix: (() -> Unit)?
+    ) {
         val BindingObj = ViewBindingObj ?: return
         val RowBinding = PartialPreflightRowBinding.inflate(
             layoutInflater, BindingObj.preflightGroup, false
         )
         RowBinding.tvPreflightTitle.setText(TitleRes)
-        RowBinding.tvPreflightBody.setText(BodyRes)
-        RowBinding.btnPreflightFix.setOnClickListener { ViewRef ->
-            HapticFeedback.Tap(ViewRef = ViewRef)
-            OnFix()
+        RowBinding.tvPreflightBody.text = BodyText
+
+        if (OnFix == null) {
+            RowBinding.btnPreflightFix.visibility = View.GONE
+        } else {
+            RowBinding.btnPreflightFix.visibility = View.VISIBLE
+            RowBinding.btnPreflightFix.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                OnFix()
+            }
         }
+
         BindingObj.preflightGroup.addView(RowBinding.root)
     }
 

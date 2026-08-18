@@ -19,7 +19,6 @@ object CaptureParsers {
         private set
 
     private val POLICY_NO_REGEX: Pattern = Pattern.compile("^\\d{9}$")
-    private val HOLDER_NAME_REGEX = Regex("^[A-Z][A-Za-z.]+(?:\\s+[A-Z][A-Za-z.]+){1,3}$")
 
     private val NAME_STOP_WORDS = setOf(
         "SUM ASSURED", "DATE OF MATURITY", "DATE OF COMMENCEMENT", "POLICY DETAILS",
@@ -501,10 +500,10 @@ object CaptureParsers {
     private fun FindHolderName(Nodes: List<String>): String {
         for (NodeText in Nodes) {
             val Trimmed = NodeText.trim()
-            if (Trimmed.length !in 4..40) continue
+            if (Trimmed.length !in 3..60) continue
             if (NAME_STOP_WORDS.contains(Trimmed.uppercase())) continue
             if (Trimmed.any { it.isDigit() }) continue
-            if (HOLDER_NAME_REGEX.matches(Trimmed)) return Trimmed
+            if (ScreenDataParser.IsPlausibleHolderName(TextValue = Trimmed)) return Trimmed
         }
         return ""
     }

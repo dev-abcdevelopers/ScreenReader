@@ -45,8 +45,20 @@ object CustomerProfileParser {
     private val POLICY_NUMBER_REGEX = Regex("(?<!\\d)(\\d{8,10})(?!\\d)")
     private val LISTED_POLICY_REGEX = Regex("^\\d{8,10}\\s*\\|")
     private val NUMBER_LIST_REGEX = Regex("^[\\d,\\s]+$")
+    private val SPLIT_DIGIT_REGEX = Regex("(?<=\\d)[ \\t]+(?=\\d)")
     private val SHEET_TITLES = listOf("Email ID(s)", "Address(es)", "Mobile Number(s)")
     private val ELLIPSIS_MARKERS = listOf("…", "...")
+
+    fun IsRelatedPoliciesMarker(TextValue: String): Boolean {
+        val LetterHead = TextValue
+            .takeWhile { CharacterVal -> !CharacterVal.isDigit() }
+            .lowercase(java.util.Locale.ROOT)
+            .filter { CharacterVal -> CharacterVal.isLetter() }
+        return LetterHead.startsWith("polic") && LetterHead.contains("related")
+    }
+
+    fun JoinSplitDigits(TextValue: String): String =
+        TextValue.replace(SPLIT_DIGIT_REGEX, "")
 
     fun CleanNodes(Nodes: List<String>): List<String> {
         return Nodes
@@ -162,7 +174,7 @@ object CustomerProfileParser {
         while (ScanIndex < CleanList.size) {
             val NodeText = CleanList[ScanIndex]
 
-            if (NodeText.startsWith(RELATED_PREFIX, ignoreCase = true)) {
+            if (IsRelatedPoliciesMarker(TextValue = NodeText)) {
                 RelatedGroupCount++
                 var NumberList = PolicyNumbersIn(NodeText = NodeText.substringAfter(':', ""))
                 if (NumberList.isEmpty()) {
@@ -222,7 +234,7 @@ object CustomerProfileParser {
 
     private fun PolicyNumbersIn(NodeText: String): List<String> {
         return POLICY_NUMBER_REGEX
-            .findAll(NodeText)
+            .findAll(JoinSplitDigits(TextValue = NodeText))
             .map { MatchItem -> MatchItem.groupValues[1] }
             .toList()
     }

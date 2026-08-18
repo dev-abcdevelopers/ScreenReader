@@ -14,8 +14,8 @@ android {
     defaultConfig {
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "18.08.2026|3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,6 +45,11 @@ android {
             )
             buildConfigField("String", "UPLOAD_APP_KEY", "\"${UploadProperty("blissUploadAppKey")}\"")
             buildConfigField("String", "UPLOAD_APP_SECRET", "\"${UploadProperty("blissUploadAppSecret")}\"")
+            buildConfigField(
+                "String",
+                "UPDATE_URL",
+                "\"${UploadProperty("blissUpdateUrl").ifEmpty { "https://mybliss.in/update/ScreenReaderVersion.json" }}\""
+            )
         }
         create("digi") {
             dimension = "brand"
@@ -60,6 +65,7 @@ android {
             buildConfigField("String", "UPLOAD_SIGN_PATH", "\"\"")
             buildConfigField("String", "UPLOAD_APP_KEY", "\"\"")
             buildConfigField("String", "UPLOAD_APP_SECRET", "\"\"")
+            buildConfigField("String", "UPDATE_URL", "\"${UploadProperty("digiUpdateUrl")}\"")
         }
     }
 

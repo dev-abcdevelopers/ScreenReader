@@ -28,6 +28,8 @@
     <string name="preflight_overlay_body">The capture bubble cannot appear without it</string>
     <string name="preflight_battery_title">Battery optimisation is on</string>
     <string name="preflight_battery_body">Long captures may be cut short</string>
+    <string name="preflight_screenshot_title">Contact details cannot be read</string>
+    <string name="preflight_screenshot_body">Reading the contact sheet needs Android 11; this phone runs Android %1$s</string>
     <string name="preflight_fix">Fix</string>
     <string name="preflight_all_clear">Ready to capture</string>
 

@@ -7,7 +7,6 @@ import java.util.Locale
 
 object SheetOcrParser {
 
-    private const val RELATED_PREFIX = "policy(ies) related"
     private const val DEFAULT_MARKER = "mark as default"
     private val TITLE_PREFIXES = listOf("mobile number(", "email id(", "address(es")
     private val POLICY_NUMBER_REGEX = Regex("\\d{9}")
@@ -25,16 +24,16 @@ object SheetOcrParser {
         var SeenRelatedForCurrent = false
 
         for (LineText in Body) {
-            val Lower = LineText.lowercase(Locale.US)
+            val JoinedLine = CustomerProfileParser.JoinSplitDigits(TextValue = LineText)
 
-            if (Lower.startsWith(RELATED_PREFIX)) {
+            if (CustomerProfileParser.IsRelatedPoliciesMarker(TextValue = LineText)) {
                 if (ValueBuilders.isEmpty()) continue
                 SeenRelatedForCurrent = true
                 RelatedGroups.last().addAll(PolicyNumbersIn(TextValue = LineText))
                 continue
             }
 
-            if (SeenRelatedForCurrent && POLICY_NUMBER_REGEX.containsMatchIn(LineText) &&
+            if (SeenRelatedForCurrent && POLICY_NUMBER_REGEX.containsMatchIn(JoinedLine) &&
                 LineText.none { CharacterVal -> CharacterVal.isLetter() }
             ) {
                 RelatedGroups.last().addAll(PolicyNumbersIn(TextValue = LineText))
@@ -80,7 +79,10 @@ object SheetOcrParser {
     }
 
     private fun PolicyNumbersIn(TextValue: String): List<String> =
-        POLICY_NUMBER_REGEX.findAll(TextValue).map { MatchVal -> MatchVal.value }.toList()
+        POLICY_NUMBER_REGEX
+            .findAll(CustomerProfileParser.JoinSplitDigits(TextValue = TextValue))
+            .map { MatchVal -> MatchVal.value }
+            .toList()
 
 
     private fun JoinWrappedValue(

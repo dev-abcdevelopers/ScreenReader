@@ -2,11 +2,11 @@
 
 package com.bliss.screenreader.ui.adapter
 
-import android.annotation.SuppressLint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.FupPolicy
@@ -100,9 +100,30 @@ class RenewalRowAdapter(
         )
     }
 
-    @SuppressLint("NotifyDataSetChanged")
     fun UpdateData(NewRenewals: List<FupPolicy>) {
+        val DiffResult = DiffUtil.calculateDiff(
+            RenewalDiffCallback(OldList = RenewalList, NewList = NewRenewals)
+        )
         RenewalList = NewRenewals
-        notifyDataSetChanged()
+        DiffResult.dispatchUpdatesTo(this)
+    }
+
+    private class RenewalDiffCallback(
+        private val OldList: List<FupPolicy>,
+        private val NewList: List<FupPolicy>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = OldList.size
+
+        override fun getNewListSize(): Int = NewList.size
+
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            val OldItem = OldList[oldItemPosition]
+            val NewItem = NewList[newItemPosition]
+            return OldItem.PolicyNumber == NewItem.PolicyNumber &&
+                    OldItem.DueDate == NewItem.DueDate
+        }
+
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            OldList[oldItemPosition] == NewList[newItemPosition]
     }
 }
