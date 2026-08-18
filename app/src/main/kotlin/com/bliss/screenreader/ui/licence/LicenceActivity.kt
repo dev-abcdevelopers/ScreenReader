@@ -6,7 +6,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.drawable.Animatable
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,6 +13,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
@@ -231,7 +231,7 @@ class LicenceActivity : AppCompatActivity() {
         val NumberText = BuildConfig.SUPPORT_PHONE
         if (NumberText.isEmpty()) return
         try {
-            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$NumberText")))
+            startActivity(Intent(Intent.ACTION_DIAL, "tel:$NumberText".toUri()))
         } catch (_: Exception) {
             CopySupportNumber()
         }

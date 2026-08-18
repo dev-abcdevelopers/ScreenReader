@@ -21,7 +21,6 @@ object PsDataParser {
         while (Index < CleanNodes.size) {
             val TextValue = CleanNodes[Index]
             if (POLICY_NO_REGEX.matcher(TextValue).matches()) {
-                val PolicyNo = TextValue
                 var Holder = ""
                 var Status = ""
                 var Premium = ""
@@ -46,7 +45,7 @@ object PsDataParser {
 
                 PolicyList.add(
                     PsPolicy(
-                        PolicyNumber = PolicyNo,
+                        PolicyNumber = TextValue,
                         HolderName = Holder,
                         PremiumAmount = Premium,
                         Doc = Doc,

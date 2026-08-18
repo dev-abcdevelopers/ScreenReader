@@ -175,6 +175,14 @@ class ScreenReaderService : AccessibilityService() {
         private const val CUSTOMER_DETAIL_TOP_LIMIT = 12
         private const val CUSTOMER_SHEET_LINK_RETRY_LIMIT = 6
         private const val SHEET_SCRIM_Y_RATIO = 0.08f
+        private const val CUSTOMER_PAGE_OPTION_MIN_WIDTH_RATIO = 0.7f
+        private const val CUSTOMER_PAGE_OPTION_MIN_COUNT = 2
+        private const val CUSTOMER_SHEET_OCR_MIN_MS = 600L
+        private const val SHEET_STALE_TREE_LIMIT = 6
+        private const val CUSTOMER_REOPEN_LIMIT = 1
+        private const val BUBBLE_MARGIN_DP = 8f
+        private const val BUBBLE_BOTTOM_OFFSET_RATIO = 0.5f
+        private val CUSTOMER_PAGE_OPTION_REGEX = Regex("^\\d{1,3}$")
         private const val CUSTOMER_AUTOMATION_RECOVERY_LIMIT = 3
         private const val PORTFOLIO_CUSTOMERS_ARROW_X_RATIO = 0.85f
         private const val CUSTOMER_ROW_ARROW_X_MIN_RATIO = 0.75f
@@ -262,6 +270,7 @@ class ScreenReaderService : AccessibilityService() {
     private var CustomerScrollStallCount = 0
     private var CustomerPageRetryCount = 0
     private var CustomerPageWaitCount = 0
+    private var CustomerPageChipRect: Rect? = null
     private var CustomerOpenAttempts = 0
     private var CustomerStepAttempts = 0
     private var CustomerAutomationFailureCount = 0
@@ -274,6 +283,8 @@ class ScreenReaderService : AccessibilityService() {
     private var SheetReadRetryCount = 0
     private var SheetLinkRetryCount = 0
     private var SheetOpenedAt = 0L
+    private var SheetDismissSignature = 0
+    private var SheetStaleTreeCount = 0
     private var SheetsEverYieldedValues = false
     private var EmptySheetReadCount = 0
     private var PendingOcrLines: List<String>? = null
@@ -289,6 +300,8 @@ class ScreenReaderService : AccessibilityService() {
     private val ProfilePaneNodes = linkedSetOf<String>()
     private val PendingSheetKinds = mutableListOf<CustomerProfileParser.ContactKind>()
     private val ProcessedCustomerKeys = mutableSetOf<String>()
+    private val CustomerReopenCounts = mutableMapOf<String, Int>()
+    private var RequeueActiveCustomer = false
     private val SessionPolicyNumbers = mutableSetOf<String>()
     private val FilledPolicyNumbers = mutableSetOf<String>()
     private val VisitedCustomerNames = mutableSetOf<String>()
@@ -3178,7 +3191,7 @@ class ScreenReaderService : AccessibilityService() {
         val ScreenHeight = resources.displayMetrics.heightPixels
         return IsBoundsOnScreen(BoundsObj = BoundsObj) &&
                 BoundsObj.centerY() >= ScreenHeight * 0.08f &&
-                BoundsObj.centerY() <= ScreenHeight * 0.70f
+                BoundsObj.centerY() <= ScreenHeight * 0.86f
     }
 
     private fun IsPolicyArrowSafeToTap(BoundsObj: Rect): Boolean {
@@ -4231,6 +4244,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun PerformSmoothPolicyScrollGesture(ForwardVal: Boolean): Boolean {
+        CollapseBubbleForGesture()
         val DisplayMetricsObj = resources.displayMetrics
         val StartXVal = DisplayMetricsObj.widthPixels * 0.5f
         val UpperYVal = DisplayMetricsObj.heightPixels * POLICY_SMOOTH_SCROLL_END_RATIO
@@ -4265,6 +4279,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun PerformPolicyRevealNudge(): Boolean {
+        CollapseBubbleForGesture()
         val DisplayMetricsObj = resources.displayMetrics
         val ScrollPath = Path().apply {
             moveTo(
@@ -4318,6 +4333,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun PerformTapGesture(XPos: Float, YPos: Float): Boolean {
+        ShieldBubbleFromGesture(XPos = XPos, YPos = YPos)
         val TapPath = Path().apply { moveTo(XPos, YPos) }
         val GestureObj = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(TapPath, 0, 120))
@@ -4712,9 +4728,9 @@ class ScreenReaderService : AccessibilityService() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 16
-                y = 220
+                gravity = Gravity.BOTTOM or Gravity.START
+                x = (resources.displayMetrics.density * BUBBLE_MARGIN_DP).toInt()
+                y = (resources.displayMetrics.heightPixels * BUBBLE_BOTTOM_OFFSET_RATIO).toInt()
             }
             BubbleLayoutParams = LayoutParamsObj
 
@@ -4767,8 +4783,8 @@ class ScreenReaderService : AccessibilityService() {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    LayoutParamsObj.x = InitialXPos - (MotionEvt.rawX - InitialTouchXVal).toInt()
-                    LayoutParamsObj.y = InitialYPos + (MotionEvt.rawY - InitialTouchYVal).toInt()
+                    LayoutParamsObj.x = InitialXPos + (MotionEvt.rawX - InitialTouchXVal).toInt()
+                    LayoutParamsObj.y = InitialYPos - (MotionEvt.rawY - InitialTouchYVal).toInt()
                     if (LayoutParamsObj.x < 0) LayoutParamsObj.x = 0
                     if (LayoutParamsObj.y < 0) LayoutParamsObj.y = 0
                     try {
@@ -4796,6 +4812,57 @@ class ScreenReaderService : AccessibilityService() {
     private fun ToggleBubbleExpanded() {
         IsBubbleExpanded = !IsBubbleExpanded
         CardActions?.visibility = if (IsBubbleExpanded) View.VISIBLE else View.GONE
+    }
+
+    private fun BubbleWindowRect(): Rect? {
+        if (!IsOverlayAdded) return null
+        val RootView = BubbleView ?: return null
+        if (RootView.width <= 0 || RootView.height <= 0) return null
+        val LocationArr = IntArray(2)
+        RootView.getLocationOnScreen(LocationArr)
+        return Rect(
+            LocationArr[0],
+            LocationArr[1],
+            LocationArr[0] + RootView.width,
+            LocationArr[1] + RootView.height
+        )
+    }
+
+    private fun CollapseBubbleForGesture() {
+        if (Looper.myLooper() != Looper.getMainLooper()) return
+        if (!IsBubbleExpanded) return
+        IsBubbleExpanded = false
+        CardActions?.visibility = View.GONE
+    }
+
+    private fun MoveBubbleClearOf(XPos: Float, YPos: Float): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) return false
+        val LayoutParamsObj = BubbleLayoutParams ?: return false
+        val BubbleRect = BubbleWindowRect() ?: return false
+        if (!BubbleRect.contains(XPos.toInt(), YPos.toInt())) return false
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val MovedY = if (LayoutParamsObj.y > ScreenHeight / 2) {
+            (ScreenHeight * 0.25f).toInt()
+        } else {
+            (ScreenHeight * 0.75f).toInt()
+        }
+        LayoutParamsObj.y = MovedY
+        try {
+            WindowMgr?.updateViewLayout(BubbleView, LayoutParamsObj)
+        } catch (_: Exception) {
+            return false
+        }
+        DiagnosticWarning(
+            EventName = "BUBBLE_TAP_COLLISION",
+            MessageText = "gesture=($XPos,$YPos) bubble=$BubbleRect; " +
+                    "moved the bubble to y=$MovedY and retrying from there"
+        )
+        return true
+    }
+
+    private fun ShieldBubbleFromGesture(XPos: Float, YPos: Float) {
+        MoveBubbleClearOf(XPos = XPos, YPos = YPos)
+        CollapseBubbleForGesture()
     }
 
     private fun ShareDiagnosticLog() {
@@ -6145,6 +6212,19 @@ class ScreenReaderService : AccessibilityService() {
             RetryCustomerPageNavigation(ReasonText = "page chip not visible")
             return
         }
+        CustomerPageChipRect = Rect(ChipBounds)
+        val OpenOptionCount = CustomerPageOptionNodes(ChipBounds = ChipBounds).size
+        if (OpenOptionCount >= CUSTOMER_PAGE_OPTION_MIN_COUNT) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_PAGE_SELECTOR",
+                MessageText = "page=$CustomerCurrentPage bounds=$ChipBounds " +
+                        "alreadyOpen=$OpenOptionCount; not re-tapping the chip"
+            )
+            ScheduleCustomerAction(DelayMs = POLICY_PAGE_SELECTOR_DELAY_MS) {
+                SelectNextCustomerPage()
+            }
+            return
+        }
         val TapAccepted = PerformTapGesture(
             XPos = ChipBounds.centerX().toFloat(),
             YPos = ChipBounds.centerY().toFloat()
@@ -6156,32 +6236,59 @@ class ScreenReaderService : AccessibilityService() {
         ScheduleCustomerAction(DelayMs = POLICY_PAGE_SELECTOR_DELAY_MS) { SelectNextCustomerPage() }
     }
 
-    private fun SelectNextCustomerPage() {
+    private fun IsCustomerPageOptionBounds(OptionBounds: Rect, ChipBounds: Rect): Boolean {
+        val MinWidth = (ChipBounds.width() * CUSTOMER_PAGE_OPTION_MIN_WIDTH_RATIO).toInt()
+        return OptionBounds.top >= ChipBounds.bottom &&
+                abs(OptionBounds.centerX() - ChipBounds.centerX()) <= ChipBounds.width() / 2 &&
+                OptionBounds.width() >= MinWidth
+    }
+
+    private fun CustomerPageOptionNodes(ChipBounds: Rect): List<Pair<String, Rect>> {
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
-        if (RootNode == null) {
-            RetryCustomerPageNavigation(ReasonText = "no root for the page option list")
+            ?: return emptyList()
+        return try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+                .filter { NodePair ->
+                    CUSTOMER_PAGE_OPTION_REGEX.matches(NodePair.first.trim())
+                }
+                .filter { NodePair -> IsBoundsOnScreen(BoundsObj = NodePair.second) }
+                .filter { NodePair ->
+                    IsCustomerPageOptionBounds(
+                        OptionBounds = NodePair.second,
+                        ChipBounds = ChipBounds
+                    )
+                }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun SelectNextCustomerPage() {
+        val ChipBounds = CustomerPageChipRect
+        if (ChipBounds == null) {
+            RetryCustomerPageNavigation(ReasonText = "page chip bounds unknown")
+            return
+        }
+        val OptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds)
+        if (OptionNodes.size < CUSTOMER_PAGE_OPTION_MIN_COUNT) {
+            RetryCustomerPageNavigation(
+                ReasonText = "page list did not open (options=${OptionNodes.size})"
+            )
             return
         }
         val OptionLabels = setOf(
             TargetCustomerPage.toString().padStart(2, '0'),
             TargetCustomerPage.toString()
         )
-        val OptionBounds = try {
-            CollectVisibleTextNodes(RootNode = RootNode)
-                .filter { NodePair ->
-                    IsPageLabel(
-                        NodeText = NodePair.first,
-                        Labels = OptionLabels
-                    )
-                }
-                .filter { NodePair -> IsBoundsOnScreen(BoundsObj = NodePair.second) }
-                .minByOrNull { NodePair -> NodePair.second.top }
-                ?.second
-        } finally {
-            RecycleNode(NodeRef = RootNode)
-        }
+        val OptionBounds = OptionNodes
+            .filter { NodePair -> IsPageLabel(NodeText = NodePair.first, Labels = OptionLabels) }
+            .minByOrNull { NodePair -> NodePair.second.top }
+            ?.second
         if (OptionBounds == null) {
-            RetryCustomerPageNavigation(ReasonText = "option $TargetCustomerPage not visible")
+            RetryCustomerPageNavigation(
+                ReasonText = "option $TargetCustomerPage missing from " +
+                        "${OptionNodes.size} open option(s)"
+            )
             return
         }
         val TapAccepted = PerformTapGesture(
@@ -6612,7 +6719,7 @@ class ScreenReaderService : AccessibilityService() {
     private fun ShouldTryOcr(SheetKind: CustomerProfileParser.ContactKind): Boolean {
         if (!CustomerSheetOcr.IsSupported()) return false
         if (OcrAttemptedKinds.contains(SheetKind)) return false
-        return System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
+        return System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_OCR_MIN_MS
     }
 
     private fun StartSheetOcr(SheetKind: CustomerProfileParser.ContactKind) {
@@ -6795,6 +6902,11 @@ class ScreenReaderService : AccessibilityService() {
             SheetRead.Values
         }
 
+        if (ValueList.isEmpty() && ShouldTryOcr(SheetKind = SheetKind)) {
+            StartSheetOcr(SheetKind = SheetKind)
+            return
+        }
+
         val WaitedLongEnough =
             System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_SETTLE_MS
         if (ValueList.isEmpty() &&
@@ -6809,11 +6921,6 @@ class ScreenReaderService : AccessibilityService() {
                         "groups=${SheetRead.RelatedGroupCount} but no values exposed; " +
                         "retry=$SheetReadRetryCount"
             )
-            return
-        }
-
-        if (ValueList.isEmpty() && ShouldTryOcr(SheetKind = SheetKind)) {
-            StartSheetOcr(SheetKind = SheetKind)
             return
         }
 
@@ -6847,6 +6954,8 @@ class ScreenReaderService : AccessibilityService() {
 
         ActiveSheetKind = null
         if (PendingSheetKinds.isNotEmpty()) PendingSheetKinds.removeAt(0)
+        SheetDismissSignature = CurrentScreenNodes().hashCode()
+        SheetStaleTreeCount = 0
         DismissContactSheet(UseBackAction = false)
         ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
             ConfirmSheetClosed(AttemptCount = 0)
@@ -6876,12 +6985,28 @@ class ScreenReaderService : AccessibilityService() {
     private fun ConfirmSheetClosed(AttemptCount: Int) {
         val VisibleNodes = CurrentScreenNodes()
         val StillOpen = VisibleSheetKind(VisibleNodes = VisibleNodes) != null
+        if (StillOpen && VisibleNodes.hashCode() == SheetDismissSignature) {
+            SheetStaleTreeCount++
+            if (SheetStaleTreeCount <= SHEET_STALE_TREE_LIMIT) {
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_SHEET_STALE_TREE",
+                    MessageText = "customer=$ActiveCustomerName wait=$SheetStaleTreeCount " +
+                            "attempt=$AttemptCount; tree unchanged since the dismiss, holding"
+                )
+                ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
+                    ConfirmSheetClosed(AttemptCount = AttemptCount)
+                }
+                return
+            }
+        }
         if (StillOpen && AttemptCount < CUSTOMER_SHEET_CLOSE_LIMIT) {
             DiagnosticWarning(
                 EventName = "CUSTOMER_SHEET_STILL_OPEN",
                 MessageText = "customer=$ActiveCustomerName attempt=$AttemptCount; dismissing again"
             )
-            DismissContactSheet(UseBackAction = AttemptCount > 0)
+            SheetDismissSignature = VisibleNodes.hashCode()
+            SheetStaleTreeCount = 0
+            DismissContactSheet(UseBackAction = false)
             ScheduleCustomerAction(DelayMs = CUSTOMER_SHEET_CLOSE_DELAY_MS) {
                 ConfirmSheetClosed(AttemptCount = AttemptCount + 1)
             }
@@ -6921,6 +7046,18 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "customer=$ActiveCustomerName left the detail screen while closing " +
                     "a sheet; finishing this customer with what was read"
         )
+        val PendingCount = PendingSheetKinds.size
+        val ReopenKey = CustomerKey(NameText = ActiveCustomerName)
+        val ReopensSoFar = CustomerReopenCounts[ReopenKey] ?: 0
+        if (PendingCount > 0 && ReopensSoFar < CUSTOMER_REOPEN_LIMIT) {
+            CustomerReopenCounts[ReopenKey] = ReopensSoFar + 1
+            RequeueActiveCustomer = true
+            DiagnosticInfo(
+                EventName = "CUSTOMER_SHEET_REOPEN",
+                MessageText = "customer=$ActiveCustomerName pending=$PendingCount " +
+                        "attempt=${ReopensSoFar + 1}; reopening to finish the remaining sheet(s)"
+            )
+        }
         PendingSheetKinds.clear()
         FinishActiveCustomer()
     }
@@ -6939,7 +7076,12 @@ class ScreenReaderService : AccessibilityService() {
         for (PolicyNumber in ActiveCustomerRelevantNumbers) {
             FilledPolicyNumbers.add(PolicyNumber)
         }
-        MarkCustomerVisited(NameText = ActiveCustomerName)
+        if (RequeueActiveCustomer) {
+            RequeueActiveCustomer = false
+            ProcessedCustomerKeys.remove(CustomerKey(NameText = ActiveCustomerName))
+        } else {
+            MarkCustomerVisited(NameText = ActiveCustomerName)
+        }
         DiagnosticInfo(
             EventName = "CUSTOMER_DONE",
             MessageText = "customer=$ActiveCustomerName policiesFilled=$FilledCount " +
@@ -7097,6 +7239,7 @@ class ScreenReaderService : AccessibilityService() {
         CustomerScrollStallCount = 0
         CustomerPageRetryCount = 0
         CustomerPageWaitCount = 0
+        CustomerPageChipRect = null
         CustomerOpenAttempts = 0
         CustomerStepAttempts = 0
         CustomerAutomationFailureCount = 0
@@ -7114,6 +7257,8 @@ class ScreenReaderService : AccessibilityService() {
         ProfilePaneNodes.clear()
         PendingSheetKinds.clear()
         ProcessedCustomerKeys.clear()
+        CustomerReopenCounts.clear()
+        RequeueActiveCustomer = false
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0

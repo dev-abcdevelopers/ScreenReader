@@ -1,4 +1,6 @@
-@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
+    "RegExpSingleCharAlternation", "SpellCheckingInspection"
+)
 
 package com.bliss.screenreader.data.parser
 
@@ -272,12 +274,7 @@ object ScreenDataParser {
         ).any { TypeText -> LowerValue.contains(TypeText) }
     }
 
-    /**
-     * A stored name that could never have been a name — "Contact Details Absent" and
-     * friends, written by the badge-matching bug fixed on 2026-08-16. The corrected
-     * parser produces nothing for those cards, and a merge keeps the old value when
-     * the incoming one is empty, so without this check the bad name outlives the fix.
-     */
+
     fun IsPlausibleHolderName(TextValue: String): Boolean {
         val CleanedValue = NormaliseHolderName(TextValue = TextValue)
         if (CleanedValue.isEmpty()) return false
@@ -297,12 +294,7 @@ object ScreenDataParser {
         return true
     }
 
-    /**
-     * The dashboard writes the lives on a policy as "Aarvi Khulbe(A),Pushpender
-     * Khulbe(P)" — (A) the life assured, (P) the proposer. The raw string fails the
-     * holder regex on its brackets and comma, which is why those rows read "Unknown".
-     * The assured is the holder; fall back to the first name when no role is marked.
-     */
+
     fun NormaliseHolderName(TextValue: String): String {
         val TrimmedValue = TextValue.trim()
         if (!ROLE_MARKED_NAME_REGEX.containsMatchIn(TrimmedValue)) return TrimmedValue
@@ -315,12 +307,7 @@ object ScreenDataParser {
         return ChosenPart.replace(ROLE_SUFFIX_REGEX, "").trim()
     }
 
-    /**
-     * The amount arrives split across two nodes, "₹" then "50,467/Single Premium".
-     * The old rule accepted anything starting with "₹" and only recognised the four
-     * common frequencies, so a single-premium policy kept the bare symbol as its
-     * amount and dropped the figure entirely.
-     */
+
     private fun LooksLikePremium(TextValue: String): Boolean {
         val TrimmedValue = TextValue.trim()
         if (TrimmedValue.isEmpty()) return false

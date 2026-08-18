@@ -11,9 +11,7 @@ class DataReaderApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Instance = this
-
         registerActivityLifecycleCallbacks(AppLockObserver())
-
         Thread {
             SecurePrefs.MigrateExisting(
                 ContextRef = this,

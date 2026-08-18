@@ -29,6 +29,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.core.view.isVisible
 
 
 class ExportsFragment : Fragment() {
@@ -129,7 +130,7 @@ class ExportsFragment : Fragment() {
             return
         }
         SheetBinding.statsRow.visibility =
-            if (SheetBinding.importPreview.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            if (SheetBinding.importPreview.isVisible) View.VISIBLE else View.GONE
     }
 
     private fun RenderDeviceStats() {

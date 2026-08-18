@@ -7,14 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
 
-/**
- * The bridge between the accessibility service and whichever activity started
- * the capture. The service publishes here; activities observe.
- *
- * A finished session parks in [PendingSession] until the user either saves or
- * discards it in the review sheet. Nothing is written to storage before that,
- * so a bad parse costs the user a tap rather than the whole capture.
- */
+
 object CaptureSessionState {
 
     private val MutableIsCapturing = MutableLiveData(false)
@@ -43,7 +36,7 @@ object CaptureSessionState {
     var ActiveSessionId: String = ""
         private set
 
-    /** Read directly by activities in onResume, before any observer fires. */
+
     @Volatile
     var PendingSession: CaptureSession? = null
         private set

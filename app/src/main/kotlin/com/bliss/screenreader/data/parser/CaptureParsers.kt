@@ -103,9 +103,7 @@ object CaptureParsers {
         } else {
             emptyList()
         }
-        val PolicyList = if (DashboardPolicies.isNotEmpty()) {
-            DashboardPolicies
-        } else {
+        val PolicyList = DashboardPolicies.ifEmpty {
             listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
                 CountPolicyFields(PolicyItem = PolicyItem) > 0
             }
@@ -258,9 +256,7 @@ object CaptureParsers {
         } else {
             emptyList()
         }
-        val ParsedPolicies = if (DashboardPolicies.isNotEmpty()) {
-            DashboardPolicies
-        } else {
+        val ParsedPolicies = DashboardPolicies.ifEmpty {
             listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
                 CountPolicyFields(PolicyItem = PolicyItem) > 0
             }

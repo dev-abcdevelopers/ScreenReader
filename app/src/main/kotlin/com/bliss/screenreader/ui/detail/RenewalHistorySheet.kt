@@ -13,12 +13,7 @@ import com.bliss.screenreader.databinding.SheetRenewalHistoryBinding
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
-/**
- * A policy's renewal rows, reachable from the detail screen.
- *
- * The old detail page showed "4 entries" as dead text with no way to open
- * them, which advertised data the app then refused to show.
- */
+
 class RenewalHistorySheet : BottomSheetDialogFragment() {
 
     private var ViewBindingObj: SheetRenewalHistoryBinding? = null

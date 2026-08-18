@@ -1,4 +1,6 @@
-@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName")
+@file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
+    "AssignedValueIsNeverRead", "SpellCheckingInspection"
+)
 
 package com.bliss.screenreader.data.parser
 
