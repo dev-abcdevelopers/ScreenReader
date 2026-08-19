@@ -55,7 +55,8 @@ object ExcelExporter {
             "Agency Code", "Policy Number", "Holder Name", "Plan Code", "Plan Name",
             "Status",
             "Premium Amount", "Premium Frequency", "Auto Pay", "Renewal Type",
-            "Renewal Due Date", "KYC Status", "NEFT Status", "Sum Assured",
+            "Renewal Due Date", "Card Date Label", "Card Date",
+            "KYC Status", "NEFT Status", "Sum Assured",
             "Term Years", "PPT Years", "Date of Commencement",
             "End of Premium Paying Term", "Date of Maturity"
         )
@@ -98,6 +99,8 @@ object ExcelExporter {
             WriteText(DataRow, ColumnIdx++, PolicyItem.AutoPay)
             WriteText(DataRow, ColumnIdx++, PolicyItem.RenewalType)
             WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.RenewalDueDate))
+            WriteText(DataRow, ColumnIdx++, PolicyItem.RenewalDateLabel)
+            WriteText(DataRow, ColumnIdx++, ExportFormat.IsoDate(PolicyItem.RenewalDateValue))
             WriteText(DataRow, ColumnIdx++, PolicyItem.KycStatus)
             WriteText(DataRow, ColumnIdx++, PolicyItem.NeftStatus)
             WriteNumber(DataRow, ColumnIdx++, ExportFormat.PlainNumber(PolicyItem.SumAssured))

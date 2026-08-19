@@ -23,6 +23,14 @@ object ScreenDataParser {
     private val CURRENCY_ONLY_REGEX = Regex("^[₹Rs.\\s]*$", RegexOption.IGNORE_CASE)
     private val AMOUNT_REGEX = Regex("\\d[\\d,]*(?:\\.\\d+)?")
 
+    private const val RENEWAL_DUE_LABEL = "renewal due date"
+
+    private val DATE_LABEL_PHRASES = setOf(
+        "renewal due date", "renewal due", "grace expiry date", "grace expiry",
+        "revival without dgh", "revival without dgh expiry date", "revival expiry date",
+        "next premium due date", "premium due date", "due date", "fup", "fup date"
+    )
+
     private val ICON_WORDS = setOf(
         "icon", "arrow", "chevron", "image", "svg", "vector", "logo", "banner",
         "button", "card", "star", "badge", "avatar", "placeholder", "graphic",
@@ -86,6 +94,9 @@ object ScreenDataParser {
             var Status = ""
             var AutoPay = ""
             var RenewalDate = ""
+            var RenewalDateLabel = ""
+            var RenewalDateValue = ""
+            var PendingDateLabel = ""
             var RenewalType = ""
             var PremiumAmount = ""
             var PremiumFrequency = ""
@@ -130,6 +141,15 @@ object ScreenDataParser {
                 if (CurrentLower.contains("mobile not updated")) MobileUpdateStatus = "Not Updated"
                 if (CurrentLower.contains("address not updated")) AddressUpdateStatus = "Not Updated"
 
+                if (IsCardDateLabel(TextValue = CurrentText)) {
+                    PendingDateLabel = CurrentText
+                    if (RenewalDateLabel.isEmpty()) RenewalDateLabel = CurrentText
+                    if (RenewalType.isEmpty() && IsRenewalType(CurrentText)) {
+                        RenewalType = CurrentText
+                    }
+                    ForwardIdx++
+                    continue
+                }
                 if (Status.isEmpty() && IsPolicyStatus(CurrentText)) {
                     Status = CurrentText
                     ForwardIdx++
@@ -161,17 +181,10 @@ object ScreenDataParser {
                     ForwardIdx++
                     continue
                 }
-                if (CurrentLower.contains("revival without dgh") ||
-                    CurrentLower.contains("revival expiry") ||
-                    CurrentLower.contains("renewal due") ||
-                    CurrentLower == "fup"
-                ) {
-                    RenewalType = CurrentText
-                    ForwardIdx++
-                    continue
-                }
                 if (DISPLAY_DATE_REGEX.matches(CurrentText) || IsValidDate(InputStr = CurrentText)) {
-                    RenewalDate = CurrentText
+                    if (RenewalDateValue.isEmpty()) RenewalDateValue = CurrentText
+                    if (IsRenewalDueLabel(TextValue = PendingDateLabel)) RenewalDate = CurrentText
+                    PendingDateLabel = ""
                     ForwardIdx++
                     continue
                 }
@@ -205,7 +218,9 @@ object ScreenDataParser {
                 AddressUpdateStatus = AddressUpdateStatus,
                 KycStatus = KycStatus,
                 NeftStatus = NeftStatus,
-                RenewalType = RenewalType
+                RenewalType = RenewalType,
+                RenewalDateLabel = RenewalDateLabel,
+                RenewalDateValue = RenewalDateValue
             )
             val ExistingPolicy = PolicyMap[PolicyNumber]
             PolicyMap[PolicyNumber] = if (ExistingPolicy == null) {
@@ -222,21 +237,34 @@ object ScreenDataParser {
         ExistingPolicy: CustomerPolicy,
         IncomingPolicy: CustomerPolicy
     ): CustomerPolicy {
+        val CarriedDueDate = if (DueDateSurvives(CardDateLabel = IncomingPolicy.RenewalDateLabel)) {
+            ExistingPolicy.RenewalDueDate
+        } else {
+            ""
+        }
+        val CarriedStatus = CleanStoredStatus(TextValue = ExistingPolicy.Status)
+        val CarriedRenewalType = CleanStoredRenewalType(TextValue = ExistingPolicy.RenewalType)
         return ExistingPolicy.copy(
             HolderName = IncomingPolicy.HolderName.ifEmpty { ExistingPolicy.HolderName },
             PlanName = IncomingPolicy.PlanName.ifEmpty { ExistingPolicy.PlanName },
             PlanCode = IncomingPolicy.PlanCode.ifEmpty { ExistingPolicy.PlanCode },
-            RenewalDueDate = IncomingPolicy.RenewalDueDate.ifEmpty { ExistingPolicy.RenewalDueDate },
+            RenewalDueDate = IncomingPolicy.RenewalDueDate.ifEmpty { CarriedDueDate },
+            RenewalDateLabel = IncomingPolicy.RenewalDateLabel.ifEmpty {
+                ExistingPolicy.RenewalDateLabel
+            },
+            RenewalDateValue = IncomingPolicy.RenewalDateValue.ifEmpty {
+                ExistingPolicy.RenewalDateValue
+            },
             PremiumAmount = IncomingPolicy.PremiumAmount.ifEmpty { ExistingPolicy.PremiumAmount },
             PremiumFrequency = IncomingPolicy.PremiumFrequency.ifEmpty { ExistingPolicy.PremiumFrequency },
             AutoPay = IncomingPolicy.AutoPay.ifEmpty { ExistingPolicy.AutoPay },
-            Status = IncomingPolicy.Status.ifEmpty { ExistingPolicy.Status },
+            Status = IncomingPolicy.Status.ifEmpty { CarriedStatus },
             NomineeStatus = IncomingPolicy.NomineeStatus.ifEmpty { ExistingPolicy.NomineeStatus },
             MobileUpdateStatus = IncomingPolicy.MobileUpdateStatus.ifEmpty { ExistingPolicy.MobileUpdateStatus },
             AddressUpdateStatus = IncomingPolicy.AddressUpdateStatus.ifEmpty { ExistingPolicy.AddressUpdateStatus },
             KycStatus = IncomingPolicy.KycStatus.ifEmpty { ExistingPolicy.KycStatus },
             NeftStatus = IncomingPolicy.NeftStatus.ifEmpty { ExistingPolicy.NeftStatus },
-            RenewalType = IncomingPolicy.RenewalType.ifEmpty { ExistingPolicy.RenewalType },
+            RenewalType = IncomingPolicy.RenewalType.ifEmpty { CarriedRenewalType },
             SumAssured = IncomingPolicy.SumAssured.ifEmpty { ExistingPolicy.SumAssured },
             TermPPT = IncomingPolicy.TermPPT.ifEmpty { ExistingPolicy.TermPPT },
             DateOfCommencement = IncomingPolicy.DateOfCommencement.ifEmpty {
@@ -277,6 +305,33 @@ object ScreenDataParser {
             "lapsed", "inforce", "in force", "grace expiring", "renewal due",
             "premium due", "expired", "matured", "claim", "claimed"
         ).any { StatusText -> LowerValue.contains(StatusText) }
+    }
+
+    fun IsCardDateLabel(TextValue: String): Boolean {
+        val TrimmedValue = TextValue.trim()
+        if (TrimmedValue.isEmpty() || TrimmedValue.length > 48) return false
+        if (TrimmedValue.any { CharacterVal -> CharacterVal.isDigit() }) return false
+        val LowerValue = TrimmedValue.lowercase()
+        if (DATE_LABEL_PHRASES.contains(LowerValue)) return true
+        return LowerValue.endsWith(" date") || LowerValue.endsWith(" expiry")
+    }
+
+    fun IsRenewalDueLabel(TextValue: String): Boolean {
+        return TextValue.trim().lowercase().startsWith(RENEWAL_DUE_LABEL)
+    }
+
+    fun CleanStoredStatus(TextValue: String): String {
+        return if (IsCardDateLabel(TextValue = TextValue)) "" else TextValue
+    }
+
+    fun CleanStoredRenewalType(TextValue: String): String {
+        if (!IsCardDateLabel(TextValue = TextValue)) return TextValue
+        return if (IsRenewalType(TextValue = TextValue)) TextValue else ""
+    }
+
+    fun DueDateSurvives(CardDateLabel: String): Boolean {
+        if (CardDateLabel.isEmpty()) return true
+        return IsRenewalDueLabel(TextValue = CardDateLabel)
     }
 
     private fun IsRenewalType(TextValue: String): Boolean {

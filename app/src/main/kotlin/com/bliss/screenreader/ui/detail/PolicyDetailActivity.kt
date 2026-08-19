@@ -181,7 +181,8 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     private fun BindRevival(PolicyRef: CustomerPolicy) {
         val IsLapsed = PolicyRef.NormalizedStatus.equals("Lapsed", ignoreCase = true)
-        val DueDateIso = ExportFormat.IsoDate(RawText = PolicyRef.RenewalDueDate)
+        val CardDateText = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
+        val DueDateIso = ExportFormat.IsoDate(RawText = CardDateText)
 
         if (!IsLapsed || DueDateIso.isEmpty()) {
             ViewBindingObj.revivalBlock.visibility = View.GONE
@@ -189,9 +190,9 @@ class PolicyDetailActivity : AppCompatActivity() {
         }
 
         ViewBindingObj.revivalBlock.visibility = View.VISIBLE
-        ViewBindingObj.tvRevivalLabel.text = PolicyRef.RenewalType.ifEmpty {
-            getString(R.string.detail_revival_default)
-        }
+        ViewBindingObj.tvRevivalLabel.text = PolicyRef.RenewalType
+            .ifEmpty { PolicyRef.RenewalDateLabel }
+            .ifEmpty { getString(R.string.detail_revival_default) }
         ViewBindingObj.tvRevivalDate.text = DueDateIso
     }
 

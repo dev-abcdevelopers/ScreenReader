@@ -11,6 +11,108 @@ import org.junit.Test
 
 class RecordMergeTest {
 
+    // ------------------------------------------------------- Renewal due date
+
+    @Test
+    fun MergePolicy_ClearsAStoredDueDateWhenTheCardLabelIsNotRenewalDue() {
+        val ExistingItem = CustomerPolicy(
+            PolicyNumber = "129831341",
+            RenewalDueDate = "31 Aug 2026"
+        )
+        val IncomingItem = CustomerPolicy(
+            PolicyNumber = "129831341",
+            RenewalDateLabel = "Grace Expiry Date",
+            RenewalDateValue = "31 Aug 2026"
+        )
+
+        val Outcome = RecordMerge.MergePolicy(
+            ExistingItem = ExistingItem,
+            IncomingItem = IncomingItem
+        )
+
+        assertEquals("", Outcome.Record.RenewalDueDate)
+        assertEquals("Grace Expiry Date", Outcome.Record.RenewalDateLabel)
+        assertEquals("31 Aug 2026", Outcome.Record.RenewalDateValue)
+        assertTrue(Outcome.Changes.any { ChangeItem -> ChangeItem.FieldName == "Renewal due date" })
+    }
+
+    @Test
+    fun MergePolicy_KeepsAStoredDueDateWhenTheCardStillSaysRenewalDue() {
+        val ExistingItem = CustomerPolicy(
+            PolicyNumber = "156260854",
+            RenewalDueDate = "11 Aug 2026"
+        )
+        val IncomingItem = CustomerPolicy(
+            PolicyNumber = "156260854",
+            RenewalDateLabel = "Renewal Due Date"
+        )
+
+        val Outcome = RecordMerge.MergePolicy(
+            ExistingItem = ExistingItem,
+            IncomingItem = IncomingItem
+        )
+
+        assertEquals("11 Aug 2026", Outcome.Record.RenewalDueDate)
+    }
+
+    @Test
+    fun MergePolicy_KeepsAStoredDueDateWhenTheCardCarriedNoDateLabel() {
+        val ExistingItem = CustomerPolicy(
+            PolicyNumber = "156260854",
+            RenewalDueDate = "11 Aug 2026"
+        )
+        val IncomingItem = CustomerPolicy(PolicyNumber = "156260854")
+
+        val Outcome = RecordMerge.MergePolicy(
+            ExistingItem = ExistingItem,
+            IncomingItem = IncomingItem
+        )
+
+        assertEquals("11 Aug 2026", Outcome.Record.RenewalDueDate)
+    }
+
+    @Test
+    fun MergePolicy_DropsAStoredValueThatWasOnlyTheCardsDateLabel() {
+        val ExistingItem = CustomerPolicy(
+            PolicyNumber = "156260854",
+            Status = "Renewal Due Date",
+            RenewalType = "Renewal Due Date"
+        )
+        val IncomingItem = CustomerPolicy(
+            PolicyNumber = "156260854",
+            RenewalDueDate = "11 Aug 2026",
+            RenewalDateLabel = "Renewal Due Date",
+            RenewalDateValue = "11 Aug 2026"
+        )
+
+        val Outcome = RecordMerge.MergePolicy(
+            ExistingItem = ExistingItem,
+            IncomingItem = IncomingItem
+        )
+
+        assertEquals("", Outcome.Record.Status)
+        assertEquals("", Outcome.Record.RenewalType)
+        assertEquals("11 Aug 2026", Outcome.Record.RenewalDueDate)
+    }
+
+    @Test
+    fun MergePolicy_KeepsARevivalLabelAsTheRenewalType() {
+        val ExistingItem = CustomerPolicy(
+            PolicyNumber = "146345511",
+            Status = "Lapsed",
+            RenewalType = "Revival without DGH expiry date"
+        )
+        val IncomingItem = CustomerPolicy(PolicyNumber = "146345511")
+
+        val Outcome = RecordMerge.MergePolicy(
+            ExistingItem = ExistingItem,
+            IncomingItem = IncomingItem
+        )
+
+        assertEquals("Revival without DGH expiry date", Outcome.Record.RenewalType)
+        assertEquals("Lapsed", Outcome.Record.Status)
+    }
+
     // ------------------------------------------------------- ResolveField
 
     @Test

@@ -172,6 +172,55 @@ class DashboardCardParseTest {
     }
 
     @Test
+    fun `a date is the fup date only under a Renewal Due Date label`() {
+        val PolicyItem = PolicyByNumber("156260854")
+        assertEquals("11 Aug 2026", PolicyItem.RenewalDueDate)
+        assertEquals("Renewal Due Date", PolicyItem.RenewalDateLabel)
+        assertEquals("11 Aug 2026", PolicyItem.RenewalDateValue)
+    }
+
+    @Test
+    fun `a grace expiry date is never stored as the fup date`() {
+        val PolicyItem = PolicyByNumber("129831341")
+        assertEquals("", PolicyItem.RenewalDueDate)
+        assertEquals("Grace Expiry Date", PolicyItem.RenewalDateLabel)
+        assertEquals("31 Aug 2026", PolicyItem.RenewalDateValue)
+    }
+
+    @Test
+    fun `the card date label never overwrites a real renewal badge`() {
+        assertEquals("First Year Renewal", PolicyByNumber("125226685").RenewalType)
+        assertEquals("28 Aug 2026", PolicyByNumber("125226685").RenewalDueDate)
+    }
+
+    @Test
+    fun `a date label is told apart from a renewal badge`() {
+        assertTrue(ScreenDataParser.IsCardDateLabel("Renewal Due Date"))
+        assertTrue(ScreenDataParser.IsCardDateLabel("Grace Expiry Date"))
+        assertTrue(ScreenDataParser.IsCardDateLabel("Revival without DGH expiry date"))
+        assertFalse(ScreenDataParser.IsCardDateLabel("Renewal due in 10 days"))
+        assertFalse(ScreenDataParser.IsCardDateLabel("Renewal due today"))
+        assertFalse(ScreenDataParser.IsCardDateLabel("First Year Renewal"))
+        assertFalse(ScreenDataParser.IsCardDateLabel("28 Aug 2026"))
+        assertTrue(ScreenDataParser.IsRenewalDueLabel("Renewal Due Date"))
+        assertFalse(ScreenDataParser.IsRenewalDueLabel("Grace Expiry Date"))
+        assertFalse(ScreenDataParser.IsRenewalDueLabel(""))
+    }
+
+    @Test
+    fun `every renewal due card in the sample keeps its date`() {
+        val DatedPolicies = listOf(
+            "156260854" to "11 Aug 2026", "166248113" to "01 Feb 2026",
+            "125226685" to "28 Aug 2026", "166250947" to "22 May 2024",
+            "156264678" to "28 Aug 2026", "128636411" to "28 Aug 2026",
+            "166251050" to "27 Nov 2026", "125228011" to "28 Aug 2026"
+        )
+        for ((NumberText, DateText) in DatedPolicies) {
+            assertEquals(DateText, PolicyByNumber(NumberText).RenewalDueDate)
+        }
+    }
+
+    @Test
     fun `auto pay values are never mistaken for a holder`() {
         assertEquals("Disabled", PolicyByNumber("156264678").AutoPay)
         assertEquals("Enabled", PolicyByNumber("128636411").AutoPay)

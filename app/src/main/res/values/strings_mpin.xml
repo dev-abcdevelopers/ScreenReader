@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="mpin_title">mPIN</string>
+    <string name="mpin_heading">LIC login mPIN</string>
+    <string name="mpin_body">Save the 4-digit mPIN you use on the LIC app. During a capture run the app can fill it in for you when the login screen appears.</string>
+    <string name="mpin_field_heading">mPIN</string>
+    <string name="mpin_field_hint">Four digits, the same ones you type on the LIC login screen.</string>
+    <string name="mpin_placeholder">••••</string>
+    <string name="mpin_auto_title">Enter it for me</string>
+    <string name="mpin_auto_on_body">On the LIC login screen the app types the four digits and taps Login. One attempt per capture run — if it does not go through, log in yourself.</string>
+    <string name="mpin_auto_off_body">Off. The mPIN is only stored here; you type it on the LIC screen yourself.</string>
+    <string name="mpin_note">Stored encrypted on this phone only. It is never exported, uploaded or included in a diagnostic log.</string>
+    <string name="mpin_save">Save mPIN</string>
+    <string name="mpin_clear">Remove saved mPIN</string>
+    <string name="mpin_error_length">Enter all four digits.</string>
+    <string name="mpin_saved">mPIN saved</string>
+    <string name="mpin_saved_auto">mPIN saved · auto-entry on</string>
+    <string name="mpin_cleared">mPIN removed</string>
+    <string name="mpin_link_not_set">Set up mPIN auto-login</string>
+    <string name="mpin_link_saved">mPIN saved · auto-entry off</string>
+    <string name="mpin_link_auto">mPIN saved · auto-entry on</string>
+
+</resources>

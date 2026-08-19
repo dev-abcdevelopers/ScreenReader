@@ -24,6 +24,8 @@ import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.CustomerSheetOcr
 import com.bliss.screenreader.service.ScreenReaderService
+import com.bliss.screenreader.security.MpinStore
+import com.bliss.screenreader.ui.mpin.MpinActivity
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -89,6 +91,11 @@ class CaptureFragment : Fragment() {
 
         BindingObj.btnPrimaryAction.setOnClickListener { OnPrimaryAction() }
 
+        BindingObj.tvMpinLink.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            startActivity(Intent(requireContext(), MpinActivity::class.java))
+        }
+
         ObserveCaptureState()
         RenderSelection()
     }
@@ -97,6 +104,7 @@ class CaptureFragment : Fragment() {
         super.onResume()
         RenderPreflight()
         RenderActionState()
+        RenderMpinLink()
         ShowPendingReviewIfAny()
     }
 
@@ -156,6 +164,18 @@ class CaptureFragment : Fragment() {
             )
             RowRef.tvModeTitle.setTextColor(if (IsSelected) AccentColor else TextDefault)
         }
+    }
+
+
+    private fun RenderMpinLink() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context
+        val LabelRes = when {
+            !MpinStore.HasMpin(ContextRef = ContextRef) -> R.string.mpin_link_not_set
+            MpinStore.IsAutoEnterOn(ContextRef = ContextRef) -> R.string.mpin_link_auto
+            else -> R.string.mpin_link_saved
+        }
+        BindingObj.tvMpinLink.setText(LabelRes)
     }
 
 

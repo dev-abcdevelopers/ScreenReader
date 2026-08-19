@@ -272,6 +272,8 @@ class UpdateSheet : BottomSheetDialogFragment() {
                 if (ForceUpdate) R.color.update_hero_subtitle_forced else R.color.update_hero_subtitle
             )
         )
+        BindingObj.tvVersionPill.visibility = View.VISIBLE
+        BindingObj.tvVersionPill.text = BuildVersionPill(ManifestRef = ManifestRef)
 
         when (StateVal) {
             SheetState.Available -> RenderAvailable(ManifestRef = ManifestRef)
@@ -297,8 +299,6 @@ class UpdateSheet : BottomSheetDialogFragment() {
 
         BindingObj.tvHeroPercent.visibility = View.GONE
         BindingObj.progressDownload.visibility = View.GONE
-        BindingObj.tvVersionPill.visibility = View.VISIBLE
-        BindingObj.tvVersionPill.text = BuildVersionPill(ManifestRef = ManifestRef)
         BindingObj.phaseList.visibility = View.GONE
 
         BindingObj.btnUpdatePrimary.visibility = View.VISIBLE
@@ -315,7 +315,6 @@ class UpdateSheet : BottomSheetDialogFragment() {
 
         SetHeroIcon(IconRes = R.drawable.ic_update)
         BindingObj.tvHeroTitle.setText(R.string.update_title_downloading)
-        BindingObj.tvVersionPill.visibility = View.GONE
         BindingObj.progressDownload.visibility = View.VISIBLE
         BindingObj.phaseList.visibility = View.VISIBLE
         if (SizeBytes > 0L) {
@@ -361,7 +360,6 @@ class UpdateSheet : BottomSheetDialogFragment() {
         BindingObj.tvHeroSubtitle.setText(R.string.update_subtitle_ready)
         BindingObj.tvHeroPercent.visibility = View.GONE
         BindingObj.progressDownload.visibility = View.GONE
-        BindingObj.tvVersionPill.visibility = View.GONE
         BindingObj.phaseList.visibility = View.VISIBLE
 
         TintPhase(
@@ -405,7 +403,6 @@ class UpdateSheet : BottomSheetDialogFragment() {
         }.orEmpty()
         BindingObj.tvHeroPercent.visibility = View.GONE
         BindingObj.progressDownload.visibility = View.GONE
-        BindingObj.tvVersionPill.visibility = View.GONE
         BindingObj.phaseList.visibility = View.GONE
 
         BindingObj.btnUpdatePrimary.visibility = View.VISIBLE

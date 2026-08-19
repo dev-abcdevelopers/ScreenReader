@@ -64,12 +64,37 @@ object RecordMerge {
             NameText.isEmpty() || ScreenDataParser.IsPlausibleHolderName(TextValue = NameText)
         }.orEmpty()
 
+        val KeepsDueDate = ScreenDataParser.DueDateSurvives(
+            CardDateLabel = IncomingItem.RenewalDateLabel
+        )
+        if (!KeepsDueDate && ExistingItem.RenewalDueDate.isNotEmpty()) {
+            ChangeSink.add(
+                RecordFieldChange(
+                    RecordKey = RecordKey,
+                    FieldName = "Renewal due date",
+                    OldValue = ExistingItem.RenewalDueDate,
+                    NewValue = ""
+                )
+            )
+        }
+        val ExistingDueDate = if (KeepsDueDate) ExistingItem.RenewalDueDate else ""
+        val ExistingStatus = ScreenDataParser.CleanStoredStatus(TextValue = ExistingItem.Status)
+        val ExistingRenewalType = ScreenDataParser.CleanStoredRenewalType(
+            TextValue = ExistingItem.RenewalType
+        )
+
         val MergedItem = ExistingItem.copy(
             HolderName = Resolve("Holder name", ExistingHolder, IncomingItem.HolderName),
             PlanName = Resolve("Plan name", ExistingItem.PlanName, IncomingItem.PlanName),
             PlanCode = Resolve("Plan code", ExistingItem.PlanCode, IncomingItem.PlanCode),
             RenewalDueDate = Resolve(
-                "Renewal due date", ExistingItem.RenewalDueDate, IncomingItem.RenewalDueDate
+                "Renewal due date", ExistingDueDate, IncomingItem.RenewalDueDate
+            ),
+            RenewalDateLabel = Resolve(
+                "Renewal date label", ExistingItem.RenewalDateLabel, IncomingItem.RenewalDateLabel
+            ),
+            RenewalDateValue = Resolve(
+                "Renewal date value", ExistingItem.RenewalDateValue, IncomingItem.RenewalDateValue
             ),
             SumAssured = Resolve("Sum assured", ExistingItem.SumAssured, IncomingItem.SumAssured),
             TermPPT = Resolve("Term / PPT", ExistingItem.TermPPT, IncomingItem.TermPPT),
@@ -117,7 +142,7 @@ object RecordMerge {
                 "Premium frequency", ExistingItem.PremiumFrequency, IncomingItem.PremiumFrequency
             ),
             AutoPay = Resolve("Auto pay", ExistingItem.AutoPay, IncomingItem.AutoPay),
-            Status = Resolve("Status", ExistingItem.Status, IncomingItem.Status),
+            Status = Resolve("Status", ExistingStatus, IncomingItem.Status),
             NomineeStatus = Resolve(
                 "Nominee status", ExistingItem.NomineeStatus, IncomingItem.NomineeStatus
             ),
@@ -134,7 +159,7 @@ object RecordMerge {
             KycStatus = Resolve("KYC status", ExistingItem.KycStatus, IncomingItem.KycStatus),
             NeftStatus = Resolve("NEFT status", ExistingItem.NeftStatus, IncomingItem.NeftStatus),
             RenewalType = Resolve(
-                "Renewal type", ExistingItem.RenewalType, IncomingItem.RenewalType
+                "Renewal type", ExistingRenewalType, IncomingItem.RenewalType
             ),
             CommissionDateOfPremiumPayment = Resolve(
                 "Commission date of premium payment",

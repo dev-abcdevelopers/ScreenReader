@@ -20,6 +20,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Build
+import android.os.Bundle
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
@@ -51,6 +52,7 @@ import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
+import com.bliss.screenreader.security.MpinStore
 import com.bliss.screenreader.data.parser.ScreenDataParser
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
@@ -201,6 +203,14 @@ class ScreenReaderService : AccessibilityService() {
         private const val PORTFOLIO_POLICIES_ARROW_X_RATIO = 0.42f
         private const val PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO = 0.245f
         private const val POLICY_FAILURE_RETRY_MS = 5000L
+        private const val MPIN_PROMPT_MARKER = "enter mpin"
+        private const val MPIN_LOGIN_LABEL = "Login"
+        private const val MPIN_ATTEMPT_LIMIT = 1
+        private const val MPIN_ROW_BUCKET_PX = 8
+        private const val MPIN_FILL_FAILURE_LIMIT = 3
+        private const val MPIN_SUBMIT_DELAY_MS = 900L
+        private const val MPIN_FILL_RETRY_MS = 1500L
+        private const val MPIN_RELEASE_DELAY_MS = 5000L
         private const val ROOT_DIAGNOSTIC_INTERVAL_MS = 3000L
         private const val ACCESSIBILITY_CAPTURE_DEBOUNCE_MS = 200L
         private const val MAX_CAPTURED_NODES = 10000
@@ -322,6 +332,10 @@ class ScreenReaderService : AccessibilityService() {
     private var OfflineRetryCount = 0
     private var OfflineRetryRunnable: Runnable? = null
     private var OfflineLastLogAt = 0L
+    private var MpinAttemptCount = 0
+    private var MpinFillFailureCount = 0
+    private var MpinFillInFlight = false
+    private var MpinSkipLogged = false
     private var LastScreenSignature = 0
     private var LastScreenNodeCount = 0
     private var LastScreenLookAt = 0L
@@ -1157,6 +1171,10 @@ class ScreenReaderService : AccessibilityService() {
         PausedTotalMs = 0L
         PausedAt = 0L
         LatestRecords = emptyList()
+        MpinAttemptCount = 0
+        MpinFillFailureCount = 0
+        MpinFillInFlight = false
+        MpinSkipLogged = false
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
@@ -1468,6 +1486,7 @@ class ScreenReaderService : AccessibilityService() {
         StopCustomerAutomation(ResetStateVal = false)
         CancelEventWindowCapture()
         HasExpandedCurrentPolicyScreen = false
+        MpinFillInFlight = false
         StopParseThread()
         RemoveBubble()
         ReleaseWakeLock()
@@ -1510,6 +1529,14 @@ class ScreenReaderService : AccessibilityService() {
             NoteScreenSubstance(VisibleNodes = VisibleNodes)
         }
         NoteScreenWithoutError(NodeCount = VisibleNodes.size)
+
+        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE &&
+            IsMpinLoginScreen(VisibleNodes = VisibleNodes)
+        ) {
+            HandleMpinLoginScreen(RootNode = RootNode)
+            return
+        }
+
         if (CurrentMode == CaptureMode.POLICY ||
             CurrentMode == CaptureMode.FUP ||
             CurrentMode == CaptureMode.CUSTOMER
@@ -1605,6 +1632,262 @@ class ScreenReaderService : AccessibilityService() {
         } else if (IsAutoScrolling) {
             StopAutoScroll()
         }
+    }
+
+    private fun IsMpinLoginScreen(VisibleNodes: List<String>): Boolean {
+        val HasPrompt = VisibleNodes.any { NodeText ->
+            NodeText.contains(MPIN_PROMPT_MARKER, ignoreCase = true)
+        }
+        if (!HasPrompt) return false
+
+        return VisibleNodes.any { NodeText ->
+            NodeText.contains("Forgot mPIN", ignoreCase = true) ||
+                    NodeText.contains("OTP To Login", ignoreCase = true) ||
+                    NodeText.contains("Try using Password", ignoreCase = true) ||
+                    NodeText.trim().equals(MPIN_LOGIN_LABEL, ignoreCase = true)
+        }
+    }
+
+    private fun HandleMpinLoginScreen(RootNode: AccessibilityNodeInfo) {
+        if (MpinFillInFlight) return
+
+        val CodeText = MpinStore.MpinOrNull(ContextRef = this)
+        val AutoEnterOn = MpinStore.IsAutoEnterOn(ContextRef = this)
+        if (CodeText == null || !AutoEnterOn) {
+            if (!MpinSkipLogged) {
+                MpinSkipLogged = true
+                DiagnosticInfo(
+                    EventName = "MPIN_LOGIN_SCREEN",
+                    MessageText = if (CodeText == null) {
+                        "LIC login screen is up and no mPIN is saved; waiting for a manual login"
+                    } else {
+                        "LIC login screen is up and auto-entry is off; waiting for a manual login"
+                    }
+                )
+            }
+            return
+        }
+
+        if (MpinAttemptCount >= MPIN_ATTEMPT_LIMIT) {
+            if (!MpinSkipLogged) {
+                MpinSkipLogged = true
+                DiagnosticWarning(
+                    EventName = "MPIN_NOT_ACCEPTED",
+                    MessageText = "Login screen is still up after the saved mPIN was entered; " +
+                            "not trying again this run, log in by hand"
+                )
+            }
+            return
+        }
+
+        MpinFillInFlight = true
+        MpinAttemptCount++
+        MpinSkipLogged = false
+
+        if (!FillMpinEntry(RootNode = RootNode, CodeText = CodeText)) {
+            MpinAttemptCount--
+            MpinFillFailureCount++
+            if (MpinFillFailureCount >= MPIN_FILL_FAILURE_LIMIT) {
+                MpinAttemptCount = MPIN_ATTEMPT_LIMIT
+                DiagnosticWarning(
+                    EventName = "MPIN_FILL_FAILED",
+                    MessageText = "Could not type the saved mPIN into the login boxes after " +
+                            "$MpinFillFailureCount tries; log in by hand"
+                )
+            }
+            ReleaseMpinFill(DelayMs = MPIN_FILL_RETRY_MS)
+            return
+        }
+
+        MpinFillFailureCount = 0
+        DiagnosticInfo(
+            EventName = "MPIN_FILLED",
+            MessageText = "Saved mPIN entered on the LIC login screen; tapping Login next"
+        )
+        MainHandler.postDelayed({ SubmitMpinLogin() }, MPIN_SUBMIT_DELAY_MS)
+    }
+
+    private fun FillMpinEntry(RootNode: AccessibilityNodeInfo, CodeText: String): Boolean {
+        val EntryNodes = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            CollectMpinEntryNodes(TargetNode = RootNode, ResultList = EntryNodes)
+            if (EntryNodes.isEmpty()) return false
+            if (EntryNodes.size == 1) {
+                return SetNodeText(NodeRef = EntryNodes.first(), TextValue = CodeText)
+            }
+
+            val BoxNodes = MpinBoxRow(EntryNodes = EntryNodes)
+            if (BoxNodes.size != CodeText.length) {
+                DiagnosticWarning(
+                    EventName = "MPIN_BOXES_NOT_FOUND",
+                    MessageText = "Login screen exposed ${EntryNodes.size} entry field(s) and no " +
+                            "row of ${CodeText.length} boxes"
+                )
+                return false
+            }
+
+            var FilledCount = 0
+            for (DigitIndex in CodeText.indices) {
+                val DigitText = CodeText[DigitIndex].toString()
+                if (SetNodeText(NodeRef = BoxNodes[DigitIndex], TextValue = DigitText)) {
+                    FilledCount++
+                }
+            }
+            return FilledCount == CodeText.length
+        } finally {
+            for (NodeRef in EntryNodes) RecycleNode(NodeRef = NodeRef)
+        }
+    }
+
+    private fun MpinBoxRow(
+        EntryNodes: List<AccessibilityNodeInfo>
+    ): List<AccessibilityNodeInfo> {
+        return EntryNodes
+            .groupBy { NodeRef -> NodeBoundsOf(NodeRef = NodeRef).top / MPIN_ROW_BUCKET_PX }
+            .values
+            .maxByOrNull { RowNodes -> RowNodes.size }
+            .orEmpty()
+            .sortedBy { NodeRef -> NodeBoundsOf(NodeRef = NodeRef).left }
+    }
+
+    private fun CollectMpinEntryNodes(
+        TargetNode: AccessibilityNodeInfo,
+        ResultList: MutableList<AccessibilityNodeInfo>
+    ) {
+        try {
+            for (ChildIdx in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
+                val ClassNameText = ChildNode.className?.toString().orEmpty()
+                val IsTextEntry = ChildNode.isEditable ||
+                        ClassNameText.contains("EditText", ignoreCase = true)
+                if (IsTextEntry && IsBoundsOnScreen(BoundsObj = NodeBoundsOf(NodeRef = ChildNode))) {
+                    ResultList.add(ChildNode)
+                    continue
+                }
+                try {
+                    CollectMpinEntryNodes(TargetNode = ChildNode, ResultList = ResultList)
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while looking for the mPIN boxes", ExceptionObj)
+        }
+    }
+
+    private fun NodeBoundsOf(NodeRef: AccessibilityNodeInfo): Rect {
+        val BoundsObj = Rect()
+        try {
+            NodeRef.getBoundsInScreen(BoundsObj)
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while reading bounds", ExceptionObj)
+        }
+        return BoundsObj
+    }
+
+    private fun SetNodeText(NodeRef: AccessibilityNodeInfo, TextValue: String): Boolean {
+        return try {
+            NodeRef.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val ArgsBundle = Bundle()
+            ArgsBundle.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                TextValue
+            )
+            NodeRef.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, ArgsBundle)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "MPIN_SET_TEXT_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            false
+        }
+    }
+
+    private fun SubmitMpinLogin() {
+        if (!IsCapturing) {
+            MpinFillInFlight = false
+            return
+        }
+
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (RootNode == null) {
+            DiagnosticWarning(
+                EventName = "MPIN_LOGIN_NOT_TAPPED",
+                MessageText = "Screen went away before Login could be tapped; tap it yourself"
+            )
+            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            return
+        }
+
+        val ClickedOk = try {
+            ClickMpinLoginButton(RootNode = RootNode)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        if (ClickedOk) {
+            DiagnosticInfo(
+                EventName = "MPIN_LOGIN_TAPPED",
+                MessageText = "Login tapped after entering the saved mPIN"
+            )
+        } else {
+            DiagnosticWarning(
+                EventName = "MPIN_LOGIN_NOT_TAPPED",
+                MessageText = "mPIN is filled in but the Login button could not be tapped; " +
+                        "tap it yourself"
+            )
+        }
+        ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+    }
+
+    private fun ClickMpinLoginButton(RootNode: AccessibilityNodeInfo): Boolean {
+        val LabelNodes = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            CollectMpinLoginNodes(TargetNode = RootNode, ResultList = LabelNodes)
+            val TargetNode = LabelNodes.maxByOrNull { NodeRef ->
+                NodeBoundsOf(NodeRef = NodeRef).centerY()
+            } ?: return false
+
+            if (ClickNodeOrParent(StartNode = TargetNode)) return true
+
+            val BoundsObj = NodeBoundsOf(NodeRef = TargetNode)
+            if (!IsBoundsOnScreen(BoundsObj = BoundsObj)) return false
+            return PerformTapGesture(
+                XPos = BoundsObj.exactCenterX(),
+                YPos = BoundsObj.exactCenterY()
+            )
+        } finally {
+            for (NodeRef in LabelNodes) RecycleNode(NodeRef = NodeRef)
+        }
+    }
+
+    private fun CollectMpinLoginNodes(
+        TargetNode: AccessibilityNodeInfo,
+        ResultList: MutableList<AccessibilityNodeInfo>
+    ) {
+        try {
+            for (ChildIdx in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
+                val IsLoginLabel = NodeTextValue(NodeRef = ChildNode)
+                    .trim()
+                    .equals(MPIN_LOGIN_LABEL, ignoreCase = true)
+                if (IsLoginLabel && IsBoundsOnScreen(BoundsObj = NodeBoundsOf(NodeRef = ChildNode))) {
+                    ResultList.add(ChildNode)
+                    continue
+                }
+                try {
+                    CollectMpinLoginNodes(TargetNode = ChildNode, ResultList = ResultList)
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while looking for the Login button", ExceptionObj)
+        }
+    }
+
+    private fun ReleaseMpinFill(DelayMs: Long) {
+        MainHandler.postDelayed({ MpinFillInFlight = false }, DelayMs)
     }
 
     private fun IsAutoScrollScreenReady(

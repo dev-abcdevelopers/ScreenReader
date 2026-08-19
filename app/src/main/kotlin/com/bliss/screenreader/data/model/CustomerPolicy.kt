@@ -37,6 +37,8 @@ data class CustomerPolicy(
     var KycStatus: String = "",
     var NeftStatus: String = "",
     var RenewalType: String = "",
+    var RenewalDateLabel: String = "",
+    var RenewalDateValue: String = "",
 
     var CommissionDateOfPremiumPayment: String = "",
     var CommissionDateOfPayment: String = "",
