@@ -225,7 +225,7 @@ class PoliciesFragment : Fragment() {
         if (TotalRupees <= 0L) {
             return getString(R.string.renewals_summary_no_amounts, ConcerningCount)
         }
-        val AmountText = NumberFormat.getInstance(Locale("en", "IN")).format(TotalRupees)
+        val AmountText = NumberFormat.getInstance(Locale.forLanguageTag("en-IN")).format(TotalRupees)
         return getString(R.string.renewals_summary_format, "₹$AmountText", ConcerningCount)
     }
 
