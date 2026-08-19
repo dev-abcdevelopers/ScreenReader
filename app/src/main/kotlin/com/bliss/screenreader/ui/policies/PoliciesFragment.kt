@@ -25,6 +25,8 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.parser.FupDataParser
+import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
@@ -44,6 +46,7 @@ import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
+import java.text.NumberFormat
 import java.util.Locale
 
 class PoliciesFragment : Fragment() {
@@ -58,6 +61,7 @@ class PoliciesFragment : Fragment() {
     )
     private val SessionSwipeHelper = ItemTouchHelper(SessionSwipeCallback(SessionAdapterObj))
     private val RenewalAdapterObj = RenewalRowAdapter()
+    private var RowDividerObj: DividerItemDecoration? = null
 
     private var AllPolicies: List<CustomerPolicy> = emptyList()
     private var AllRenewals: List<FupPolicy> = emptyList()
@@ -88,9 +92,9 @@ class PoliciesFragment : Fragment() {
         val BindingObj = ViewBindingObj ?: return
 
         BindingObj.rvPolicies.layoutManager = LinearLayoutManager(requireContext())
-        BindingObj.rvPolicies.addItemDecoration(
-            DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL)
-        )
+        val DividerObj = DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL)
+        RowDividerObj = DividerObj
+        BindingObj.rvPolicies.addItemDecoration(DividerObj)
         SessionSwipeHelper.attachToRecyclerView(BindingObj.rvPolicies)
         BindingObj.btnSessionsBack.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -184,11 +188,52 @@ class PoliciesFragment : Fragment() {
 
     private fun VisibleRenewals(): List<FupPolicy> {
         val QueryLower = SearchQuery.trim().lowercase(Locale.ROOT)
-        if (QueryLower.isEmpty()) return AllRenewals
-        return AllRenewals.filter { RenewalItem ->
-            RenewalItem.PolicyNumber.lowercase(Locale.ROOT).contains(QueryLower) ||
+        val FilteredList = AllRenewals.filter { RenewalItem ->
+            val IsConcerning = RenewalRowAdapter.IsConcerningStatus(
+                StatusText = RenewalItem.Status
+            )
+            val MatchesStatus = when (StatusFilter) {
+                FILTER_INFORCE -> !IsConcerning
+                FILTER_LAPSED -> IsConcerning
+                else -> true
+            }
+            val MatchesQuery = QueryLower.isEmpty() ||
+                    RenewalItem.PolicyNumber.lowercase(Locale.ROOT).contains(QueryLower) ||
                     RenewalItem.HolderName.lowercase(Locale.ROOT).contains(QueryLower)
+            MatchesStatus && MatchesQuery
         }
+        return FilteredList.sortedWith(
+            compareByDescending<FupPolicy> { RenewalItem -> SortableDate(RenewalItem = RenewalItem) }
+                .thenBy { RenewalItem -> RenewalItem.HolderName }
+        )
+    }
+
+    private fun SortableDate(RenewalItem: FupPolicy): Long {
+        val PaymentObj = RenewalDueProjection.ParseDate(RawText = RenewalItem.PaymentDate)
+        val DueObj = RenewalDueProjection.ParseDate(RawText = RenewalItem.DueDate)
+        val ResolvedObj = PaymentObj ?: DueObj ?: return Long.MIN_VALUE
+        return ResolvedObj.toEpochDay()
+    }
+
+    private fun RenewalSummaryText(VisibleList: List<FupPolicy>): String {
+        val ConcerningCount = VisibleList.count { RenewalItem ->
+            RenewalRowAdapter.IsConcerningStatus(StatusText = RenewalItem.Status)
+        }
+        val TotalRupees = VisibleList.sumOf { RenewalItem ->
+            AmountValue(PremiumText = RenewalItem.PremiumAmount)
+        }
+        if (TotalRupees <= 0L) {
+            return getString(R.string.renewals_summary_no_amounts, ConcerningCount)
+        }
+        val AmountText = NumberFormat.getInstance(Locale("en", "IN")).format(TotalRupees)
+        return getString(R.string.renewals_summary_format, "₹$AmountText", ConcerningCount)
+    }
+
+    private fun AmountValue(PremiumText: String): Long {
+        val DigitsText = FupDataParser.AmountOf(PremiumText = PremiumText)
+            .filter { CharValue -> CharValue.isDigit() }
+        if (DigitsText.isEmpty()) return 0L
+        return DigitsText.toLongOrNull() ?: 0L
     }
 
     private fun RenderList(ResetScroll: Boolean = false) {
@@ -205,6 +250,14 @@ class PoliciesFragment : Fragment() {
         if (BindingObj.rvPolicies.adapter !== TargetAdapter) {
             BindingObj.rvPolicies.adapter = TargetAdapter
         }
+        ApplyRowDivider(WantsDivider = TargetAdapter !== RenewalAdapterObj)
+    }
+
+    private fun ApplyRowDivider(WantsDivider: Boolean) {
+        val BindingObj = ViewBindingObj ?: return
+        val DividerObj = RowDividerObj ?: return
+        BindingObj.rvPolicies.removeItemDecoration(DividerObj)
+        if (WantsDivider) BindingObj.rvPolicies.addItemDecoration(DividerObj)
     }
 
 
@@ -216,13 +269,19 @@ class PoliciesFragment : Fragment() {
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
-        BindingObj.chipGroupStatus.visibility = View.GONE
+        BindingObj.chipGroupStatus.visibility = View.VISIBLE
+        BindingObj.chipInforce.setText(R.string.renewals_filter_ontime)
+        BindingObj.chipLapsed.setText(R.string.renewals_filter_grace)
+        BindingObj.chipAll.setText(R.string.renewals_filter_all)
         BindingObj.tilSearch.hint = getString(R.string.renewals_search_hint)
         SessionBackCallback?.isEnabled = true
 
         BindingObj.tvPolicyCount.text = getString(
             R.string.renewals_count_format, VisibleList.size, AllRenewals.size
         )
+        BindingObj.tvListSummary.text = RenewalSummaryText(VisibleList = VisibleList)
+        BindingObj.tvListSummary.visibility =
+            if (AllRenewals.isEmpty()) View.GONE else View.VISIBLE
 
         val HasVisible = VisibleList.isNotEmpty()
         BindingObj.emptyState.emptyStateRoot.visibility =
@@ -254,6 +313,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.tvPolicyCount.text = getString(R.string.sessions_count_format, SessionList.size)
         BindingObj.btnSessionsBack.visibility = View.GONE
         BindingObj.policyTools.visibility = View.GONE
+        BindingObj.tvListSummary.visibility = View.GONE
         BindingObj.exportBar.visibility = View.GONE
         SessionBackCallback?.isEnabled = false
 
@@ -278,6 +338,10 @@ class PoliciesFragment : Fragment() {
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.chipGroupStatus.visibility = View.VISIBLE
+        BindingObj.chipInforce.setText(R.string.policies_filter_inforce)
+        BindingObj.chipLapsed.setText(R.string.policies_filter_lapsed)
+        BindingObj.chipAll.setText(R.string.policies_filter_all)
+        BindingObj.tvListSummary.visibility = View.GONE
         ApplyExportBarMode(ShowPdf = true)
         BindingObj.btnCapturePersonal.visibility = if (SelectedSessionId.isNotEmpty()) {
             View.VISIBLE

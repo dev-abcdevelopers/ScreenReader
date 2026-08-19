@@ -18,6 +18,8 @@ object FupDataParser {
         RegexOption.IGNORE_CASE
     )
     private val CURRENCY_REGEX = Regex("₹\\s*[\\d,]+")
+    private const val CURRENCY_SYMBOL = "₹"
+    private val AMOUNT_TAIL_REGEX = Regex("^[\\d,]+(?:\\.\\d+)?(?:\\s*/.*)?$")
     private val HOLDER_NAME_REGEX = Regex("^[A-Za-z][A-Za-z.]*(?:\\s+[A-Za-z][A-Za-z.]*){0,4}$")
 
     private const val LABEL_PREMIUM = "Premium Amount"
@@ -52,16 +54,51 @@ object FupDataParser {
             .map { NodeText -> NodeText.trim() }
             .filter { NodeText -> NodeText.isNotEmpty() }
 
-        val CardStartIndexes = CleanNodes.indices.filter { Index ->
-            IsPolicyAnchor(TextValue = CleanNodes[Index])
+        val JoinedNodes = JoinSplitCurrency(CleanNodes = CleanNodes)
+        val CardStartIndexes = JoinedNodes.indices.filter { Index ->
+            IsPolicyAnchor(TextValue = JoinedNodes[Index])
         }
         if (CardStartIndexes.isEmpty()) return emptyList()
 
         val ResultList = mutableListOf<FupPolicy>()
         for ((AnchorPosition, StartIndex) in CardStartIndexes.withIndex()) {
-            val EndIndex = CardStartIndexes.getOrNull(AnchorPosition + 1) ?: CleanNodes.size
-            val CardNodes = CleanNodes.subList(StartIndex, EndIndex)
+            val EndIndex = CardStartIndexes.getOrNull(AnchorPosition + 1) ?: JoinedNodes.size
+            val CardNodes = JoinedNodes.subList(StartIndex, EndIndex)
             ResultList.add(ParseRenewalCard(CardNodes = CardNodes))
+        }
+        return ResultList
+    }
+
+    fun FrequencyOf(PremiumText: String): String {
+        val SlashIndex = PremiumText.indexOf('/')
+        if (SlashIndex < 0) return ""
+        return PremiumText.substring(SlashIndex + 1).trim()
+    }
+
+    fun AmountOf(PremiumText: String): String {
+        val SlashIndex = PremiumText.indexOf('/')
+        if (SlashIndex < 0) return PremiumText.trim()
+        return PremiumText.substring(0, SlashIndex).trim()
+    }
+
+    private fun JoinSplitCurrency(CleanNodes: List<String>): List<String> {
+        if (CleanNodes.none { NodeText -> NodeText == CURRENCY_SYMBOL }) return CleanNodes
+
+        val ResultList = mutableListOf<String>()
+        var NodeIdx = 0
+        while (NodeIdx < CleanNodes.size) {
+            val NodeText = CleanNodes[NodeIdx]
+            val NextText = CleanNodes.getOrNull(NodeIdx + 1)
+            if (NodeText == CURRENCY_SYMBOL &&
+                NextText != null &&
+                AMOUNT_TAIL_REGEX.matches(NextText)
+            ) {
+                ResultList.add(CURRENCY_SYMBOL + NextText)
+                NodeIdx += 2
+                continue
+            }
+            ResultList.add(NodeText)
+            NodeIdx++
         }
         return ResultList
     }
@@ -72,6 +109,9 @@ object FupDataParser {
             PlanCode = IncomingRecord.PlanCode.ifEmpty { ExistingRecord.PlanCode },
             HolderName = IncomingRecord.HolderName.ifEmpty { ExistingRecord.HolderName },
             PremiumAmount = IncomingRecord.PremiumAmount.ifEmpty { ExistingRecord.PremiumAmount },
+            PremiumFrequency = IncomingRecord.PremiumFrequency.ifEmpty {
+                ExistingRecord.PremiumFrequency
+            },
             DueDate = IncomingRecord.DueDate.ifEmpty { ExistingRecord.DueDate },
             PaymentDate = IncomingRecord.PaymentDate.ifEmpty { ExistingRecord.PaymentDate },
             ModeOfPayment = IncomingRecord.ModeOfPayment.ifEmpty { ExistingRecord.ModeOfPayment },
@@ -169,6 +209,7 @@ object FupDataParser {
                 ExcludedValues = listOf(ResolvedMode, ResolvedStatus)
             ),
             PremiumAmount = ResolvedPremium,
+            PremiumFrequency = FrequencyOf(PremiumText = ResolvedPremium),
             DueDate = ResolvedDueDate,
             PaymentDate = ResolvedPaymentDate,
             ModeOfPayment = ResolvedMode,

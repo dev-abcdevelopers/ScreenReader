@@ -135,6 +135,17 @@
         <item name="chipMinHeight">36dp</item>
     </style>
 
+    <style name="Widget.App.MpinBox" parent="">
+        <item name="android:background">@drawable/bg_mpin_box</item>
+        <item name="android:gravity">center</item>
+        <item name="android:importantForAutofill">no</item>
+        <item name="android:inputType">numberPassword</item>
+        <item name="android:maxLength">1</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">26sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <style name="Widget.App.Button" parent="Widget.Material3.Button">
         <item name="android:minHeight">@dimen/touch_min</item>
         <item name="cornerRadius">@dimen/radius_sm</item>

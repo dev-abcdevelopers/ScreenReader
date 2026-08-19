@@ -72,28 +72,55 @@
                         android:text="@string/mpin_field_hint"
                         android:textAppearance="@style/TextAppearance.App.Caption" />
 
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/inputMpin"
-                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    <LinearLayout
+                        android:id="@+id/mpinBoxRow"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_md"
-                        app:endIconMode="password_toggle">
+                        android:baselineAligned="false"
+                        android:orientation="horizontal">
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/edtMpin"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center"
-                            android:hint="@string/mpin_placeholder"
-                            android:importantForAutofill="no"
-                            android:inputType="numberPassword"
-                            android:letterSpacing="0.5"
-                            android:maxLength="4"
-                            android:textAppearance="@style/TextAppearance.App.Mono"
-                            android:textSize="28sp" />
+                        <EditText
+                            android:id="@+id/edtMpin1"
+                            style="@style/Widget.App.MpinBox"
+                            android:layout_width="0dp"
+                            android:layout_height="60dp"
+                            android:layout_weight="1" />
 
-                    </com.google.android.material.textfield.TextInputLayout>
+                        <EditText
+                            android:id="@+id/edtMpin2"
+                            style="@style/Widget.App.MpinBox"
+                            android:layout_width="0dp"
+                            android:layout_height="60dp"
+                            android:layout_marginStart="@dimen/space_md"
+                            android:layout_weight="1" />
+
+                        <EditText
+                            android:id="@+id/edtMpin3"
+                            style="@style/Widget.App.MpinBox"
+                            android:layout_width="0dp"
+                            android:layout_height="60dp"
+                            android:layout_marginStart="@dimen/space_md"
+                            android:layout_weight="1" />
+
+                        <EditText
+                            android:id="@+id/edtMpin4"
+                            style="@style/Widget.App.MpinBox"
+                            android:layout_width="0dp"
+                            android:layout_height="60dp"
+                            android:layout_marginStart="@dimen/space_md"
+                            android:layout_weight="1" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRevealMpin"
+                        style="@style/Widget.App.Button.Text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:text="@string/mpin_show" />
 
                     <TextView
                         android:id="@+id/txtMpinError"

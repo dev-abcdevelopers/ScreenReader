@@ -10,6 +10,8 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.parser.FupDataParser
+import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.databinding.ItemRenewalRowBinding
 
 class RenewalRowAdapter(
@@ -33,10 +35,9 @@ class RenewalRowAdapter(
         val RenewalItem = RenewalList[position]
         val BindingRef = holder.BindingRef
         val ContextRef = BindingRef.root.context
+        val MissingText = ContextRef.getString(R.string.detail_missing)
 
-        BindingRef.tvRenewalPolicyNumber.text = RenewalItem.PolicyNumber.ifEmpty {
-            ContextRef.getString(R.string.detail_missing)
-        }
+        BindingRef.tvRenewalPolicyNumber.text = RenewalItem.PolicyNumber.ifEmpty { MissingText }
         BindingRef.tvRenewalHolderName.text = RenewalItem.HolderName.ifEmpty {
             ContextRef.getString(R.string.status_unknown)
         }
@@ -50,29 +51,35 @@ class RenewalRowAdapter(
         BindingRef.tvRenewalPlanName.visibility =
             if (PlanText.isBlank()) View.GONE else View.VISIBLE
 
-        BindingRef.tvRenewalPremium.text = RenewalItem.PremiumAmount.ifEmpty {
-            ContextRef.getString(R.string.detail_missing)
+        val AmountText = FupDataParser.AmountOf(PremiumText = RenewalItem.PremiumAmount)
+        val FrequencyText = RenewalItem.PremiumFrequency.ifEmpty {
+            FupDataParser.FrequencyOf(PremiumText = RenewalItem.PremiumAmount)
+        }
+        BindingRef.tvRenewalPremium.text = when {
+            AmountText.isEmpty() -> MissingText
+            FrequencyText.isEmpty() -> AmountText
+            else -> ContextRef.getString(
+                R.string.renewal_premium_format,
+                AmountText,
+                FrequencyText
+            )
         }
 
-        BindingRef.tvRenewalDueDate.text = if (RenewalItem.DueDate.isBlank()) {
+        BindingRef.tvRenewalPaidFor.text = RenewalItem.DueDate.ifEmpty { MissingText }
+        BindingRef.tvRenewalPaymentDate.text = RenewalItem.PaymentDate.ifEmpty { MissingText }
+        BindingRef.tvRenewalMode.text = RenewalItem.ModeOfPayment.ifEmpty { MissingText }
+
+        val NextDueText = RenewalDueProjection.NextDueDate(
+            PaidForDate = RenewalItem.DueDate,
+            FrequencyText = FrequencyText
+        )
+        BindingRef.tvRenewalNextDue.text = if (NextDueText.isEmpty()) {
             ""
         } else {
-            ContextRef.getString(R.string.renewal_due_format, RenewalItem.DueDate)
+            ContextRef.getString(R.string.renewal_next_due_format, NextDueText)
         }
-        BindingRef.tvRenewalDueDate.visibility =
-            if (RenewalItem.DueDate.isBlank()) View.GONE else View.VISIBLE
-
-        BindingRef.tvRenewalPaymentDate.text = if (RenewalItem.PaymentDate.isBlank()) {
-            ""
-        } else {
-            ContextRef.getString(R.string.renewal_paid_format, RenewalItem.PaymentDate)
-        }
-        BindingRef.tvRenewalPaymentDate.visibility =
-            if (RenewalItem.PaymentDate.isBlank()) View.GONE else View.VISIBLE
-
-        BindingRef.tvRenewalMode.text = RenewalItem.ModeOfPayment
-        BindingRef.tvRenewalMode.visibility =
-            if (RenewalItem.ModeOfPayment.isBlank()) View.GONE else View.VISIBLE
+        BindingRef.tvRenewalNextDue.visibility =
+            if (NextDueText.isEmpty()) View.GONE else View.VISIBLE
 
         BindStatus(BindingRef = BindingRef, StatusText = RenewalItem.Status)
     }
@@ -87,8 +94,7 @@ class RenewalRowAdapter(
         BindingRef.tvRenewalStatus.visibility = View.VISIBLE
         BindingRef.tvRenewalStatus.text = StatusText
 
-        val IsConcerning = listOf("grace", "late", "unpaid", "not paid", "lapsed", "pending")
-            .any { Marker -> StatusText.contains(Marker, ignoreCase = true) }
+        val IsConcerning = IsConcerningStatus(StatusText = StatusText)
         BindingRef.tvRenewalStatus.setBackgroundResource(
             if (IsConcerning) R.drawable.bg_badge_lapsed else R.drawable.bg_badge_inforce
         )
@@ -106,6 +112,16 @@ class RenewalRowAdapter(
         )
         RenewalList = NewRenewals
         DiffResult.dispatchUpdatesTo(this)
+    }
+
+    companion object {
+        private val CONCERNING_MARKERS = listOf(
+            "grace", "late", "unpaid", "not paid", "lapsed", "pending"
+        )
+
+        fun IsConcerningStatus(StatusText: String): Boolean = CONCERNING_MARKERS.any { Marker ->
+            StatusText.contains(Marker, ignoreCase = true)
+        }
     }
 
     private class RenewalDiffCallback(

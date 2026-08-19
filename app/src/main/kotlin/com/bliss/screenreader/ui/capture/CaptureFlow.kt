@@ -106,7 +106,8 @@ object CaptureFlow {
         CapturePolicyDetails: Boolean = false,
         OriginOverride: String = "",
         ResumeSessionId: String = "",
-        RevisitFilled: Boolean = false
+        RevisitFilled: Boolean = false,
+        DueDateSessionId: String = ""
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -142,12 +143,27 @@ object CaptureFlow {
             }
         }
 
+        if (DueDateSessionId.isNotBlank()) {
+            val RenewalSessionRef = PolicyRepository.GetSessionReference(
+                ContextRef = ActivityRef,
+                SessionId = DueDateSessionId
+            )
+            if (RenewalSessionRef == null || RenewalSessionRef.Mode != CaptureMode.FUP) {
+                ShowMessage(
+                    ActivityRef = ActivityRef,
+                    MessageVal = ActivityRef.getString(R.string.capture_due_no_sessions)
+                )
+                return false
+            }
+        }
+
         ServiceInstance.StartCaptureSession(
             ModeVal = ModeVal,
             CapturePolicyDetailsVal = CapturePolicyDetails,
             OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name },
             ResumeSessionIdVal = ResumeSessionId,
-            RevisitFilledVal = RevisitFilled
+            RevisitFilledVal = RevisitFilled,
+            DueDateSessionIdVal = DueDateSessionId
         )
 
         if (LaunchTarget) {

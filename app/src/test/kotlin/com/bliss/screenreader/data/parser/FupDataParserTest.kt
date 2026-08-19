@@ -122,6 +122,77 @@ class FupDataParserTest {
     }
 
     @Test
+    fun ParseRenewalHistory_JoinsABareCurrencyNodeWithTheAmountBesideIt() {
+        val NodeList = listOf(
+            "← Previous",
+            "156264678", "|", "934 - LIC'S JEEVAN TARUN PLAN",
+            "Somesh Khulbe",
+            "Premium Amount (excl. GST)", "₹", "1,221/Month",
+            "Due Date", "28 Jul 2026",
+            "Payment Date", "08 Aug 2026",
+            "Mode of Payment", "Cash",
+            "Status at Time of Payment", "Paid in Grace Period",
+            "Call Customer",
+            "→ Next"
+        )
+
+        val RecordItem = FupDataParser.ParseRenewalHistory(Nodes = NodeList).first()
+
+        assertEquals("156264678", RecordItem.PolicyNumber)
+        assertEquals("934", RecordItem.PlanCode)
+        assertEquals("Somesh Khulbe", RecordItem.HolderName)
+        assertEquals("₹1,221/Month", RecordItem.PremiumAmount)
+        assertEquals("Month", RecordItem.PremiumFrequency)
+        assertEquals("28 Jul 2026", RecordItem.DueDate)
+        assertEquals("Cash", RecordItem.ModeOfPayment)
+    }
+
+    @Test
+    fun ParseRenewalHistory_ReadsTheFrequencyFromAJoinedHalfYearlyPremium() {
+        val NodeList = listOf(
+            "146341526", "|", "945 - LIC'S JEEVAN UMANG PLAN",
+            "Poonam P",
+            "Premium Amount (excl. GST)", "₹", "5,535/Half Year",
+            "Due Date", "25 Jul 2026",
+            "Payment Date", "07 Aug 2026",
+            "Mode of Payment", "Others",
+            "Status at Time of Payment", "Paid in Grace Period"
+        )
+
+        val RecordItem = FupDataParser.ParseRenewalHistory(Nodes = NodeList).first()
+
+        assertEquals("₹5,535/Half Year", RecordItem.PremiumAmount)
+        assertEquals("Half Year", RecordItem.PremiumFrequency)
+        assertEquals("₹5,535", FupDataParser.AmountOf(PremiumText = RecordItem.PremiumAmount))
+    }
+
+    @Test
+    fun ParseRenewalHistory_LeavesAStandaloneCurrencySymbolAloneWhenNoAmountFollows() {
+        val NodeList = listOf(
+            "128636412", "|", "821 - NEW MONEY BACK PLAN - 25 YEARS",
+            "Lata",
+            "Premium Amount (excl. GST)", "₹", "Due Date", "28 Aug 2026",
+            "Payment Date", "08 Aug 2026",
+            "Mode of Payment", "Cash",
+            "Status at Time of Payment", "Paid on Time"
+        )
+
+        val RecordItem = FupDataParser.ParseRenewalHistory(Nodes = NodeList).first()
+
+        assertEquals("", RecordItem.PremiumAmount)
+        assertEquals("", RecordItem.PremiumFrequency)
+        assertEquals("28 Aug 2026", RecordItem.DueDate)
+        assertEquals("08 Aug 2026", RecordItem.PaymentDate)
+    }
+
+    @Test
+    fun ParseRenewalHistory_KeepsTheFrequencyFromAnUnsplitPremiumNode() {
+        val RecordItem = FupDataParser.ParseRenewalHistory(Nodes = RowMajorCard).first()
+
+        assertEquals("Month", RecordItem.PremiumFrequency)
+    }
+
+    @Test
     fun MergeRenewalRecord_KeepsFieldsFromThePartialFirstRead() {
         val PartialRecord = FupPolicy(
             PolicyNumber = "156264678",

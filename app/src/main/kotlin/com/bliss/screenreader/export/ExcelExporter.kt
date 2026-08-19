@@ -5,6 +5,7 @@ package com.bliss.screenreader.export
 import android.content.Context
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.parser.ContactValueSplit
 import com.bliss.screenreader.service.CaptureDiagnostics
@@ -210,7 +211,7 @@ object ExcelExporter {
             HeadersList = arrayOf(
                 "Agency Code", "Policy Number", "Plan Code", "Plan Name", "Holder Name",
                 "Premium Amount", "Premium Frequency", "Due Date", "Payment Date",
-                "Mode of Payment", "Status at Time of Payment"
+                "Mode of Payment", "Status at Time of Payment", "Next Due Date"
             )
         )
 
@@ -223,11 +224,24 @@ object ExcelExporter {
             WriteText(DataRow, 3, PolicyItem.PlanName)
             WriteText(DataRow, 4, PolicyItem.HolderName)
             WriteNumber(DataRow, 5, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
-            WriteText(DataRow, 6, ExportFormat.AmountFrequency(PolicyItem.PremiumAmount))
+            val FrequencyText = PolicyItem.PremiumFrequency.ifEmpty {
+                ExportFormat.AmountFrequency(PolicyItem.PremiumAmount)
+            }
+            WriteText(DataRow, 6, FrequencyText)
             WriteText(DataRow, 7, ExportFormat.IsoDate(PolicyItem.DueDate))
             WriteText(DataRow, 8, ExportFormat.IsoDate(PolicyItem.PaymentDate))
             WriteText(DataRow, 9, PolicyItem.ModeOfPayment)
             WriteText(DataRow, 10, PolicyItem.Status)
+            WriteText(
+                DataRow,
+                11,
+                ExportFormat.IsoDate(
+                    RenewalDueProjection.NextDueDate(
+                        PaidForDate = PolicyItem.DueDate,
+                        FrequencyText = FrequencyText
+                    )
+                )
+            )
         }
 
         return FinishWorkbook(

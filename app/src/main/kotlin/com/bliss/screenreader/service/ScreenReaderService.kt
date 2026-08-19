@@ -51,6 +51,7 @@ import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
 import com.bliss.screenreader.data.parser.RecordMerge
+import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.security.MpinStore
 import com.bliss.screenreader.data.parser.ScreenDataParser
@@ -209,6 +210,8 @@ class ScreenReaderService : AccessibilityService() {
         private const val MPIN_ROW_BUCKET_PX = 8
         private const val MPIN_FILL_FAILURE_LIMIT = 3
         private const val MPIN_SUBMIT_DELAY_MS = 900L
+        private const val MPIN_SUBMIT_RETRY_LIMIT = 4
+        private const val MPIN_SUBMIT_RETRY_MS = 700L
         private const val MPIN_FILL_RETRY_MS = 1500L
         private const val MPIN_RELEASE_DELAY_MS = 5000L
         private const val ROOT_DIAGNOSTIC_INTERVAL_MS = 3000L
@@ -246,6 +249,7 @@ class ScreenReaderService : AccessibilityService() {
     private var CurrentSessionId: String = ""
     private var IsResumedSession = false
     private var CapturePolicyDetailsEnabled = false
+    private var DueDateSourceSessionId: String = ""
     private var OriginActivityName: String = ""
     private var SessionStartedAt: Long = 0L
     private var PausedTotalMs: Long = 0L
@@ -336,6 +340,8 @@ class ScreenReaderService : AccessibilityService() {
     private var MpinFillFailureCount = 0
     private var MpinFillInFlight = false
     private var MpinSkipLogged = false
+    private var MpinSubmitAttempts = 0
+    private var MpinKeyboardHidden = false
     private var LastScreenSignature = 0
     private var LastScreenNodeCount = 0
     private var LastScreenLookAt = 0L
@@ -1158,7 +1164,8 @@ class ScreenReaderService : AccessibilityService() {
         CapturePolicyDetailsVal: Boolean = false,
         OriginActivityVal: String = "",
         ResumeSessionIdVal: String = "",
-        RevisitFilledVal: Boolean = false
+        RevisitFilledVal: Boolean = false,
+        DueDateSessionIdVal: String = ""
     ) {
         CurrentMode = ModeVal
         RevisitFilledEnabled = RevisitFilledVal
@@ -1166,6 +1173,7 @@ class ScreenReaderService : AccessibilityService() {
         IsResumedSession = ResumeSessionIdVal.isNotBlank()
         CurrentSessionId = ResumeSessionIdVal.ifBlank { UUID.randomUUID().toString() }
         CapturePolicyDetailsEnabled = ModeVal == CaptureMode.POLICY && CapturePolicyDetailsVal
+        DueDateSourceSessionId = if (ModeVal == CaptureMode.POLICY) DueDateSessionIdVal else ""
         OriginActivityName = OriginActivityVal
         SessionStartedAt = System.currentTimeMillis()
         PausedTotalMs = 0L
@@ -1175,6 +1183,8 @@ class ScreenReaderService : AccessibilityService() {
         MpinFillFailureCount = 0
         MpinFillInFlight = false
         MpinSkipLogged = false
+        MpinSubmitAttempts = 0
+        RestoreSoftKeyboard()
         CancelErrorRetry()
         ErrorRetryCount = 0
         ErrorBoundsMissCount = 0
@@ -1414,6 +1424,8 @@ class ScreenReaderService : AccessibilityService() {
                     "records=${LatestRecords.size} policies=${CapturedPolicyMap.size}"
         )
 
+        val DueDateOutcome = ApplyDueDateImport()
+
         TeardownSession()
 
         val RecordList = try {
@@ -1458,11 +1470,69 @@ class ScreenReaderService : AccessibilityService() {
                 GapRecords = SessionGapMap.values.toList(),
                 CapturePolicyDetails = CapturePolicyDetailsEnabled,
                 TargetPackage = LastPackageName,
-                OriginActivity = OriginActivityName
+                OriginActivity = OriginActivityName,
+                DueDateChanges = DueDateOutcome?.Changes.orEmpty(),
+                DueDateSummary = DueDateSummaryText(OutcomeObj = DueDateOutcome)
             )
         )
 
         ReturnToOriginActivity()
+    }
+
+    private fun ApplyDueDateImport(): RenewalDueProjection.Outcome? {
+        if (CurrentMode != CaptureMode.POLICY) return null
+        if (DueDateSourceSessionId.isBlank()) return null
+        if (CapturedPolicyMap.isEmpty()) return null
+
+        val RenewalList = try {
+            PolicyRepository.GetFupPolicies(
+                ContextRef = this,
+                SessionId = DueDateSourceSessionId
+            )
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "DUE_DATE_IMPORT_FAILED",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            return null
+        }
+
+        if (RenewalList.isEmpty()) {
+            DiagnosticWarning(
+                EventName = "DUE_DATE_IMPORT_EMPTY",
+                MessageText = "Renewals session $DueDateSourceSessionId holds no records"
+            )
+            return null
+        }
+
+        val KeyList = CapturedPolicyMap.keys.toList()
+        val OutcomeObj = RenewalDueProjection.Apply(
+            Policies = KeyList.mapNotNull { KeyText -> CapturedPolicyMap[KeyText] },
+            Renewals = RenewalList
+        )
+        if (OutcomeObj.Policies.size != KeyList.size) return OutcomeObj
+
+        for ((IndexVal, KeyText) in KeyList.withIndex()) {
+            CapturedPolicyMap[KeyText] = OutcomeObj.Policies[IndexVal]
+        }
+
+        DiagnosticInfo(
+            EventName = "DUE_DATE_IMPORT",
+            MessageText = "source=$DueDateSourceSessionId renewals=${RenewalList.size} " +
+                    "matched=${OutcomeObj.MatchedCount} updated=${OutcomeObj.UpdatedCount} " +
+                    "current=${OutcomeObj.UnchangedCount} skipped=${OutcomeObj.SkippedCount}"
+        )
+        return OutcomeObj
+    }
+
+    private fun DueDateSummaryText(OutcomeObj: RenewalDueProjection.Outcome?): String {
+        if (OutcomeObj == null) return ""
+        return getString(
+            R.string.review_due_dates_format,
+            OutcomeObj.UpdatedCount,
+            OutcomeObj.UnchangedCount,
+            OutcomeObj.SkippedCount
+        )
     }
 
     fun DiscardCaptureSession() {
@@ -1487,6 +1557,7 @@ class ScreenReaderService : AccessibilityService() {
         CancelEventWindowCapture()
         HasExpandedCurrentPolicyScreen = false
         MpinFillInFlight = false
+        RestoreSoftKeyboard()
         StopParseThread()
         RemoveBubble()
         ReleaseWakeLock()
@@ -1683,6 +1754,8 @@ class ScreenReaderService : AccessibilityService() {
         MpinFillInFlight = true
         MpinAttemptCount++
         MpinSkipLogged = false
+        MpinSubmitAttempts = 0
+        HideSoftKeyboardForMpin()
 
         if (!FillMpinEntry(RootNode = RootNode, CodeText = CodeText)) {
             MpinAttemptCount--
@@ -1806,16 +1879,23 @@ class ScreenReaderService : AccessibilityService() {
     private fun SubmitMpinLogin() {
         if (!IsCapturing) {
             MpinFillInFlight = false
+            RestoreSoftKeyboard()
+            return
+        }
+
+        if (IsKeyboardWindowVisible()) {
+            DiagnosticInfo(
+                EventName = "MPIN_KEYBOARD_DISMISS",
+                MessageText = "Keyboard is covering the Login button; dismissing it first"
+            )
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            RetryMpinSubmit(ReasonText = "keyboard was still up")
             return
         }
 
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         if (RootNode == null) {
-            DiagnosticWarning(
-                EventName = "MPIN_LOGIN_NOT_TAPPED",
-                MessageText = "Screen went away before Login could be tapped; tap it yourself"
-            )
-            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            RetryMpinSubmit(ReasonText = "no readable root")
             return
         }
 
@@ -1830,14 +1910,69 @@ class ScreenReaderService : AccessibilityService() {
                 EventName = "MPIN_LOGIN_TAPPED",
                 MessageText = "Login tapped after entering the saved mPIN"
             )
-        } else {
+            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            return
+        }
+
+        RetryMpinSubmit(ReasonText = "Login button had no usable bounds")
+    }
+
+    private fun RetryMpinSubmit(ReasonText: String) {
+        MpinSubmitAttempts++
+        if (MpinSubmitAttempts >= MPIN_SUBMIT_RETRY_LIMIT) {
             DiagnosticWarning(
                 EventName = "MPIN_LOGIN_NOT_TAPPED",
-                MessageText = "mPIN is filled in but the Login button could not be tapped; " +
-                        "tap it yourself"
+                MessageText = "mPIN is filled in but Login could not be tapped after " +
+                        "$MpinSubmitAttempts tries ($ReasonText); tap it yourself"
+            )
+            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            return
+        }
+        DiagnosticInfo(
+            EventName = "MPIN_LOGIN_RETRY",
+            MessageText = "attempt=$MpinSubmitAttempts reason=$ReasonText"
+        )
+        MainHandler.postDelayed({ SubmitMpinLogin() }, MPIN_SUBMIT_RETRY_MS)
+    }
+
+    private fun IsKeyboardWindowVisible(): Boolean {
+        return try {
+            windows.any { WindowRef ->
+                WindowRef.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Window list unavailable while checking for the keyboard", ExceptionObj)
+            false
+        }
+    }
+
+    private fun HideSoftKeyboardForMpin() {
+        if (MpinKeyboardHidden) return
+        MpinKeyboardHidden = try {
+            softKeyboardController.setShowMode(SHOW_MODE_HIDDEN)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "MPIN_KEYBOARD_HIDE_FAILED",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            false
+        }
+        if (!MpinKeyboardHidden) {
+            DiagnosticWarning(
+                EventName = "MPIN_KEYBOARD_HIDE_FAILED",
+                MessageText = "Keyboard suppression was refused; Login may stay covered"
             )
         }
-        ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+    }
+
+    private fun RestoreSoftKeyboard() {
+        if (!MpinKeyboardHidden) return
+        MpinKeyboardHidden = false
+        try {
+            softKeyboardController.setShowMode(SHOW_MODE_AUTO)
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Could not restore the keyboard show mode", ExceptionObj)
+        }
     }
 
     private fun ClickMpinLoginButton(RootNode: AccessibilityNodeInfo): Boolean {
@@ -1846,11 +1981,23 @@ class ScreenReaderService : AccessibilityService() {
             CollectMpinLoginNodes(TargetNode = RootNode, ResultList = LabelNodes)
             val TargetNode = LabelNodes.maxByOrNull { NodeRef ->
                 NodeBoundsOf(NodeRef = NodeRef).centerY()
-            } ?: return false
-
-            if (ClickNodeOrParent(StartNode = TargetNode)) return true
+            }
+            if (TargetNode == null) {
+                DiagnosticWarning(
+                    EventName = "MPIN_LOGIN_NOT_FOUND",
+                    MessageText = "No Login node on the login screen"
+                )
+                return false
+            }
 
             val BoundsObj = NodeBoundsOf(NodeRef = TargetNode)
+            DiagnosticInfo(
+                EventName = "MPIN_LOGIN_TARGET",
+                MessageText = "bounds=$BoundsObj clickable=${TargetNode.isClickable} " +
+                        "keyboard=${IsKeyboardWindowVisible()}"
+            )
+
+            if (ClickNodeOrParent(StartNode = TargetNode)) return true
             if (!IsBoundsOnScreen(BoundsObj = BoundsObj)) return false
             return PerformTapGesture(
                 XPos = BoundsObj.exactCenterX(),
@@ -1887,7 +2034,10 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun ReleaseMpinFill(DelayMs: Long) {
-        MainHandler.postDelayed({ MpinFillInFlight = false }, DelayMs)
+        MainHandler.postDelayed({
+            MpinFillInFlight = false
+            RestoreSoftKeyboard()
+        }, DelayMs)
     }
 
     private fun IsAutoScrollScreenReady(

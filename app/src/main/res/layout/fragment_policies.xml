@@ -113,6 +113,14 @@
 
         </com.google.android.material.chip.ChipGroup>
 
+        <TextView
+            android:id="@+id/tvListSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_sm"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:visibility="gone" />
+
         </LinearLayout>
 
     </LinearLayout>

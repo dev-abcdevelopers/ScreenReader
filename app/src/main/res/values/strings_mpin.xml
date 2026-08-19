@@ -6,7 +6,9 @@
     <string name="mpin_body">Save the 4-digit mPIN you use on the LIC app. During a capture run the app can fill it in for you when the login screen appears.</string>
     <string name="mpin_field_heading">mPIN</string>
     <string name="mpin_field_hint">Four digits, the same ones you type on the LIC login screen.</string>
-    <string name="mpin_placeholder">••••</string>
+    <string name="mpin_show">Show</string>
+    <string name="mpin_hide">Hide</string>
+    <string name="mpin_digit_format">mPIN digit %1$d</string>
     <string name="mpin_auto_title">Enter it for me</string>
     <string name="mpin_auto_on_body">On the LIC login screen the app types the four digits and taps Login. One attempt per capture run — if it does not go through, log in yourself.</string>
     <string name="mpin_auto_off_body">Off. The mPIN is only stored here; you type it on the LIC screen yourself.</string>
