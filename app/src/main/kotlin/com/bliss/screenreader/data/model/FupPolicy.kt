@@ -8,7 +8,7 @@ data class FupPolicy(
     val PlanCode: String = "",
     val HolderName: String = "",
     val PremiumAmount: String = "",
-    val PremiumFrequency: String = "",
+    val PremiumFrequency: String? = null,
     val DueDate: String = "",
     val PaymentDate: String = "",
     val ModeOfPayment: String = "",

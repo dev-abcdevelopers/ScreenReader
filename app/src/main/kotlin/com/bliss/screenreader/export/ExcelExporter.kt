@@ -224,7 +224,7 @@ object ExcelExporter {
             WriteText(DataRow, 3, PolicyItem.PlanName)
             WriteText(DataRow, 4, PolicyItem.HolderName)
             WriteNumber(DataRow, 5, ExportFormat.PlainNumber(PolicyItem.PremiumAmount))
-            val FrequencyText = PolicyItem.PremiumFrequency.ifEmpty {
+            val FrequencyText = PolicyItem.PremiumFrequency.orEmpty().ifEmpty {
                 ExportFormat.AmountFrequency(PolicyItem.PremiumAmount)
             }
             WriteText(DataRow, 6, FrequencyText)

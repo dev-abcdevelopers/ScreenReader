@@ -23,15 +23,25 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.RenewalDueProjection
+import com.bliss.screenreader.data.model.DueDateReport
+import com.bliss.screenreader.data.model.DueDateReportEntry
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
 import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
+import com.bliss.screenreader.databinding.PartialChangeSectionBinding
+import com.bliss.screenreader.databinding.PartialDueChipBinding
+import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
+import com.bliss.screenreader.databinding.PartialDueDateRowBinding
+import com.bliss.screenreader.databinding.PartialDueGroupBinding
+import com.bliss.screenreader.databinding.PartialDueStatBinding
+import com.bliss.screenreader.databinding.SheetDuePreviewBinding
 import com.bliss.screenreader.databinding.SheetSessionActionsBinding
 import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.databinding.SheetUploadProgressBinding
@@ -44,6 +54,7 @@ import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
 import com.bliss.screenreader.ui.adapter.SessionSwipeCallback
 import com.bliss.screenreader.ui.capture.CaptureFlow
+import com.bliss.screenreader.ui.changes.ChangesActivity
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
@@ -260,24 +271,24 @@ class PoliciesFragment : Fragment() {
         SheetBinding.tvSessionPickHeading.setText(R.string.due_pick_session)
         SheetBinding.tvSessionPickBody.setText(R.string.due_pick_body)
 
-        for (SessionRef in RenewalSessions) {
+        for ((SessionId, Mode, SavedAt, RecordCount) in RenewalSessions) {
             val RowBinding = ItemSessionPickBinding.inflate(
                 layoutInflater,
                 SheetBinding.sessionPickContainer,
                 false
             )
-            RowBinding.tvSessionPickTitle.text = SessionRef.Mode.DescribeCount(
-                CountVal = SessionRef.RecordCount
+            RowBinding.tvSessionPickTitle.text = Mode.DescribeCount(
+                CountVal = RecordCount
             )
             RowBinding.tvSessionPickMeta.text = getString(
                 R.string.capture_customer_session_format,
-                DateFormatter.format(Date(SessionRef.SavedAt)),
-                SessionRef.SessionId.take(8)
+                DateFormatter.format(Date(SavedAt)),
+                SessionId.take(8)
             )
             RowBinding.sessionPickCard.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
                 SheetDialog.dismiss()
-                ApplyDueDatesFrom(RenewalSessionId = SessionRef.SessionId)
+                ApplyDueDatesFrom(RenewalSessionId = SessionId)
             }
             SheetBinding.sessionPickContainer.addView(RowBinding.root)
         }
@@ -290,7 +301,8 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun ApplyDueDatesFrom(RenewalSessionId: String) {
-        val ContextRef = context?.applicationContext ?: return
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val ContextRef = ActivityRef.applicationContext
         if (SelectedSessionId.isEmpty()) return
 
         val RenewalList = PolicyRepository.GetFupPolicies(
@@ -312,27 +324,381 @@ class PoliciesFragment : Fragment() {
             return
         }
 
-        if (OutcomeObj.Changes.isNotEmpty()) {
-            PolicyRepository.SaveFieldChanges(
-                ContextRef = ContextRef,
-                ModeVal = CaptureMode.POLICY,
-                SessionId = SelectedSessionId,
-                Changes = OutcomeObj.Changes
+        ShowDuePreviewSheet(
+            ActivityRef = ActivityRef,
+            OutcomeObj = OutcomeObj,
+            RenewalSessionId = RenewalSessionId,
+            RenewalCount = RenewalList.size
+        )
+    }
+
+    private fun ShowDuePreviewSheet(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        OutcomeObj: RenewalDueProjection.Outcome,
+        RenewalSessionId: String,
+        RenewalCount: Int
+    ) {
+        val SheetBinding = SheetDuePreviewBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        val HasUpdates = OutcomeObj.Updates.isNotEmpty()
+        val SkipGroups = GroupSkips(SkipList = OutcomeObj.Skips)
+
+        if (HasUpdates) {
+            BindUpdatePreview(
+                SheetBinding = SheetBinding,
+                OutcomeObj = OutcomeObj,
+                SkipGroups = SkipGroups
             )
-            PolicyRepository.SaveCustomerPolicies(
-                ContextRef = ContextRef,
-                Policies = OutcomeObj.Policies,
-                SessionId = SelectedSessionId
+        } else {
+            BindEmptyPreview(
+                SheetBinding = SheetBinding,
+                OutcomeObj = OutcomeObj,
+                SkipGroups = SkipGroups
             )
-            LoadSessionRecords()
-            RenderList()
         }
+
+        SheetBinding.btnDuePreviewApply.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            CommitDueDates(
+                OutcomeObj = OutcomeObj,
+                RenewalSessionId = RenewalSessionId,
+                RenewalCount = RenewalCount
+            )
+        }
+        SheetBinding.btnDuePreviewCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun BindUpdatePreview(
+        SheetBinding: SheetDuePreviewBinding,
+        OutcomeObj: RenewalDueProjection.Outcome,
+        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+    ) {
+        SheetBinding.tvDuePreviewTitle.text = getString(
+            R.string.due_preview_title,
+            OutcomeObj.UpdatedCount
+        )
+        SheetBinding.tvDuePreviewHint.text = getString(
+            R.string.due_preview_hint,
+            OutcomeObj.UnchangedCount,
+            OutcomeObj.SkippedCount
+        )
+        SheetBinding.btnDuePreviewApply.text = getString(
+            R.string.due_preview_apply,
+            OutcomeObj.UpdatedCount
+        )
+
+        AddChangeSection(
+            ContainerRef = SheetBinding.duePreviewContainer,
+            TitleRes = R.string.due_section_change
+        )
+        AddUpdateGroups(
+            ContainerRef = SheetBinding.duePreviewContainer,
+            UpdateList = OutcomeObj.Updates
+        )
+
+        if (SkipGroups.isEmpty()) return
+        AddChangeSection(
+            ContainerRef = SheetBinding.duePreviewContainer,
+            TitleRes = R.string.due_section_keep
+        )
+        AddSkipGroups(
+            ContainerRef = SheetBinding.duePreviewContainer,
+            SkipGroups = SkipGroups
+        )
+    }
+
+    private fun BindEmptyPreview(
+        SheetBinding: SheetDuePreviewBinding,
+        OutcomeObj: RenewalDueProjection.Outcome,
+        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+    ) {
+        val OnlyAlreadyUpdated = SkipGroups.size == 1 &&
+                SkipGroups.first().first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+
+        SheetBinding.tvDuePreviewTitle.visibility = View.GONE
+        SheetBinding.tvDuePreviewHint.visibility = View.GONE
+        SheetBinding.duePreviewScroll.visibility = View.GONE
+        SheetBinding.btnDuePreviewApply.visibility = View.GONE
+        SheetBinding.dueHeroGroup.visibility = View.VISIBLE
+        SheetBinding.btnDuePreviewCancel.setText(R.string.due_close)
+
+        SheetBinding.tvDueHeroTitle.setText(
+            if (OnlyAlreadyUpdated) {
+                R.string.due_hero_all_updated
+            } else {
+                R.string.due_preview_none_title
+            }
+        )
+        SheetBinding.tvDueHeroBody.text = if (OnlyAlreadyUpdated) {
+            getString(R.string.due_hero_all_updated_body, OutcomeObj.MatchedCount)
+        } else {
+            getString(R.string.due_hero_mixed_body, OutcomeObj.MatchedCount)
+        }
+
+        AddStatTiles(ContainerRef = SheetBinding.dueStatRow, SkipGroups = SkipGroups)
+        AddSkipGroups(
+            ContainerRef = SheetBinding.duePreviewContainer,
+            SkipGroups = SkipGroups
+        )
+
+        val TotalSkips = OutcomeObj.Skips.size
+        SheetBinding.tvShowPolicies.text = getString(R.string.due_show_policies, TotalSkips)
+        SheetBinding.rowShowPolicies.visibility = if (TotalSkips == 0) View.GONE else View.VISIBLE
+        SheetBinding.rowShowPolicies.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            val WillShow = SheetBinding.duePreviewScroll.visibility != View.VISIBLE
+            SheetBinding.duePreviewScroll.visibility = if (WillShow) View.VISIBLE else View.GONE
+            SheetBinding.ivShowPolicies.rotation = if (WillShow) 90f else 0f
+            if (WillShow) {
+                SheetBinding.tvShowPolicies.setText(R.string.due_hide_policies)
+            } else {
+                SheetBinding.tvShowPolicies.text = getString(
+                    R.string.due_show_policies,
+                    TotalSkips
+                )
+            }
+        }
+    }
+
+    private fun GroupSkips(
+        SkipList: List<RenewalDueProjection.Skip>
+    ): List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>> {
+        val OrderList = listOf(
+            RenewalDueProjection.SkipReason.ALREADY_CURRENT,
+            RenewalDueProjection.SkipReason.NO_FREQUENCY,
+            RenewalDueProjection.SkipReason.NO_RENEWAL_ROW
+        )
+        return OrderList.mapNotNull { ReasonVal ->
+            val GroupList = SkipList.filter { SkipItem -> SkipItem.Reason == ReasonVal }
+            if (GroupList.isEmpty()) null else ReasonVal to GroupList
+        }
+    }
+
+    private fun AddStatTiles(
+        ContainerRef: ViewGroup,
+        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+    ) {
+        ContainerRef.removeAllViews()
+        val ContextRef = ContainerRef.context
+        for ((IndexVal, GroupPair) in SkipGroups.withIndex()) {
+            val StatBinding = PartialDueStatBinding.inflate(layoutInflater, ContainerRef, false)
+            val IsGood = GroupPair.first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+            StatBinding.tvDueStatValue.text = GroupPair.second.size.toString()
+            StatBinding.tvDueStatLabel.setText(StatLabelRes(ReasonVal = GroupPair.first))
+            StatBinding.dueStatRoot.setBackgroundResource(
+                if (IsGood) R.drawable.bg_badge_inforce else R.drawable.bg_badge_lapsed
+            )
+            val TintColor = ContextCompat.getColor(
+                ContextRef,
+                if (IsGood) R.color.status_green_text else R.color.status_amber_text
+            )
+            StatBinding.tvDueStatValue.setTextColor(TintColor)
+            StatBinding.tvDueStatLabel.setTextColor(TintColor)
+            if (IndexVal > 0) {
+                val ParamsObj = StatBinding.dueStatRoot.layoutParams
+                        as android.widget.LinearLayout.LayoutParams
+                ParamsObj.marginStart = resources.getDimensionPixelSize(R.dimen.space_sm)
+                StatBinding.dueStatRoot.layoutParams = ParamsObj
+            }
+            ContainerRef.addView(StatBinding.root)
+        }
+    }
+
+    private fun AddSkipGroups(
+        ContainerRef: ViewGroup,
+        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+    ) {
+        for ((first, second) in SkipGroups) {
+            val GroupBinding = PartialDueGroupBinding.inflate(layoutInflater, ContainerRef, false)
+            val IsGood = first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+            GroupBinding.tvDueGroupTitle.setText(StatLabelRes(ReasonVal = first))
+            GroupBinding.tvDueGroupCount.text = second.size.toString()
+            GroupBinding.tvDueGroupWhy.setText(SkipReasonText(ReasonVal = first))
+            GroupBinding.dueGroupDot.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        ContainerRef.context,
+                        if (IsGood) R.color.status_green_text else R.color.status_amber_text
+                    )
+                )
+
+            BindGroupChips(GroupBinding = GroupBinding, SkipList = second)
+
+            GroupBinding.dueGroupHeader.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                val WillShow = GroupBinding.dueGroupBody.visibility != View.VISIBLE
+                GroupBinding.dueGroupBody.visibility = if (WillShow) View.VISIBLE else View.GONE
+                GroupBinding.ivDueGroupChevron.rotation = if (WillShow) 90f else 0f
+            }
+            ContainerRef.addView(GroupBinding.root)
+        }
+    }
+
+    private fun BindGroupChips(
+        GroupBinding: PartialDueGroupBinding,
+        SkipList: List<RenewalDueProjection.Skip>
+    ) {
+        GroupBinding.dueGroupChips.removeAllViews()
+        val VisibleList = SkipList.take(CHIP_PREVIEW_LIMIT)
+        for ((PolicyNumber) in VisibleList) {
+            AddNumberChip(
+                GroupBinding = GroupBinding,
+                LabelText = PolicyNumber,
+                IsMore = false
+            )
+        }
+        val HiddenCount = SkipList.size - VisibleList.size
+        if (HiddenCount <= 0) return
+
+        AddNumberChip(
+            GroupBinding = GroupBinding,
+            LabelText = getString(R.string.due_group_more, HiddenCount),
+            IsMore = true
+        ) {
+            GroupBinding.dueGroupChips.removeAllViews()
+            for ((PolicyNumber) in SkipList) {
+                AddNumberChip(
+                    GroupBinding = GroupBinding,
+                    LabelText = PolicyNumber,
+                    IsMore = false
+                )
+            }
+        }
+    }
+
+    private fun AddNumberChip(
+        GroupBinding: PartialDueGroupBinding,
+        LabelText: String,
+        IsMore: Boolean,
+        OnClick: (() -> Unit)? = null
+    ) {
+        val ChipBinding = PartialDueChipBinding.inflate(
+            layoutInflater,
+            GroupBinding.dueGroupChips,
+            false
+        )
+        ChipBinding.tvDueChip.text = LabelText
+        if (IsMore) {
+            ChipBinding.tvDueChip.setTextColor(
+                ContextCompat.getColor(GroupBinding.root.context, R.color.text_accent)
+            )
+            ChipBinding.tvDueChip.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                OnClick?.invoke()
+            }
+        }
+        GroupBinding.dueGroupChips.addView(ChipBinding.root)
+    }
+
+    private fun StatLabelRes(ReasonVal: RenewalDueProjection.SkipReason): Int = when (ReasonVal) {
+        RenewalDueProjection.SkipReason.ALREADY_CURRENT -> R.string.due_stat_updated
+        RenewalDueProjection.SkipReason.NO_FREQUENCY -> R.string.due_stat_frequency
+        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW -> R.string.due_stat_norow
+    }
+
+    private fun AddChangeSection(ContainerRef: ViewGroup, TitleRes: Int) {
+        val SectionBinding = PartialChangeSectionBinding.inflate(
+            layoutInflater,
+            ContainerRef,
+            false
+        )
+        SectionBinding.tvChangeSection.setText(TitleRes)
+        ContainerRef.addView(SectionBinding.root)
+    }
+
+    private fun AddUpdateGroups(
+        ContainerRef: ViewGroup,
+        UpdateList: List<RenewalDueProjection.Update>
+    ) {
+        val GroupedMap = UpdateList.groupBy { UpdateItem -> UpdateItem.NewDate }
+        val OrderedKeys = GroupedMap.keys.sortedBy { DateText ->
+            RenewalDueProjection.ParseDate(RawText = DateText)?.toEpochDay() ?: Long.MAX_VALUE
+        }
+
+        for (DateText in OrderedKeys) {
+            val GroupList = GroupedMap[DateText].orEmpty()
+            val GroupBinding = PartialDueDateGroupBinding.inflate(
+                layoutInflater,
+                ContainerRef,
+                false
+            )
+            GroupBinding.tvDueGroupDate.text = DateText
+            GroupBinding.tvDueGroupPolicies.text = getString(
+                R.string.due_group_policies,
+                GroupList.size
+            )
+
+            for ((PolicyNumber, HolderName, _, OldDate) in GroupList) {
+                val RowBinding = PartialDueDateRowBinding.inflate(
+                    layoutInflater,
+                    GroupBinding.dueDateGroupBody,
+                    false
+                )
+                RowBinding.tvDueRowPolicy.text = PolicyNumber
+                RowBinding.tvDueRowName.text = HolderName.ifEmpty {
+                    getString(R.string.status_unknown)
+                }
+                RowBinding.tvDueRowNote.text = if (OldDate.isEmpty()) {
+                    getString(R.string.due_row_new)
+                } else {
+                    getString(R.string.due_row_was, OldDate)
+                }
+                GroupBinding.dueDateGroupBody.addView(RowBinding.root)
+            }
+
+            ContainerRef.addView(GroupBinding.root)
+        }
+    }
+
+    private fun SkipReasonText(ReasonVal: RenewalDueProjection.SkipReason): Int = when (ReasonVal) {
+        RenewalDueProjection.SkipReason.ALREADY_CURRENT -> R.string.due_reason_current
+        RenewalDueProjection.SkipReason.NO_FREQUENCY -> R.string.due_reason_frequency
+        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW -> R.string.due_reason_norow
+    }
+
+    private fun CommitDueDates(
+        OutcomeObj: RenewalDueProjection.Outcome,
+        RenewalSessionId: String,
+        RenewalCount: Int
+    ) {
+        val ContextRef = context?.applicationContext ?: return
+        if (SelectedSessionId.isEmpty() || OutcomeObj.Changes.isEmpty()) return
+
+        PolicyRepository.SaveFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.POLICY,
+            SessionId = SelectedSessionId,
+            Changes = OutcomeObj.Changes,
+            SourceName = ChangeSource.DUE_IMPORT
+        )
+        PolicyRepository.SaveCustomerPolicies(
+            ContextRef = ContextRef,
+            Policies = OutcomeObj.Policies,
+            SessionId = SelectedSessionId
+        )
+        PolicyRepository.SaveDueDateReport(
+            ContextRef = ContextRef,
+            SessionId = SelectedSessionId,
+            ReportObj = BuildDueDateReport(
+                OutcomeObj = OutcomeObj,
+                RenewalSessionId = RenewalSessionId
+            )
+        )
+        LoadSessionRecords()
+        RenderList()
 
         CaptureDiagnostics.LogForSession(
             ContextObj = ContextRef,
             SessionId = SelectedSessionId,
             EventName = "DUE_DATE_IMPORT",
-            MessageText = "source=$RenewalSessionId renewals=${RenewalList.size} " +
+            MessageText = "source=$RenewalSessionId renewals=$RenewalCount " +
                     "matched=${OutcomeObj.MatchedCount} anchored=${OutcomeObj.AnchoredCount} " +
                     "updated=${OutcomeObj.UpdatedCount} current=${OutcomeObj.UnchangedCount} " +
                     "skipped=${OutcomeObj.SkippedCount}"
@@ -346,6 +712,62 @@ class PoliciesFragment : Fragment() {
                 OutcomeObj.SkippedCount
             )
         )
+    }
+
+    private fun BuildDueDateReport(
+        OutcomeObj: RenewalDueProjection.Outcome,
+        RenewalSessionId: String
+    ): DueDateReport {
+        return DueDateReport(
+            SavedAt = System.currentTimeMillis(),
+            SourceSessionId = RenewalSessionId,
+            UpdatedCount = OutcomeObj.UpdatedCount,
+            UnchangedCount = OutcomeObj.UnchangedCount,
+            SkippedCount = OutcomeObj.SkippedCount,
+            Updates = OutcomeObj.Updates.map { UpdateItem ->
+                DueDateReportEntry(
+                    PolicyNumber = UpdateItem.PolicyNumber,
+                    HolderName = UpdateItem.HolderName,
+                    PlanCode = UpdateItem.PlanCode,
+                    OldDate = UpdateItem.OldDate,
+                    NewDate = UpdateItem.NewDate,
+                    PaidForDate = UpdateItem.PaidForDate,
+                    Frequency = UpdateItem.Frequency
+                )
+            },
+            Skips = OutcomeObj.Skips.map { SkipItem ->
+                DueDateReportEntry(
+                    PolicyNumber = SkipItem.PolicyNumber,
+                    HolderName = SkipItem.HolderName,
+                    PlanCode = SkipItem.PlanCode,
+                    OldDate = SkipItem.CurrentDate,
+                    ReasonName = SkipItem.Reason.name
+                )
+            }
+        )
+    }
+
+    private fun HasRecordedChanges(): Boolean {
+        val ContextRef = context?.applicationContext ?: return false
+        if (SelectedSessionId.isEmpty()) return false
+        val HasChanges = PolicyRepository.GetFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.POLICY,
+            SessionId = SelectedSessionId
+        ).isNotEmpty()
+        if (HasChanges) return true
+        val ReportObj = PolicyRepository.GetDueDateReport(
+            ContextRef = ContextRef,
+            SessionId = SelectedSessionId
+        )
+        return ReportObj != null && ReportObj.Skips.isNotEmpty()
+    }
+
+    private fun OpenChanges() {
+        if (SelectedSessionId.isEmpty()) return
+        val IntentObj = Intent(requireContext(), ChangesActivity::class.java)
+        IntentObj.putExtra(ChangesActivity.EXTRA_SESSION_ID, SelectedSessionId)
+        startActivity(IntentObj)
     }
 
     private fun ShowSnack(MessageVal: String) {
@@ -627,6 +1049,8 @@ class PoliciesFragment : Fragment() {
         SheetBinding.rowActionDueDates.visibility =
             if (IsPolicySession) View.VISIBLE else View.GONE
         SheetBinding.rowActionUpload.visibility = if (ShowUpload) View.VISIBLE else View.GONE
+        SheetBinding.rowActionChanges.visibility =
+            if (IsPolicySession && HasRecordedChanges()) View.VISIBLE else View.GONE
         SheetBinding.rowActionPdf.visibility = if (ShowPdfAction) View.VISIBLE else View.GONE
         SheetBinding.tvActionPersonalDesc.text = getString(
             R.string.action_personal_desc,
@@ -647,6 +1071,11 @@ class PoliciesFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             UploadSession()
+        }
+        SheetBinding.rowActionChanges.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            OpenChanges()
         }
         SheetBinding.rowActionExcel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -1120,6 +1549,7 @@ class PoliciesFragment : Fragment() {
     }
 
     companion object {
+        private const val CHIP_PREVIEW_LIMIT = 8
         private const val FILTER_ALL = "all"
         private const val FILTER_INFORCE = "inforce"
         private const val FILTER_LAPSED = "lapsed"

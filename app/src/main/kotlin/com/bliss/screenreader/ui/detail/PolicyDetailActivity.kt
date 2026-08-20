@@ -1,5 +1,5 @@
 @file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
-    "SameParameterValue", "SpellCheckingInspection"
+    "SameParameterValue", "SpellCheckingInspection", "UsePropertyAccessSyntax"
 )
 
 package com.bliss.screenreader.ui.detail

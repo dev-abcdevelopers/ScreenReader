@@ -109,8 +109,8 @@ object FupDataParser {
             PlanCode = IncomingRecord.PlanCode.ifEmpty { ExistingRecord.PlanCode },
             HolderName = IncomingRecord.HolderName.ifEmpty { ExistingRecord.HolderName },
             PremiumAmount = IncomingRecord.PremiumAmount.ifEmpty { ExistingRecord.PremiumAmount },
-            PremiumFrequency = IncomingRecord.PremiumFrequency.ifEmpty {
-                ExistingRecord.PremiumFrequency
+            PremiumFrequency = IncomingRecord.PremiumFrequency.orEmpty().ifEmpty {
+                ExistingRecord.PremiumFrequency.orEmpty()
             },
             DueDate = IncomingRecord.DueDate.ifEmpty { ExistingRecord.DueDate },
             PaymentDate = IncomingRecord.PaymentDate.ifEmpty { ExistingRecord.PaymentDate },

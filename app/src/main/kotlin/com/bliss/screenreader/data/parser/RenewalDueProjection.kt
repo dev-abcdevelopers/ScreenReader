@@ -12,9 +12,35 @@ object RenewalDueProjection {
 
     const val FIELD_NAME = "Renewal due date"
 
+    enum class SkipReason {
+        NO_RENEWAL_ROW,
+        NO_FREQUENCY,
+        ALREADY_CURRENT
+    }
+
+    data class Update(
+        val PolicyNumber: String,
+        val HolderName: String,
+        val PlanCode: String,
+        val OldDate: String,
+        val NewDate: String,
+        val PaidForDate: String,
+        val Frequency: String
+    )
+
+    data class Skip(
+        val PolicyNumber: String,
+        val HolderName: String,
+        val PlanCode: String,
+        val CurrentDate: String,
+        val Reason: SkipReason
+    )
+
     data class Outcome(
         val Policies: List<CustomerPolicy>,
         val Changes: List<RecordFieldChange>,
+        val Updates: List<Update> = emptyList(),
+        val Skips: List<Skip> = emptyList(),
         val MatchedCount: Int = 0,
         val AnchoredCount: Int = 0,
         val UpdatedCount: Int = 0,
@@ -153,11 +179,10 @@ object RenewalDueProjection {
 
         val GroupedMap = GroupByPolicy(Renewals = Renewals)
         val ChangeList = mutableListOf<RecordFieldChange>()
+        val UpdateList = mutableListOf<Update>()
+        val SkipList = mutableListOf<Skip>()
         var MatchedCount = 0
         var AnchoredCount = 0
-        var UpdatedCount = 0
-        var UnchangedCount = 0
-        var SkippedCount = 0
 
         val UpdatedPolicies = Policies.map { PolicyItem ->
             val KeyText = PolicyItem.PolicyNumber.trim()
@@ -168,31 +193,51 @@ object RenewalDueProjection {
             if (AnchorItem != null) AnchoredCount++
             val LatestItem = LatestRow(Rows = RowList)
 
-            val NextDueObj = listOfNotNull(AnchorItem, LatestItem)
-                .mapNotNull { RowItem ->
-                    ParseDate(
+            val SourceItem = listOfNotNull(AnchorItem, LatestItem)
+                .map { RowItem ->
+                    RowItem to ParseDate(
                         RawText = NextDueDate(
                             PaidForDate = RowItem.DueDate,
-                            FrequencyText = RowItem.PremiumFrequency.ifEmpty {
-                                PolicyItem.PremiumFrequency
-                            }
+                            FrequencyText = FrequencyFor(
+                                RowItem = RowItem,
+                                PolicyItem = PolicyItem
+                            )
                         )
                     )
                 }
-                .maxOrNull()
-            if (NextDueObj == null) {
-                SkippedCount++
+                .filter { PairRef -> PairRef.second != null }
+                .maxByOrNull { PairRef -> PairRef.second!! }
+
+            if (SourceItem == null) {
+                SkipList.add(
+                    Skip(
+                        PolicyNumber = KeyText,
+                        HolderName = PolicyItem.HolderName,
+                        PlanCode = PolicyItem.PlanCode,
+                        CurrentDate = PolicyItem.RenewalDueDate,
+                        Reason = SkipReason.NO_FREQUENCY
+                    )
+                )
                 return@map PolicyItem
             }
 
+            val SourceRow = SourceItem.first
+            val NextDueObj = SourceItem.second ?: return@map PolicyItem
             val ExistingObj = ParseDate(RawText = PolicyItem.RenewalDueDate)
             if (ExistingObj != null && !NextDueObj.isAfter(ExistingObj)) {
-                UnchangedCount++
+                SkipList.add(
+                    Skip(
+                        PolicyNumber = KeyText,
+                        HolderName = PolicyItem.HolderName,
+                        PlanCode = PolicyItem.PlanCode,
+                        CurrentDate = PolicyItem.RenewalDueDate,
+                        Reason = SkipReason.ALREADY_CURRENT
+                    )
+                )
                 return@map PolicyItem
             }
 
             val NextDueText = FormatDate(DateObj = NextDueObj)
-            UpdatedCount++
             ChangeList.add(
                 RecordFieldChange(
                     RecordKey = KeyText,
@@ -201,18 +246,44 @@ object RenewalDueProjection {
                     NewValue = NextDueText
                 )
             )
+            UpdateList.add(
+                Update(
+                    PolicyNumber = KeyText,
+                    HolderName = PolicyItem.HolderName,
+                    PlanCode = PolicyItem.PlanCode,
+                    OldDate = PolicyItem.RenewalDueDate,
+                    NewDate = NextDueText,
+                    PaidForDate = SourceRow.DueDate,
+                    Frequency = FrequencyFor(
+                        RowItem = SourceRow,
+                        PolicyItem = PolicyItem
+                    )
+                )
+            )
             PolicyItem.copy(RenewalDueDate = NextDueText)
         }
 
         return Outcome(
             Policies = UpdatedPolicies,
             Changes = ChangeList,
+            Updates = UpdateList,
+            Skips = SkipList,
             MatchedCount = MatchedCount,
             AnchoredCount = AnchoredCount,
-            UpdatedCount = UpdatedCount,
-            UnchangedCount = UnchangedCount,
-            SkippedCount = SkippedCount
+            UpdatedCount = UpdateList.size,
+            UnchangedCount = SkipList.count { SkipItem ->
+                SkipItem.Reason == SkipReason.ALREADY_CURRENT
+            },
+            SkippedCount = SkipList.count { SkipItem ->
+                SkipItem.Reason != SkipReason.ALREADY_CURRENT
+            }
         )
+    }
+
+    private fun FrequencyFor(RowItem: FupPolicy, PolicyItem: CustomerPolicy): String {
+        val RowFrequency = RowItem.PremiumFrequency.orEmpty()
+        if (RowFrequency.isNotEmpty()) return RowFrequency
+        return PolicyItem.PremiumFrequency.orEmpty()
     }
 
     private fun IsNewerRenewal(CandidateItem: FupPolicy, ExistingItem: FupPolicy): Boolean {

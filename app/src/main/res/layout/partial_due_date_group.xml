@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/dueDateGroupRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/card_gap"
+    android:background="@drawable/bg_due_group"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_due_group_head"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/card_padding"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingEnd="@dimen/card_padding"
+        android:paddingBottom="@dimen/space_sm">
+
+        <ImageView
+            android:layout_width="@dimen/icon_sm"
+            android:layout_height="@dimen/icon_sm"
+            android:layout_marginEnd="@dimen/space_sm"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_calendar_repeat"
+            app:tint="@color/on_primary_container" />
+
+        <TextView
+            android:id="@+id/tvDueGroupDate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFeatureSettings="tnum"
+            android:textAppearance="@style/TextAppearance.App.Metric"
+            android:textColor="@color/on_primary_container"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvDueGroupPolicies"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/on_primary_container" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/dueDateGroupBody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/card_padding"
+        android:paddingTop="@dimen/space_xs"
+        android:paddingEnd="@dimen/card_padding"
+        android:paddingBottom="@dimen/space_sm" />
+
+</LinearLayout>

@@ -52,7 +52,7 @@ class RenewalRowAdapter(
             if (PlanText.isBlank()) View.GONE else View.VISIBLE
 
         val AmountText = FupDataParser.AmountOf(PremiumText = RenewalItem.PremiumAmount)
-        val FrequencyText = RenewalItem.PremiumFrequency.ifEmpty {
+        val FrequencyText = RenewalItem.PremiumFrequency.orEmpty().ifEmpty {
             FupDataParser.FrequencyOf(PremiumText = RenewalItem.PremiumAmount)
         }
         BindingRef.tvRenewalPremium.text = when {

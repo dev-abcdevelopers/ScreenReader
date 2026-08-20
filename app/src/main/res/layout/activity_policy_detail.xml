@@ -1,10 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Completeness-led. Fields are grouped by the screen they were captured from,
-  so a gap names the exact thing to go back and fetch. The old 2x2 metric grid
-  is gone: it duplicated values that now live in their own groups, and on a
-  fast capture it rendered as four grey dashes.
--->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/detailRoot"
@@ -74,7 +68,7 @@
                 android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.App.Caption" />
 
-            <!-- Status plus any "not updated" markers the capture flagged. -->
+
             <com.google.android.material.chip.ChipGroup
                 android:id="@+id/chipGroupFlags"
                 android:layout_width="match_parent"
@@ -97,6 +91,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_xs"
                     android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="@string/detail_action_call"
                     app:icon="@drawable/ic_phone" />
 
@@ -107,6 +103,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_xs"
                     android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="@string/detail_action_message"
                     app:icon="@drawable/ic_message" />
 
@@ -116,12 +114,14 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="@string/detail_action_export"
                     app:icon="@drawable/ic_export" />
 
             </LinearLayout>
 
-            <!-- Only shown for a lapsed policy with a revival date. -->
+
             <LinearLayout
                 android:id="@+id/revivalBlock"
                 android:layout_width="match_parent"
@@ -188,7 +188,7 @@
                 android:visibility="gone"
                 app:icon="@drawable/ic_record" />
 
-            <!-- One block per capture source. -->
+
             <LinearLayout
                 android:id="@+id/groupContainer"
                 android:layout_width="match_parent"

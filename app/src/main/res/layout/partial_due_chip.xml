@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvDueChip"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_num_chip"
+    android:fontFeatureSettings="tnum"
+    android:paddingStart="@dimen/space_sm"
+    android:paddingTop="@dimen/space_xs"
+    android:paddingEnd="@dimen/space_sm"
+    android:paddingBottom="@dimen/space_xs"
+    android:textAppearance="@style/TextAppearance.App.Mono"
+    android:textColor="@color/text_secondary"
+    android:textSize="11sp" />

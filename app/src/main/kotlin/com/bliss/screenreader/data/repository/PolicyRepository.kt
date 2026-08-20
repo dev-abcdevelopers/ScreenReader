@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.core.content.edit
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
+import com.bliss.screenreader.data.model.DueDateReport
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
@@ -174,7 +175,8 @@ object PolicyRepository {
         ContextRef: Context,
         ModeVal: CaptureMode,
         SessionId: String,
-        Changes: List<RecordFieldChange>
+        Changes: List<RecordFieldChange>,
+        SourceName: String = ""
     ) {
         if (SessionId.isBlank() || Changes.isEmpty()) return
         val ExistingChanges = GetFieldChanges(
@@ -182,7 +184,11 @@ object PolicyRepository {
             ModeVal = ModeVal,
             SessionId = SessionId
         )
-        val CombinedChanges = (Changes + ExistingChanges).take(MAX_CHANGE_ENTRIES)
+        val StampedAt = System.currentTimeMillis()
+        val StampedChanges = Changes.map { ChangeItem ->
+            ChangeItem.copy(ChangedAt = StampedAt, SourceName = SourceName)
+        }
+        val CombinedChanges = (StampedChanges + ExistingChanges).take(MAX_CHANGE_ENTRIES)
         val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
         PrefsObj.edit {
             putString(
@@ -210,6 +216,31 @@ object PolicyRepository {
             emptyList()
         }
     }
+
+    fun SaveDueDateReport(ContextRef: Context, SessionId: String, ReportObj: DueDateReport) {
+        if (SessionId.isBlank()) return
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        PrefsObj.edit {
+            putString(DueReportStorageKey(SessionId = SessionId), GsonInstance.toJson(ReportObj))
+        }
+    }
+
+    fun GetDueDateReport(ContextRef: Context, SessionId: String): DueDateReport? {
+        if (SessionId.isBlank()) return null
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        val JsonText = PrefsObj.getString(
+            DueReportStorageKey(SessionId = SessionId),
+            null
+        ) ?: return null
+        return try {
+            GsonInstance.fromJson(JsonText, DueDateReport::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun DueReportStorageKey(SessionId: String): String =
+        "due_report_${SafeSessionId(SessionId = SessionId)}"
 
     fun SaveSessionGaps(ContextRef: Context, SessionId: String, Gaps: List<SessionGap>) {
         if (SessionId.isBlank() || Gaps.isEmpty()) return
@@ -335,6 +366,7 @@ object PolicyRepository {
             remove(GapStorageKey(SessionId = SessionId))
             remove(AgencyStorageKey(SessionId = SessionId))
             remove(VisitedStorageKey(SessionId = SessionId))
+            remove(DueReportStorageKey(SessionId = SessionId))
             putString(KEY_SESSION_HISTORY, GsonInstance.toJson(RemainingHistory))
             if (WasLatest) {
                 if (ReplacementSessionId.isEmpty()) {

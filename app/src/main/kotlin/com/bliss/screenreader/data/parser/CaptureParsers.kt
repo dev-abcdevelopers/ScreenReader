@@ -4,6 +4,7 @@ package com.bliss.screenreader.data.parser
 
 import android.content.Context
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
@@ -222,7 +223,8 @@ object CaptureParsers {
             ContextRef = ContextRef,
             ModeVal = CaptureMode.POLICY,
             SessionId = SessionId,
-            Changes = ChangeLog
+            Changes = ChangeLog,
+            SourceName = ChangeSource.PROFILE_CAPTURE
         )
         PolicyRepository.SaveCustomerPolicies(
             ContextRef = ContextRef,
@@ -292,7 +294,8 @@ object CaptureParsers {
             ContextRef = ContextRef,
             ModeVal = CaptureMode.POLICY,
             SessionId = SessionId,
-            Changes = ChangeLog
+            Changes = ChangeLog,
+            SourceName = ChangeSource.POLICY_CAPTURE
         )
         PolicyRepository.SaveCustomerPolicies(
             ContextRef = ContextRef,
@@ -477,7 +480,8 @@ object CaptureParsers {
             ContextRef = ContextRef,
             ModeVal = CaptureMode.FUP,
             SessionId = SessionId,
-            Changes = ChangeLog
+            Changes = ChangeLog,
+            SourceName = ChangeSource.RENEWAL_CAPTURE
         )
         PolicyRepository.SaveFupPolicies(
             ContextRef = ContextRef,
