@@ -11,6 +11,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
@@ -19,6 +21,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -37,6 +40,7 @@ import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetSettingsDetailBinding
 import com.bliss.screenreader.databinding.SheetSessionTransferBinding
 import com.bliss.screenreader.security.AuthManager
+import com.bliss.screenreader.security.BlissLicenceClient
 import com.bliss.screenreader.security.BlissLicenceStore
 import com.bliss.screenreader.security.DeviceIdentity
 import com.bliss.screenreader.security.LicenceGate
@@ -62,6 +66,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 import androidx.core.view.isEmpty
 
 class SettingsFragment : Fragment() {
@@ -70,6 +75,12 @@ class SettingsFragment : Fragment() {
     private var TransferBindingObj: SheetSessionTransferBinding? = null
     private var TransferDialogObj: BottomSheetDialog? = null
     private var PendingImportUri: Uri? = null
+    private var LicenceBackCallback: OnBackPressedCallback? = null
+    private var LicencePaneOpen = false
+    private var LicenceCheckRunning = false
+
+    private val MainHandler = Handler(Looper.getMainLooper())
+    private val WorkerRef = Executors.newSingleThreadExecutor()
 
     private val ImportPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -85,6 +96,27 @@ class SettingsFragment : Fragment() {
         return BindingObj.root
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        val BindingObj = ViewBindingObj ?: return
+
+        BindingObj.btnLicenceBack.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            HideLicencePane()
+        }
+
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() {
+                    HideLicencePane()
+                }
+            }.also { CallbackRef ->
+                LicenceBackCallback = CallbackRef
+            }
+        )
+    }
+
     override fun onResume() {
         super.onResume()
         RenderAll()
@@ -92,15 +124,28 @@ class SettingsFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        MainHandler.removeCallbacksAndMessages(null)
         TransferDialogObj?.dismiss()
         TransferDialogObj = null
         TransferBindingObj = null
+        LicenceBackCallback = null
         ViewBindingObj = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        WorkerRef.shutdownNow()
     }
 
 
     private fun RenderAll() {
         val BindingObj = ViewBindingObj ?: return
+
+        BindingObj.settingsPane.visibility = if (LicencePaneOpen) View.GONE else View.VISIBLE
+        BindingObj.licencePane.visibility = if (LicencePaneOpen) View.VISIBLE else View.GONE
+        LicenceBackCallback?.isEnabled = LicencePaneOpen
+        if (LicencePaneOpen) RenderLicencePane()
+
         BindingObj.settingsContainer.removeAllViews()
 
         RenderIdentity()
@@ -572,7 +617,7 @@ class SettingsFragment : Fragment() {
             DescText = getString(R.string.settings_licence_row_desc),
             IconRes = R.drawable.ic_licence_shield,
             ShowChevron = true
-        ) { ShowLicenceSheet() }
+        ) { ShowLicencePane() }
 
         if (!LicenceGate.IsUrlGate) {
             AddRow(
@@ -1114,50 +1159,190 @@ class SettingsFragment : Fragment() {
     }
 
 
-    private fun ShowLicenceSheet() {
-        val ContextRef = requireContext()
-        val SheetPair = DetailSheet(
-            TitleText = getString(R.string.settings_licence_title),
-            BodyText = LicenceSummary()
-        ) ?: return
-        val SheetDialog = SheetPair.first
-        val SheetBinding = SheetPair.second
+    private fun ShowLicencePane() {
+        LicencePaneOpen = true
+        RenderAll()
+    }
+
+    private fun HideLicencePane() {
+        if (!LicencePaneOpen) return
+        LicencePaneOpen = false
+        RenderAll()
+    }
+
+    private fun RenderLicencePane() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context
 
         val DeviceIdText = DeviceIdentity.RegistrationId(ContextRef = ContextRef)
-        AddFieldRow(
-            ContainerRef = SheetBinding.detailContainer,
-            LabelText = getString(R.string.settings_licence_device_label),
-            ValueText = DeviceIdentity.GroupForDisplay(IdText = DeviceIdText)
-        )
-        if (!LicenceGate.IsUrlGate) {
-            AddFieldRow(
-                ContainerRef = SheetBinding.detailContainer,
-                LabelText = getString(R.string.settings_licence_expiry_label),
-                ValueText = AuthManager.ExpiryText(ContextRef = ContextRef)
-                    .ifEmpty { getString(R.string.settings_licence_not_activated) }
-            )
-        }
-
-        SheetBinding.tvDetailNote.visibility = View.VISIBLE
-        SheetBinding.tvDetailNote.setText(R.string.settings_licence_device_body)
-
-        SheetBinding.btnDetailPrimary.visibility = View.VISIBLE
-        SheetBinding.btnDetailPrimary.setText(R.string.licence_copy_device_id)
-        SheetBinding.btnDetailPrimary.setOnClickListener { ViewRef ->
+        BindingObj.tvLicenceDeviceId.text = DeviceIdentity.GroupForDisplay(IdText = DeviceIdText)
+        BindingObj.btnLicenceCopy.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             CopyDeviceId(DeviceIdText = DeviceIdText)
         }
 
-        if (BuildConfig.SUPPORT_PHONE.isNotBlank()) {
-            SheetBinding.btnDetailSecondary.visibility = View.VISIBLE
-            SheetBinding.btnDetailSecondary.setText(R.string.licence_call_support)
-            SheetBinding.btnDetailSecondary.setOnClickListener { ViewRef ->
-                HapticFeedback.Tap(ViewRef = ViewRef)
-                SheetDialog.dismiss()
-                CallSupport()
+        RenderLicenceStatus()
+        RenderLicenceActions()
+    }
+
+    private fun RenderLicenceStatus() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context
+
+        var TitleRes = R.string.settings_licence_pane_stale_title
+        var BodyText: CharSequence = getString(R.string.settings_licence_pane_stale)
+        var BackgroundRes = R.drawable.bg_error_row
+        var TextColorRes = R.color.status_red_text
+
+        if (!LicenceGate.IsUrlGate) {
+            if (AuthManager.IsActivated(ContextRef = ContextRef)) {
+                TitleRes = R.string.settings_licence_pane_activated_title
+                BodyText = getString(
+                    R.string.settings_licence_pane_activated,
+                    AuthManager.ExpiryText(ContextRef = ContextRef)
+                )
+                BackgroundRes = R.drawable.bg_tile_green
+                TextColorRes = R.color.status_green_text
+            } else {
+                TitleRes = R.string.settings_licence_pane_not_activated_title
+                BodyText = getString(R.string.settings_licence_pane_not_activated)
+                BackgroundRes = R.drawable.bg_tile_amber
+                TextColorRes = R.color.status_amber_text
+            }
+        } else {
+            val NowMillis = System.currentTimeMillis()
+            val LastOkAt = BlissLicenceStore.LastOkAt(ContextRef = ContextRef)
+            val WhenText = LastCheckLabel(LastOkAt = LastOkAt, NowMillis = NowMillis)
+            when (BlissLicenceStore.StateOf(ContextRef = ContextRef)) {
+                BlissLicenceStore.CacheState.Fresh -> {
+                    TitleRes = R.string.settings_licence_pane_fresh_title
+                    BodyText = getString(
+                        R.string.settings_licence_pane_fresh,
+                        WhenText,
+                        BlissLicenceStore.GraceDaysLeft(LastOkAt = LastOkAt, NowMillis = NowMillis)
+                    )
+                    BackgroundRes = R.drawable.bg_tile_green
+                    TextColorRes = R.color.status_green_text
+                }
+
+                BlissLicenceStore.CacheState.InGrace -> {
+                    TitleRes = R.string.settings_licence_pane_grace_title
+                    BodyText = getString(
+                        R.string.settings_licence_pane_grace,
+                        WhenText,
+                        BlissLicenceStore.GraceDaysLeft(LastOkAt = LastOkAt, NowMillis = NowMillis)
+                    )
+                    BackgroundRes = R.drawable.bg_tile_amber
+                    TextColorRes = R.color.status_amber_text
+                }
+
+                else -> Unit
             }
         }
-        SheetDialog.show()
+
+        val TextColorVal = ContextCompat.getColor(ContextRef, TextColorRes)
+        BindingObj.licenceStatusBlock.setBackgroundResource(BackgroundRes)
+        BindingObj.tvLicenceStatusTitle.setText(TitleRes)
+        BindingObj.tvLicenceStatusTitle.setTextColor(TextColorVal)
+        BindingObj.tvLicenceStatusBody.text = BodyText
+        BindingObj.tvLicenceStatusBody.setTextColor(TextColorVal)
+    }
+
+    private fun LastCheckLabel(LastOkAt: Long, NowMillis: Long): String {
+        val DaysAgo = BlissLicenceStore.DaysSinceLastCheck(
+            LastOkAt = LastOkAt,
+            NowMillis = NowMillis
+        )
+        return if (DaysAgo <= 0) {
+            getString(R.string.settings_confirmed_today)
+        } else {
+            getString(R.string.settings_confirmed_days_format, DaysAgo)
+        }
+    }
+
+    private fun RenderLicenceActions() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContainerRef = BindingObj.licenceActionRows
+        ContainerRef.removeAllViews()
+
+        if (LicenceGate.IsUrlGate) {
+            BindingObj.tvLicenceActionsLabel.setText(R.string.settings_section_support)
+
+            if (BuildConfig.SUPPORT_PHONE.isNotBlank()) {
+                AddRow(
+                    ContainerRef = ContainerRef,
+                    TitleText = getString(R.string.licence_call_support),
+                    DescText = BuildConfig.SUPPORT_PHONE_DISPLAY,
+                    IconRes = R.drawable.ic_phone,
+                    IconTintRes = R.color.status_green_text
+                ) { CallSupport() }
+            }
+
+            AddRow(
+                ContainerRef = ContainerRef,
+                TitleText = getString(R.string.settings_licence_recheck),
+                DescText = if (LicenceCheckRunning) {
+                    getString(R.string.settings_licence_checking)
+                } else {
+                    getString(R.string.settings_licence_recheck_desc)
+                },
+                IconRes = R.drawable.ic_update,
+                IsEnabled = !LicenceCheckRunning
+            ) { RunLicenceCheck() }
+        } else {
+            BindingObj.tvLicenceActionsLabel.setText(R.string.settings_section_security)
+
+            AddRow(
+                ContainerRef = ContainerRef,
+                TitleText = getString(R.string.settings_idle_title),
+                DescText = getString(R.string.settings_idle_desc),
+                ValueText = MinutesLabel(
+                    ValueMs = SettingsStore.IdleLockMs(ContextRef = ContainerRef.context)
+                ),
+                IconRes = R.drawable.ic_lock,
+                ShowChevron = true
+            ) { ShowIdleLockSheet() }
+        }
+
+        val HasRows = ContainerRef.childCount > 0
+        BindingObj.tvLicenceActionsLabel.visibility = if (HasRows) View.VISIBLE else View.GONE
+        BindingObj.licenceActionsCard.visibility = if (HasRows) View.VISIBLE else View.GONE
+    }
+
+    private fun RunLicenceCheck() {
+        if (LicenceCheckRunning) return
+        LicenceCheckRunning = true
+        RenderLicenceActions()
+
+        val AppContext = requireContext().applicationContext
+        WorkerRef.execute {
+            val VerdictRef = BlissLicenceClient.Check(ContextRef = AppContext)
+            MainHandler.post {
+                LicenceCheckRunning = false
+                if (!isAdded) return@post
+
+                val MessageText = when (VerdictRef) {
+                    BlissLicenceClient.Verdict.Valid -> {
+                        BlissLicenceStore.RecordSuccess(ContextRef = AppContext)
+                        getString(R.string.settings_licence_check_valid)
+                    }
+
+                    BlissLicenceClient.Verdict.NotLicensed -> {
+                        BlissLicenceStore.Clear(ContextRef = AppContext)
+                        getString(R.string.settings_licence_check_blocked)
+                    }
+
+                    BlissLicenceClient.Verdict.NoDeviceId ->
+                        getString(R.string.licence_no_device_id_body)
+
+                    BlissLicenceClient.Verdict.Unreachable ->
+                        getString(R.string.settings_licence_check_offline)
+                }
+
+                RenderAll()
+                ShowMessage(MessageText = MessageText)
+            }
+        }
     }
 
     private fun CopyDeviceId(DeviceIdText: String) {

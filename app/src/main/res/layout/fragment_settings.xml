@@ -1,115 +1,266 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:clipToPadding="false"
-    android:paddingBottom="@dimen/list_bottom_inset">
+    android:layout_height="match_parent">
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/settingsPane"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingTop="@dimen/space_md"
-        android:paddingEnd="@dimen/screen_margin">
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/list_bottom_inset">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/space_md"
-            android:text="@string/settings_heading"
-            android:textAppearance="@style/TextAppearance.App.Title" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardIdentity"
-            style="@style/Widget.App.Card"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="@color/primary"
-            app:strokeColor="@color/primary_variant">
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingTop="@dimen/space_md"
+            android:paddingEnd="@dimen/screen_margin">
 
-            <LinearLayout
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_md"
+                android:text="@string/settings_heading"
+                android:textAppearance="@style/TextAppearance.App.Title" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardIdentity"
+                style="@style/Widget.App.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/card_padding">
+                app:cardBackgroundColor="@color/primary"
+                app:strokeColor="@color/primary_variant">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:baselineAligned="false"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="@dimen/touch_min"
-                        android:layout_height="@dimen/touch_min"
-                        android:layout_marginEnd="@dimen/space_md"
-                        android:background="@drawable/bg_hero_icon"
-                        android:contentDescription="@null"
-                        android:padding="@dimen/space_md"
-                        android:src="@drawable/ic_licence_shield"
-                        app:tint="@color/text_on_dark" />
+                    android:orientation="vertical"
+                    android:padding="@dimen/card_padding">
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:baselineAligned="false"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
-                        <TextView
-                            android:id="@+id/tvIdentityName"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textAppearance="@style/TextAppearance.App.Heading"
-                            android:textColor="@color/text_on_dark" />
+                        <ImageView
+                            android:layout_width="@dimen/touch_min"
+                            android:layout_height="@dimen/touch_min"
+                            android:layout_marginEnd="@dimen/space_md"
+                            android:background="@drawable/bg_hero_icon"
+                            android:contentDescription="@null"
+                            android:padding="@dimen/space_md"
+                            android:src="@drawable/ic_licence_shield"
+                            app:tint="@color/text_on_dark" />
 
-                        <TextView
-                            android:id="@+id/tvIdentityVersion"
-                            android:layout_width="match_parent"
+                        <LinearLayout
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="1dp"
-                            android:fontFeatureSettings="tnum"
-                            android:textAppearance="@style/TextAppearance.App.Caption"
-                            android:textColor="@color/bubble_meta_text" />
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvIdentityName"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textAppearance="@style/TextAppearance.App.Heading"
+                                android:textColor="@color/text_on_dark" />
+
+                            <TextView
+                                android:id="@+id/tvIdentityVersion"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="1dp"
+                                android:fontFeatureSettings="tnum"
+                                android:textAppearance="@style/TextAppearance.App.Caption"
+                                android:textColor="@color/bubble_meta_text" />
+
+                        </LinearLayout>
 
                     </LinearLayout>
 
+                    <TextView
+                        android:id="@+id/tvIdentityLicence"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_md"
+                        android:background="@drawable/bg_hero_pill"
+                        android:paddingStart="@dimen/space_md"
+                        android:paddingTop="@dimen/space_sm"
+                        android:paddingEnd="@dimen/space_md"
+                        android:paddingBottom="@dimen/space_sm"
+                        android:textAppearance="@style/TextAppearance.App.Caption"
+                        android:textColor="@color/text_on_dark" />
+
                 </LinearLayout>
 
+            </com.google.android.material.card.MaterialCardView>
+
+            <LinearLayout
+                android:id="@+id/settingsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tvSettingsFooter"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:gravity="center"
+                android:lineSpacingMultiplier="1.3"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/licencePane"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_light"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/list_bottom_inset"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingEnd="@dimen/screen_margin">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_md">
+
+                <ImageView
+                    android:id="@+id/btnLicenceBack"
+                    android:layout_width="@dimen/touch_min"
+                    android:layout_height="@dimen/touch_min"
+                    android:layout_marginEnd="@dimen/space_xs"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:contentDescription="@string/cd_back"
+                    android:focusable="true"
+                    android:padding="@dimen/space_md"
+                    android:src="@drawable/ic_arrow_back"
+                    app:tint="@color/text_primary" />
+
                 <TextView
-                    android:id="@+id/tvIdentityLicence"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
-                    android:background="@drawable/bg_hero_pill"
-                    android:paddingStart="@dimen/space_md"
-                    android:paddingTop="@dimen/space_sm"
-                    android:paddingEnd="@dimen/space_md"
-                    android:paddingBottom="@dimen/space_sm"
-                    android:textAppearance="@style/TextAppearance.App.Caption"
-                    android:textColor="@color/text_on_dark" />
+                    android:layout_weight="1"
+                    android:text="@string/settings_licence_title"
+                    android:textAppearance="@style/TextAppearance.App.Title" />
 
             </LinearLayout>
 
-        </com.google.android.material.card.MaterialCardView>
+            <LinearLayout
+                android:id="@+id/licenceStatusBlock"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_tile_green"
+                android:orientation="vertical"
+                android:padding="@dimen/space_lg">
 
-        <LinearLayout
-            android:id="@+id/settingsContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
+                <TextView
+                    android:id="@+id/tvLicenceStatusTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/tvSettingsFooter"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_lg"
-            android:gravity="center"
-            android:lineSpacingMultiplier="1.3"
-            android:textAppearance="@style/TextAppearance.App.Caption" />
+                <TextView
+                    android:id="@+id/tvLicenceStatusBody"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:lineSpacingMultiplier="1.3"
+                    android:textAppearance="@style/TextAppearance.App.Label" />
 
-    </LinearLayout>
+            </LinearLayout>
 
-</androidx.core.widget.NestedScrollView>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap"
+                android:layout_marginBottom="@dimen/space_sm"
+                android:text="@string/settings_licence_device_label"
+                android:textAllCaps="true"
+                android:textAppearance="@style/TextAppearance.App.Overline" />
+
+            <TextView
+                android:id="@+id/tvLicenceDeviceId"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_stat_tile"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:minHeight="@dimen/touch_min"
+                android:paddingStart="@dimen/space_md"
+                android:paddingTop="@dimen/space_lg"
+                android:paddingEnd="@dimen/space_md"
+                android:paddingBottom="@dimen/space_lg"
+                android:textColor="@color/text_primary"
+                android:textIsSelectable="true"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:lineSpacingMultiplier="1.3"
+                android:text="@string/settings_licence_device_body"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLicenceCopy"
+                style="@style/Widget.App.Button.Outlined"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/licence_copy_device_id"
+                app:icon="@drawable/ic_copy" />
+
+            <TextView
+                android:id="@+id/tvLicenceActionsLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap"
+                android:layout_marginBottom="@dimen/space_sm"
+                android:textAllCaps="true"
+                android:textAppearance="@style/TextAppearance.App.Overline" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/licenceActionsCard"
+                style="@style/Widget.App.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/licenceActionRows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</FrameLayout>

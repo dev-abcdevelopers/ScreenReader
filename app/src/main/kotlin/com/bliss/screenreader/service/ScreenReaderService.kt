@@ -1,5 +1,5 @@
 @file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
-    "SameParameterValue", "unused", "SpellCheckingInspection"
+    "SameParameterValue", "unused", "SpellCheckingInspection",
 )
 
 package com.bliss.screenreader.service
@@ -929,36 +929,36 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun RebuildCapturedRenewalNodes() {
         CapturedNodes.clear()
-        for (RecordItem in CapturedFupMap.values) {
+        for ((PolicyNumber, PlanName, PlanCode, HolderName, PremiumAmount, _, DueDate, PaymentDate, ModeOfPayment, Status) in CapturedFupMap.values) {
             val PlanLabel = PlanIdentity.Combine(
-                CodeValue = RecordItem.PlanCode,
-                NameValue = RecordItem.PlanName
+                CodeValue = PlanCode,
+                NameValue = PlanName
             )
             val AnchorLine = buildString {
-                append(RecordItem.PolicyNumber)
+                append(PolicyNumber)
                 if (PlanLabel.isNotEmpty()) append(" | ").append(PlanLabel)
             }
             CapturedNodes.add(AnchorLine)
-            if (RecordItem.HolderName.isNotEmpty()) CapturedNodes.add(RecordItem.HolderName)
-            if (RecordItem.PremiumAmount.isNotEmpty()) {
+            if (HolderName.isNotEmpty()) CapturedNodes.add(HolderName)
+            if (PremiumAmount.isNotEmpty()) {
                 CapturedNodes.add("Premium Amount (excl. GST)")
-                CapturedNodes.add(RecordItem.PremiumAmount)
+                CapturedNodes.add(PremiumAmount)
             }
-            if (RecordItem.DueDate.isNotEmpty()) {
+            if (DueDate.isNotEmpty()) {
                 CapturedNodes.add("Due Date")
-                CapturedNodes.add(RecordItem.DueDate)
+                CapturedNodes.add(DueDate)
             }
-            if (RecordItem.PaymentDate.isNotEmpty()) {
+            if (PaymentDate.isNotEmpty()) {
                 CapturedNodes.add("Payment Date")
-                CapturedNodes.add(RecordItem.PaymentDate)
+                CapturedNodes.add(PaymentDate)
             }
-            if (RecordItem.ModeOfPayment.isNotEmpty()) {
+            if (ModeOfPayment.isNotEmpty()) {
                 CapturedNodes.add("Mode of Payment")
-                CapturedNodes.add(RecordItem.ModeOfPayment)
+                CapturedNodes.add(ModeOfPayment)
             }
-            if (RecordItem.Status.isNotEmpty()) {
+            if (Status.isNotEmpty()) {
                 CapturedNodes.add("Status at Time of Payment")
-                CapturedNodes.add(RecordItem.Status)
+                CapturedNodes.add(Status)
             }
             CapturedNodes.add("Call Customer")
         }
@@ -966,33 +966,33 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun RebuildCapturedPolicyNodes() {
         CapturedNodes.clear()
-        for (PolicyItem in CapturedPolicyMap.values) {
-            if (PolicyItem.Status.isNotEmpty()) CapturedNodes.add(PolicyItem.Status)
-            if (PolicyItem.KycStatus.isNotEmpty()) CapturedNodes.add("KYC not updated")
-            if (PolicyItem.NeftStatus.isNotEmpty()) CapturedNodes.add("NEFT not updated")
-            if (PolicyItem.NomineeStatus.isNotEmpty()) CapturedNodes.add("Nominee not updated")
-            if (PolicyItem.MobileUpdateStatus.isNotEmpty()) CapturedNodes.add("Mobile not updated")
-            if (PolicyItem.AddressUpdateStatus.isNotEmpty()) CapturedNodes.add("Address not updated")
+        for ((HolderName, _, PolicyNumber, PlanName, _, RenewalDueDate, PremiumAmount, PremiumFrequency, AutoPay, Status, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, NomineeStatus, MobileUpdateStatus, AddressUpdateStatus, KycStatus, NeftStatus, RenewalType) in CapturedPolicyMap.values) {
+            if (Status.isNotEmpty()) CapturedNodes.add(Status)
+            if (KycStatus.isNotEmpty()) CapturedNodes.add("KYC not updated")
+            if (NeftStatus.isNotEmpty()) CapturedNodes.add("NEFT not updated")
+            if (NomineeStatus.isNotEmpty()) CapturedNodes.add("Nominee not updated")
+            if (MobileUpdateStatus.isNotEmpty()) CapturedNodes.add("Mobile not updated")
+            if (AddressUpdateStatus.isNotEmpty()) CapturedNodes.add("Address not updated")
 
             val PolicyLine = buildString {
-                append(PolicyItem.PolicyNumber)
-                if (PolicyItem.PlanName.isNotEmpty()) append(" | ").append(PolicyItem.PlanName)
+                append(PolicyNumber)
+                if (PlanName.isNotEmpty()) append(" | ").append(PlanName)
             }
             CapturedNodes.add(PolicyLine)
-            if (PolicyItem.HolderName.isNotEmpty()) CapturedNodes.add(PolicyItem.HolderName)
-            if (PolicyItem.AutoPay.isNotEmpty()) {
+            if (HolderName.isNotEmpty()) CapturedNodes.add(HolderName)
+            if (AutoPay.isNotEmpty()) {
                 CapturedNodes.add("Auto Pay")
-                CapturedNodes.add(PolicyItem.AutoPay)
+                CapturedNodes.add(AutoPay)
             }
-            if (PolicyItem.RenewalType.isNotEmpty()) CapturedNodes.add(PolicyItem.RenewalType)
-            if (PolicyItem.RenewalDueDate.isNotEmpty()) CapturedNodes.add(PolicyItem.RenewalDueDate)
-            if (PolicyItem.PremiumAmount.isNotEmpty()) {
+            if (RenewalType.isNotEmpty()) CapturedNodes.add(RenewalType)
+            if (RenewalDueDate.isNotEmpty()) CapturedNodes.add(RenewalDueDate)
+            if (PremiumAmount.isNotEmpty()) {
                 CapturedNodes.add("Premium Amount (excl. GST)")
-                val FrequencyText = PolicyItem.PremiumFrequency
+                val FrequencyText = PremiumFrequency
                     .takeIf { ValueText -> ValueText.isNotEmpty() }
                     ?.let { ValueText -> "/$ValueText" }
                     .orEmpty()
-                CapturedNodes.add("${PolicyItem.PremiumAmount}$FrequencyText")
+                CapturedNodes.add("$PremiumAmount$FrequencyText")
             }
             CapturedNodes.add("Send Reminder")
         }
@@ -1283,11 +1283,7 @@ class ScreenReaderService : AccessibilityService() {
                     "origin=$OriginActivityVal"
         )
         val ActiveServiceInfo = serviceInfo
-        val IsDeclaredAccessibilityTool = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActiveServiceInfo?.isAccessibilityTool == true
-        } else {
-            false
-        }
+        val IsDeclaredAccessibilityTool = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActiveServiceInfo?.isAccessibilityTool == true
         val CanRetrieveWindowContent = (
                 ActiveServiceInfo?.capabilities ?: 0
                 ) and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT != 0
@@ -1667,9 +1663,7 @@ class ScreenReaderService : AccessibilityService() {
         val HasPrompt = VisibleNodes.any { NodeText ->
             NodeText.contains(MPIN_PROMPT_MARKER, ignoreCase = true)
         }
-        if (!HasPrompt) return false
-
-        return VisibleNodes.any { NodeText ->
+        return HasPrompt && VisibleNodes.any { NodeText ->
             NodeText.contains("Forgot mPIN", ignoreCase = true) ||
                     NodeText.contains("OTP To Login", ignoreCase = true) ||
                     NodeText.contains("Try using Password", ignoreCase = true) ||
@@ -2009,9 +2003,7 @@ class ScreenReaderService : AccessibilityService() {
         } catch (_: Exception) {
             false
         }
-        if (HasParsedRecord) return true
-
-        return VisibleNodes.any { NodeText ->
+        return HasParsedRecord || VisibleNodes.any { NodeText ->
             when (CurrentMode) {
                 CaptureMode.PS ->
                     NodeText.contains("servicing", ignoreCase = true) ||
@@ -3000,14 +2992,10 @@ class ScreenReaderService : AccessibilityService() {
                 RootNode = RootNode,
                 CurrentPage = PolicyCurrentPage
             )
-            SelectorAdvanced = if (!SelectorClicked) {
-                AdvancePolicyPageSelector(
-                    RootNode = RootNode,
-                    CurrentPage = PolicyCurrentPage
-                )
-            } else {
-                false
-            }
+            SelectorAdvanced = !SelectorClicked && AdvancePolicyPageSelector(
+                RootNode = RootNode,
+                CurrentPage = PolicyCurrentPage
+            )
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
@@ -3306,16 +3294,12 @@ class ScreenReaderService : AccessibilityService() {
                 for (MatchNode in MatchList) RecycleNode(NodeRef = MatchNode)
             }
         }
-        if (ClickPageNumberByTraversal(
-                TargetNode = RootNode,
-                PageNumber = CurrentPage,
-                RequireTopRight = true,
-                ActionName = "open-selector"
-            )
-        ) {
-            return true
-        }
-        return ClickSpinnerNode(
+        return ClickPageNumberByTraversal(
+            TargetNode = RootNode,
+            PageNumber = CurrentPage,
+            RequireTopRight = true,
+            ActionName = "open-selector"
+        ) || ClickSpinnerNode(
             TargetNode = RootNode,
             ActionValue = AccessibilityNodeInfo.ACTION_CLICK
         )
@@ -3718,14 +3702,7 @@ class ScreenReaderService : AccessibilityService() {
         return false
     }
 
-    // ----------------------------------------------- renewal history flow
 
-    /**
-     * Landing screen behind the Renewals bottom tab. It stacks BUSINESS
-     * METRICS, RENEWALS DUE and RENEWAL HISTORY, so it is distinguished from
-     * the Renewal History list page by the metrics header rather than by the
-     * section title, which appears on both.
-     */
     private fun IsRenewalsDashboardScreen(VisibleNodes: List<String>): Boolean {
         val HasDashboardTitle = VisibleNodes.any { NodeText ->
             NodeText.contains("Renewals Dashboard", ignoreCase = true)
@@ -3855,13 +3832,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    // ------------------------------------ dashboard -> renewal history list
 
-    /**
-     * The dashboard carries two "View all" links. The RENEWALS DUE one sits
-     * higher up, so the tap is anchored to the row occupied by the RENEWAL
-     * HISTORY header instead of taking the first match.
-     */
     private fun OpenRenewalHistoryFromDashboard() {
         val RootNode = FindReadableRoot(
             ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
@@ -3956,7 +3927,6 @@ class ScreenReaderService : AccessibilityService() {
         return TapAccepted
     }
 
-    // -------------------------------------------- date-range filter dropdown
 
     private fun OpenRenewalDateRangeDropdown() {
         val RootNode = FindReadableRoot(
@@ -3982,8 +3952,6 @@ class ScreenReaderService : AccessibilityService() {
         if (!ChipTapped) {
             RenewalDropdownAttempts++
             if (RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
-                // The default range still yields rows, so capture what is on
-                // screen rather than abandoning the session entirely.
                 DiagnosticWarning(
                     EventName = "RENEWAL_DATE_RANGE_SKIPPED",
                     MessageText = "Date-range chip was not found; continuing with the default filter"
@@ -4037,12 +4005,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
 
-    /**
-     * The dropdown is a Flutter overlay, so its options are identified by
-     * parsing every visible label as a date range and keeping the widest one.
-     * Picking the bottom-most new node instead used to tap whatever the sheet
-     * rendered below the list, which left the filter on its default.
-     */
+
     private fun SelectLastRenewalDateRangeOption() {
         val RootNode = FindReadableRoot(
             ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
@@ -4119,9 +4082,7 @@ class ScreenReaderService : AccessibilityService() {
             .maxByOrNull { NodeEntry -> NodeEntry.second.centerY() }
             ?: return
 
-        // A list that runs to the bottom edge probably has more entries below,
-        // so scroll once and re-read before committing to a choice. Stop as
-        // soon as a pass stops revealing ranges we have not already seen.
+
         val ScreenHeight = resources.displayMetrics.heightPixels
         val LooksClipped = BottomOption.second.bottom >= ScreenHeight * 0.92f
         if (LooksClipped && FoundNewOptions && RenewalDropdownScrollPasses < 3) {
@@ -4142,7 +4103,7 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         val WidestOption = RangeOptions.maxWithOrNull(
-            compareBy<RenewalRangeOption>(
+            compareBy(
                 { Entry -> Entry.SpanDays },
                 { Entry -> Entry.BoundsObj.centerY() }
             )
@@ -4157,10 +4118,12 @@ class ScreenReaderService : AccessibilityService() {
         )
         DiagnosticInfo(
             EventName = "RENEWAL_DATE_RANGE_SELECTED",
-            MessageText = "text=[${ChosenOption.first}] bounds=${ChosenOption.second} " +
-                    "spanDays=${WidestOption?.SpanDays} " +
-                    "source=${if (WidestOption != null) "widest-range" else "bottom-most"} " +
-                    "accepted=$TapAccepted"
+            MessageText = buildString {
+                append("text=[${ChosenOption.first}] bounds=${ChosenOption.second} ")
+                append("spanDays=${WidestOption?.SpanDays} ")
+                append("source=${if (WidestOption != null) "widest-range" else "bottom-most"} ")
+                append("accepted=$TapAccepted")
+            }
         )
         if (!TapAccepted) {
             RenewalDropdownAttempts++
@@ -4215,7 +4178,6 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    // ------------------------------------------ renewal history pagination
 
     private fun ScrollRenewalHistoryPage() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
@@ -4375,14 +4337,10 @@ class ScreenReaderService : AccessibilityService() {
                 RootNode = RootNode,
                 CurrentPage = RenewalCurrentPage
             )
-            SelectorAdvanced = if (!SelectorClicked) {
-                AdvancePolicyPageSelector(
-                    RootNode = RootNode,
-                    CurrentPage = RenewalCurrentPage
-                )
-            } else {
-                false
-            }
+            SelectorAdvanced = !SelectorClicked && AdvancePolicyPageSelector(
+                RootNode = RootNode,
+                CurrentPage = RenewalCurrentPage
+            )
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
@@ -5643,13 +5601,13 @@ class ScreenReaderService : AccessibilityService() {
         val ScreenHeight = resources.displayMetrics.heightPixels
         val LabelBoundsList = mutableListOf<Rect>()
 
-        for (NodePair in CollectVisibleTextNodes(RootNode = RootNode)) {
-            val LabelText = NodePair.first.trim()
+        for ((first, second) in CollectVisibleTextNodes(RootNode = RootNode)) {
+            val LabelText = first.trim()
             val IsCustomersLabel = LabelText.equals("Customers", ignoreCase = true) ||
                     LabelText.matches(Regex("(?i)^\\d+\\s+Customers$"))
             if (!IsCustomersLabel) continue
-            if (NodePair.second.centerY() > ScreenHeight * 0.65f) continue
-            LabelBoundsList.add(NodePair.second)
+            if (second.centerY() > ScreenHeight * 0.65f) continue
+            LabelBoundsList.add(second)
         }
 
         DiagnosticInfo(
@@ -5704,8 +5662,7 @@ class ScreenReaderService : AccessibilityService() {
         val HasTitle = FreshNodes.any { NodeText ->
             NodeText.contains(ERROR_SHEET_TITLE, ignoreCase = true)
         }
-        if (!HasTitle) return false
-        return FreshNodes.any { NodeText ->
+        return HasTitle && FreshNodes.any { NodeText ->
             NodeText.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)
         }
     }
@@ -5772,8 +5729,7 @@ class ScreenReaderService : AccessibilityService() {
             NodeText.contains(OFFLINE_TITLE, ignoreCase = true) ||
                     NodeText.contains(OFFLINE_SUBTITLE, ignoreCase = true)
         }
-        if (!HasTitle) return false
-        return FreshNodes.any { NodeText ->
+        return HasTitle && FreshNodes.any { NodeText ->
             NodeText.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)
         }
     }
@@ -6125,10 +6081,10 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun FindErrorRetryBounds(RootNode: AccessibilityNodeInfo): Rect? {
-        for (NodePair in CollectVisibleTextNodes(RootNode = RootNode)) {
-            if (!NodePair.first.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)) continue
-            if (NodePair.second.width() <= 0 || NodePair.second.height() <= 0) continue
-            return NodePair.second
+        for ((first, second) in CollectVisibleTextNodes(RootNode = RootNode)) {
+            if (!first.trim().equals(ERROR_SHEET_RETRY_LABEL, ignoreCase = true)) continue
+            if (second.width() <= 0 || second.height() <= 0) continue
+            return second
         }
         return null
     }
@@ -6262,9 +6218,8 @@ class ScreenReaderService : AccessibilityService() {
             .map { NodePair -> NodePair.second }
 
         val RowList = mutableListOf<CustomerRow>()
-        for (NodePair in TextNodes) {
-            if (!AgeRegex.matches(NodePair.first.trim())) continue
-            val AgeBounds = NodePair.second
+        for ((first, AgeBounds) in TextNodes) {
+            if (!AgeRegex.matches(first.trim())) continue
             val NameCandidate = TextNodes
                 .filter { CandidatePair ->
                     val CandidateBounds = CandidatePair.second
