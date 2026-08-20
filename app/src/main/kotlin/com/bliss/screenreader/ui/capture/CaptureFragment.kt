@@ -315,96 +315,13 @@ class CaptureFragment : Fragment() {
         SheetDialog.setContentView(SheetBinding.root)
         SheetBinding.cardFastCapture.setOnClickListener {
             SheetDialog.dismiss()
-            ContinueToCapture(
-                ActivityRef = ActivityRef,
-                CapturePolicyDetails = false,
-                ImportDueDates = SheetBinding.swImportDueDates.isChecked
-            )
+            StartSelectedCapture(CapturePolicyDetails = false)
         }
         SheetBinding.cardFullCapture.setOnClickListener {
             SheetDialog.dismiss()
-            ContinueToCapture(
-                ActivityRef = ActivityRef,
-                CapturePolicyDetails = true,
-                ImportDueDates = SheetBinding.swImportDueDates.isChecked
-            )
+            StartSelectedCapture(CapturePolicyDetails = true)
         }
         SheetBinding.btnCancelCaptureMode.setOnClickListener { ViewRef ->
-            HapticFeedback.Tap(ViewRef = ViewRef)
-            SheetDialog.dismiss()
-        }
-        SheetDialog.show()
-    }
-
-    private fun ContinueToCapture(
-        ActivityRef: androidx.appcompat.app.AppCompatActivity,
-        CapturePolicyDetails: Boolean,
-        ImportDueDates: Boolean
-    ) {
-        if (!ImportDueDates) {
-            StartSelectedCapture(CapturePolicyDetails = CapturePolicyDetails)
-            return
-        }
-
-        val RenewalSessions = PolicyRepository.GetSessionHistory(ContextRef = ActivityRef)
-            .filter { SessionRef -> SessionRef.Mode == CaptureMode.FUP }
-            .sortedByDescending { SessionRef -> SessionRef.SavedAt }
-
-        if (RenewalSessions.isEmpty()) {
-            CaptureFlow.ShowMessage(
-                ActivityRef = ActivityRef,
-                MessageVal = getString(R.string.capture_due_no_sessions)
-            )
-            return
-        }
-
-        ShowRenewalSessionPicker(
-            ActivityRef = ActivityRef,
-            SessionList = RenewalSessions
-        ) { SessionIdVal ->
-            StartSelectedCapture(
-                CapturePolicyDetails = CapturePolicyDetails,
-                DueDateSessionId = SessionIdVal
-            )
-        }
-    }
-
-    private fun ShowRenewalSessionPicker(
-        ActivityRef: androidx.appcompat.app.AppCompatActivity,
-        SessionList: List<PolicyRepository.CaptureSessionReference>,
-        OnPicked: (String) -> Unit
-    ) {
-        val DateFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
-        val SheetBinding = SheetSessionPickerBinding.inflate(layoutInflater)
-        val SheetDialog = BottomSheetDialog(ActivityRef)
-        SheetDialog.setContentView(SheetBinding.root)
-
-        SheetBinding.tvSessionPickHeading.setText(R.string.capture_due_pick_session)
-        SheetBinding.tvSessionPickBody.setText(R.string.capture_due_pick_body)
-
-        for (SessionRef in SessionList) {
-            val RowBinding = ItemSessionPickBinding.inflate(
-                layoutInflater,
-                SheetBinding.sessionPickContainer,
-                false
-            )
-            RowBinding.tvSessionPickTitle.text = SessionRef.Mode.DescribeCount(
-                CountVal = SessionRef.RecordCount
-            )
-            RowBinding.tvSessionPickMeta.text = getString(
-                R.string.capture_customer_session_format,
-                DateFormatter.format(Date(SessionRef.SavedAt)),
-                SessionRef.SessionId.take(8)
-            )
-            RowBinding.sessionPickCard.setOnClickListener { ViewRef ->
-                HapticFeedback.Tap(ViewRef = ViewRef)
-                SheetDialog.dismiss()
-                OnPicked(SessionRef.SessionId)
-            }
-            SheetBinding.sessionPickContainer.addView(RowBinding.root)
-        }
-
-        SheetBinding.btnSessionPickCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
         }
@@ -464,10 +381,7 @@ class CaptureFragment : Fragment() {
         CaptureFlow.StartCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
     }
 
-    private fun StartSelectedCapture(
-        CapturePolicyDetails: Boolean,
-        DueDateSessionId: String = ""
-    ) {
+    private fun StartSelectedCapture(CapturePolicyDetails: Boolean) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnPrimaryAction)
 
@@ -475,8 +389,7 @@ class CaptureFragment : Fragment() {
             ActivityRef = ActivityRef,
             ModeVal = SelectedMode,
             LaunchTarget = true,
-            CapturePolicyDetails = CapturePolicyDetails,
-            DueDateSessionId = DueDateSessionId
+            CapturePolicyDetails = CapturePolicyDetails
         )
         if (!StartedOk) RenderPreflight()
     }

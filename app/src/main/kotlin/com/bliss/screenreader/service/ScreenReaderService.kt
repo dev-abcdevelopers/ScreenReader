@@ -51,7 +51,6 @@ import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
 import com.bliss.screenreader.data.parser.RecordMerge
-import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.security.MpinStore
 import com.bliss.screenreader.data.parser.ScreenDataParser
@@ -249,7 +248,6 @@ class ScreenReaderService : AccessibilityService() {
     private var CurrentSessionId: String = ""
     private var IsResumedSession = false
     private var CapturePolicyDetailsEnabled = false
-    private var DueDateSourceSessionId: String = ""
     private var OriginActivityName: String = ""
     private var SessionStartedAt: Long = 0L
     private var PausedTotalMs: Long = 0L
@@ -1164,8 +1162,7 @@ class ScreenReaderService : AccessibilityService() {
         CapturePolicyDetailsVal: Boolean = false,
         OriginActivityVal: String = "",
         ResumeSessionIdVal: String = "",
-        RevisitFilledVal: Boolean = false,
-        DueDateSessionIdVal: String = ""
+        RevisitFilledVal: Boolean = false
     ) {
         CurrentMode = ModeVal
         RevisitFilledEnabled = RevisitFilledVal
@@ -1173,7 +1170,6 @@ class ScreenReaderService : AccessibilityService() {
         IsResumedSession = ResumeSessionIdVal.isNotBlank()
         CurrentSessionId = ResumeSessionIdVal.ifBlank { UUID.randomUUID().toString() }
         CapturePolicyDetailsEnabled = ModeVal == CaptureMode.POLICY && CapturePolicyDetailsVal
-        DueDateSourceSessionId = if (ModeVal == CaptureMode.POLICY) DueDateSessionIdVal else ""
         OriginActivityName = OriginActivityVal
         SessionStartedAt = System.currentTimeMillis()
         PausedTotalMs = 0L
@@ -1424,8 +1420,6 @@ class ScreenReaderService : AccessibilityService() {
                     "records=${LatestRecords.size} policies=${CapturedPolicyMap.size}"
         )
 
-        val DueDateOutcome = ApplyDueDateImport()
-
         TeardownSession()
 
         val RecordList = try {
@@ -1470,69 +1464,11 @@ class ScreenReaderService : AccessibilityService() {
                 GapRecords = SessionGapMap.values.toList(),
                 CapturePolicyDetails = CapturePolicyDetailsEnabled,
                 TargetPackage = LastPackageName,
-                OriginActivity = OriginActivityName,
-                DueDateChanges = DueDateOutcome?.Changes.orEmpty(),
-                DueDateSummary = DueDateSummaryText(OutcomeObj = DueDateOutcome)
+                OriginActivity = OriginActivityName
             )
         )
 
         ReturnToOriginActivity()
-    }
-
-    private fun ApplyDueDateImport(): RenewalDueProjection.Outcome? {
-        if (CurrentMode != CaptureMode.POLICY) return null
-        if (DueDateSourceSessionId.isBlank()) return null
-        if (CapturedPolicyMap.isEmpty()) return null
-
-        val RenewalList = try {
-            PolicyRepository.GetFupPolicies(
-                ContextRef = this,
-                SessionId = DueDateSourceSessionId
-            )
-        } catch (ExceptionObj: Exception) {
-            DiagnosticWarning(
-                EventName = "DUE_DATE_IMPORT_FAILED",
-                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
-            )
-            return null
-        }
-
-        if (RenewalList.isEmpty()) {
-            DiagnosticWarning(
-                EventName = "DUE_DATE_IMPORT_EMPTY",
-                MessageText = "Renewals session $DueDateSourceSessionId holds no records"
-            )
-            return null
-        }
-
-        val KeyList = CapturedPolicyMap.keys.toList()
-        val OutcomeObj = RenewalDueProjection.Apply(
-            Policies = KeyList.mapNotNull { KeyText -> CapturedPolicyMap[KeyText] },
-            Renewals = RenewalList
-        )
-        if (OutcomeObj.Policies.size != KeyList.size) return OutcomeObj
-
-        for ((IndexVal, KeyText) in KeyList.withIndex()) {
-            CapturedPolicyMap[KeyText] = OutcomeObj.Policies[IndexVal]
-        }
-
-        DiagnosticInfo(
-            EventName = "DUE_DATE_IMPORT",
-            MessageText = "source=$DueDateSourceSessionId renewals=${RenewalList.size} " +
-                    "matched=${OutcomeObj.MatchedCount} updated=${OutcomeObj.UpdatedCount} " +
-                    "current=${OutcomeObj.UnchangedCount} skipped=${OutcomeObj.SkippedCount}"
-        )
-        return OutcomeObj
-    }
-
-    private fun DueDateSummaryText(OutcomeObj: RenewalDueProjection.Outcome?): String {
-        if (OutcomeObj == null) return ""
-        return getString(
-            R.string.review_due_dates_format,
-            OutcomeObj.UpdatedCount,
-            OutcomeObj.UnchangedCount,
-            OutcomeObj.SkippedCount
-        )
     }
 
     fun DiscardCaptureSession() {

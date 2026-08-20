@@ -157,51 +157,12 @@
         android:paddingBottom="@dimen/space_sm">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnCapturePersonal"
-            style="@style/Widget.App.Button.Outlined"
+            android:id="@+id/btnSessionActions"
+            style="@style/Widget.App.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/space_sm"
-            android:text="@string/policies_capture_personal"
-            app:icon="@drawable/ic_person" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnUploadSync"
-            style="@style/Widget.App.Button.Outlined"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/space_sm"
-            android:text="@string/policies_upload"
-            android:visibility="gone"
-            app:icon="@drawable/ic_cloud_upload" />
-
-        <LinearLayout
-            android:id="@+id/exportButtonRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnExportPdf"
-            style="@style/Widget.App.Button.Outlined"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/policies_export_pdf"
-            app:icon="@drawable/ic_export" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnExportExcel"
-            style="@style/Widget.App.Button.Outlined"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/policies_export_excel"
-            app:icon="@drawable/ic_export" />
-
-        </LinearLayout>
+            android:text="@string/policies_actions"
+            app:icon="@drawable/ic_list" />
 
     </LinearLayout>
 

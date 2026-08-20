@@ -121,6 +121,65 @@ class RenewalDueProjectionTest {
     }
 
     @Test
+    fun Apply_AnchorsOnTheRowMatchingThePolicysOwnDueDate() {
+        val PolicyList = listOf(
+            CustomerPolicy(PolicyNumber = "125225185", RenewalDueDate = "18 Jun 2026")
+        )
+        val RenewalList = listOf(
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 Apr 2026", PremiumFrequency = "Month"),
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 Jun 2026", PremiumFrequency = "Month"),
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 May 2026", PremiumFrequency = "Month")
+        )
+
+        val OutcomeObj = RenewalDueProjection.Apply(
+            Policies = PolicyList,
+            Renewals = RenewalList
+        )
+
+        assertEquals("18 Jul 2026", OutcomeObj.Policies.first().RenewalDueDate)
+        assertEquals(1, OutcomeObj.AnchoredCount)
+        assertEquals(1, OutcomeObj.UpdatedCount)
+    }
+
+    @Test
+    fun Apply_PrefersTheFurtherDateWhenARowBeyondTheAnchorIsAlsoPaid() {
+        val PolicyList = listOf(
+            CustomerPolicy(PolicyNumber = "125225185", RenewalDueDate = "18 Jun 2026")
+        )
+        val RenewalList = listOf(
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 Jun 2026", PremiumFrequency = "Month"),
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 Aug 2026", PremiumFrequency = "Month")
+        )
+
+        val OutcomeObj = RenewalDueProjection.Apply(
+            Policies = PolicyList,
+            Renewals = RenewalList
+        )
+
+        assertEquals("18 Sep 2026", OutcomeObj.Policies.first().RenewalDueDate)
+        assertEquals(1, OutcomeObj.AnchoredCount)
+    }
+
+    @Test
+    fun Apply_CountsNoAnchorWhenNoRowLinesUpWithThePolicyDate() {
+        val PolicyList = listOf(
+            CustomerPolicy(PolicyNumber = "125225185", RenewalDueDate = "01 Jan 2026")
+        )
+        val RenewalList = listOf(
+            FupPolicy(PolicyNumber = "125225185", DueDate = "18 Jun 2026", PremiumFrequency = "Month")
+        )
+
+        val OutcomeObj = RenewalDueProjection.Apply(
+            Policies = PolicyList,
+            Renewals = RenewalList
+        )
+
+        assertEquals("18 Jul 2026", OutcomeObj.Policies.first().RenewalDueDate)
+        assertEquals(0, OutcomeObj.AnchoredCount)
+        assertEquals(1, OutcomeObj.MatchedCount)
+    }
+
+    @Test
     fun Apply_NeverMovesADueDateBackwards() {
         val PolicyList = listOf(
             CustomerPolicy(PolicyNumber = "156257874", RenewalDueDate = "20 Aug 2026")

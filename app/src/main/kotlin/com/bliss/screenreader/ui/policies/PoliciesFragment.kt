@@ -29,8 +29,11 @@ import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
+import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
+import com.bliss.screenreader.databinding.SheetSessionActionsBinding
+import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.databinding.SheetUploadProgressBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
@@ -47,6 +50,8 @@ import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class PoliciesFragment : Fragment() {
@@ -76,6 +81,7 @@ class PoliciesFragment : Fragment() {
     private var SelectedSessionMode: CaptureMode = CaptureMode.POLICY
     private var SearchQuery: String = ""
     private var StatusFilter: String = FILTER_ALL
+    private var ShowPdfAction = true
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -119,12 +125,9 @@ class PoliciesFragment : Fragment() {
             RenderList(ResetScroll = true)
         }
 
-        BindingObj.btnExportPdf.setOnClickListener { ExportPdf() }
-        BindingObj.btnExportExcel.setOnClickListener { ExportExcel() }
-        BindingObj.btnUploadSync.setOnClickListener { UploadSession() }
-        BindingObj.btnCapturePersonal.setOnClickListener { ViewRef ->
+        BindingObj.btnSessionActions.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
-            CapturePersonalDetails()
+            ShowSessionActionsSheet()
         }
 
         BindingObj.emptyState.btnEmptyAction.setOnClickListener { ViewRef ->
@@ -236,6 +239,120 @@ class PoliciesFragment : Fragment() {
         return DigitsText.toLongOrNull() ?: 0L
     }
 
+    private fun PickRenewalSessionForDueDates() {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (SelectedSessionId.isEmpty() || SelectedSessionMode != CaptureMode.POLICY) return
+
+        val RenewalSessions = PolicyRepository.GetSessionHistory(ContextRef = ActivityRef)
+            .filter { SessionRef -> SessionRef.Mode == CaptureMode.FUP }
+            .sortedByDescending { SessionRef -> SessionRef.SavedAt }
+
+        if (RenewalSessions.isEmpty()) {
+            ShowSnack(MessageVal = getString(R.string.due_no_sessions))
+            return
+        }
+
+        val DateFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
+        val SheetBinding = SheetSessionPickerBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.tvSessionPickHeading.setText(R.string.due_pick_session)
+        SheetBinding.tvSessionPickBody.setText(R.string.due_pick_body)
+
+        for (SessionRef in RenewalSessions) {
+            val RowBinding = ItemSessionPickBinding.inflate(
+                layoutInflater,
+                SheetBinding.sessionPickContainer,
+                false
+            )
+            RowBinding.tvSessionPickTitle.text = SessionRef.Mode.DescribeCount(
+                CountVal = SessionRef.RecordCount
+            )
+            RowBinding.tvSessionPickMeta.text = getString(
+                R.string.capture_customer_session_format,
+                DateFormatter.format(Date(SessionRef.SavedAt)),
+                SessionRef.SessionId.take(8)
+            )
+            RowBinding.sessionPickCard.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                SheetDialog.dismiss()
+                ApplyDueDatesFrom(RenewalSessionId = SessionRef.SessionId)
+            }
+            SheetBinding.sessionPickContainer.addView(RowBinding.root)
+        }
+
+        SheetBinding.btnSessionPickCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun ApplyDueDatesFrom(RenewalSessionId: String) {
+        val ContextRef = context?.applicationContext ?: return
+        if (SelectedSessionId.isEmpty()) return
+
+        val RenewalList = PolicyRepository.GetFupPolicies(
+            ContextRef = ContextRef,
+            SessionId = RenewalSessionId
+        )
+        if (RenewalList.isEmpty()) {
+            ShowSnack(MessageVal = getString(R.string.due_no_sessions))
+            return
+        }
+
+        val OutcomeObj = RenewalDueProjection.Apply(
+            Policies = AllPolicies,
+            Renewals = RenewalList
+        )
+
+        if (OutcomeObj.MatchedCount == 0) {
+            ShowSnack(MessageVal = getString(R.string.due_no_matches))
+            return
+        }
+
+        if (OutcomeObj.Changes.isNotEmpty()) {
+            PolicyRepository.SaveFieldChanges(
+                ContextRef = ContextRef,
+                ModeVal = CaptureMode.POLICY,
+                SessionId = SelectedSessionId,
+                Changes = OutcomeObj.Changes
+            )
+            PolicyRepository.SaveCustomerPolicies(
+                ContextRef = ContextRef,
+                Policies = OutcomeObj.Policies,
+                SessionId = SelectedSessionId
+            )
+            LoadSessionRecords()
+            RenderList()
+        }
+
+        CaptureDiagnostics.LogForSession(
+            ContextObj = ContextRef,
+            SessionId = SelectedSessionId,
+            EventName = "DUE_DATE_IMPORT",
+            MessageText = "source=$RenewalSessionId renewals=${RenewalList.size} " +
+                    "matched=${OutcomeObj.MatchedCount} anchored=${OutcomeObj.AnchoredCount} " +
+                    "updated=${OutcomeObj.UpdatedCount} current=${OutcomeObj.UnchangedCount} " +
+                    "skipped=${OutcomeObj.SkippedCount}"
+        )
+
+        ShowSnack(
+            MessageVal = getString(
+                R.string.due_result_format,
+                OutcomeObj.UpdatedCount,
+                OutcomeObj.UnchangedCount,
+                OutcomeObj.SkippedCount
+            )
+        )
+    }
+
+    private fun ShowSnack(MessageVal: String) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = MessageVal)
+    }
+
     private fun RenderList(ResetScroll: Boolean = false) {
         when {
             SelectedSessionId.isEmpty() -> RenderSessions()
@@ -287,8 +404,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.emptyState.emptyStateRoot.visibility =
             if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
-        ApplyExportBarMode(ShowPdf = false)
-        BindingObj.btnCapturePersonal.visibility = View.GONE
+        ShowPdfAction = false
         if (HasVisible) return
 
         if (AllRenewals.isNotEmpty()) {
@@ -342,12 +458,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.chipLapsed.setText(R.string.policies_filter_lapsed)
         BindingObj.chipAll.setText(R.string.policies_filter_all)
         BindingObj.tvListSummary.visibility = View.GONE
-        ApplyExportBarMode(ShowPdf = true)
-        BindingObj.btnCapturePersonal.visibility = if (SelectedSessionId.isNotEmpty()) {
-            View.VISIBLE
-        } else {
-            View.GONE
-        }
+        ShowPdfAction = true
         BindingObj.tilSearch.hint = getString(R.string.policies_search_hint)
         SessionBackCallback?.isEnabled = true
 
@@ -501,12 +612,57 @@ class PoliciesFragment : Fragment() {
         RenderList(ResetScroll = true)
     }
 
-    private fun ApplyExportBarMode(ShowPdf: Boolean) {
-        val BindingObj = ViewBindingObj ?: return
+    private fun ShowSessionActionsSheet() {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val SheetBinding = SheetSessionActionsBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        val IsPolicySession = SelectedSessionId.isNotEmpty() &&
+                SelectedSessionMode == CaptureMode.POLICY
         val ShowUpload = SessionUploader.IsEnabled() && IsUploadableSession()
-        BindingObj.exportButtonRow.visibility = if (ShowUpload) View.GONE else View.VISIBLE
-        BindingObj.btnExportPdf.visibility = if (ShowPdf) View.VISIBLE else View.GONE
-        BindingObj.btnUploadSync.visibility = if (ShowUpload) View.VISIBLE else View.GONE
+
+        SheetBinding.rowActionPersonal.visibility =
+            if (IsPolicySession) View.VISIBLE else View.GONE
+        SheetBinding.rowActionDueDates.visibility =
+            if (IsPolicySession) View.VISIBLE else View.GONE
+        SheetBinding.rowActionUpload.visibility = if (ShowUpload) View.VISIBLE else View.GONE
+        SheetBinding.rowActionPdf.visibility = if (ShowPdfAction) View.VISIBLE else View.GONE
+        SheetBinding.tvActionPersonalDesc.text = getString(
+            R.string.action_personal_desc,
+            AllPolicies.size
+        )
+
+        SheetBinding.rowActionPersonal.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            CapturePersonalDetails()
+        }
+        SheetBinding.rowActionDueDates.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            PickRenewalSessionForDueDates()
+        }
+        SheetBinding.rowActionUpload.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            UploadSession()
+        }
+        SheetBinding.rowActionExcel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ExportExcel()
+        }
+        SheetBinding.rowActionPdf.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ExportPdf()
+        }
+        SheetBinding.btnActionsCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
     }
 
     private fun IsUploadableSession(): Boolean =
@@ -540,7 +696,7 @@ class PoliciesFragment : Fragment() {
         ActivityRef: androidx.appcompat.app.AppCompatActivity,
         AgencyCodeVal: String
     ) {
-        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnUploadSync)
+        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnSessionActions)
         UploadAgencyCode = AgencyCodeVal
         ShowUploadSheet(ActivityRef = ActivityRef)
         StartUpload()
@@ -808,7 +964,7 @@ class PoliciesFragment : Fragment() {
     private fun ExportPdf() {
         val VisibleList = VisiblePolicies()
         if (VisibleList.isEmpty()) return
-        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportPdf)
+        HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnSessionActions)
         val ExportedFile =
             PdfExporter.GeneratePolicyPdf(ContextRef = requireContext(), Policies = VisibleList)
         ShareFile(FileRef = ExportedFile, MimeType = "application/pdf")
@@ -880,7 +1036,7 @@ class PoliciesFragment : Fragment() {
         val ExportedFile = if (SelectedSessionMode == CaptureMode.FUP) {
             val VisibleList = VisibleRenewals()
             if (VisibleList.isEmpty()) return
-            HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportExcel)
+            HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnSessionActions)
             ExcelExporter.ExportFupPolicies(
                 ContextRef = requireContext(),
                 Policies = VisibleList,
@@ -889,7 +1045,7 @@ class PoliciesFragment : Fragment() {
         } else {
             val VisibleList = VisiblePolicies()
             if (VisibleList.isEmpty()) return
-            HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnExportExcel)
+            HapticFeedback.Confirm(ViewRef = ViewBindingObj?.btnSessionActions)
             ExcelExporter.ExportCustomerPolicies(
                 ContextRef = requireContext(),
                 Policies = VisibleList,

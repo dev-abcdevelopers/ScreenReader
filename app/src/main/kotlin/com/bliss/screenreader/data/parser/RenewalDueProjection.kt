@@ -16,6 +16,7 @@ object RenewalDueProjection {
         val Policies: List<CustomerPolicy>,
         val Changes: List<RecordFieldChange>,
         val MatchedCount: Int = 0,
+        val AnchoredCount: Int = 0,
         val UpdatedCount: Int = 0,
         val UnchangedCount: Int = 0,
         val SkippedCount: Int = 0
@@ -118,6 +119,30 @@ object RenewalDueProjection {
         return ResultMap
     }
 
+    fun GroupByPolicy(Renewals: List<FupPolicy>): Map<String, List<FupPolicy>> {
+        return Renewals
+            .filter { RenewalItem -> RenewalItem.PolicyNumber.trim().isNotEmpty() }
+            .groupBy { RenewalItem -> RenewalItem.PolicyNumber.trim() }
+    }
+
+    fun LatestRow(Rows: List<FupPolicy>): FupPolicy? {
+        if (Rows.isEmpty()) return null
+        return Rows.reduce { BestItem, RowItem ->
+            if (IsNewerRenewal(CandidateItem = RowItem, ExistingItem = BestItem)) {
+                RowItem
+            } else {
+                BestItem
+            }
+        }
+    }
+
+    fun AnchorRow(Rows: List<FupPolicy>, PolicyDueDate: String): FupPolicy? {
+        val PolicyDueObj = ParseDate(RawText = PolicyDueDate) ?: return null
+        return Rows.firstOrNull { RowItem ->
+            ParseDate(RawText = RowItem.DueDate) == PolicyDueObj
+        }
+    }
+
     fun Apply(
         Policies: List<CustomerPolicy>,
         Renewals: List<FupPolicy>
@@ -126,26 +151,35 @@ object RenewalDueProjection {
             return Outcome(Policies = Policies, Changes = emptyList())
         }
 
-        val LatestMap = LatestByPolicy(Renewals = Renewals)
+        val GroupedMap = GroupByPolicy(Renewals = Renewals)
         val ChangeList = mutableListOf<RecordFieldChange>()
         var MatchedCount = 0
+        var AnchoredCount = 0
         var UpdatedCount = 0
         var UnchangedCount = 0
         var SkippedCount = 0
 
         val UpdatedPolicies = Policies.map { PolicyItem ->
             val KeyText = PolicyItem.PolicyNumber.trim()
-            val RenewalItem = LatestMap[KeyText] ?: return@map PolicyItem
+            val RowList = GroupedMap[KeyText] ?: return@map PolicyItem
             MatchedCount++
 
-            val FrequencyText = RenewalItem.PremiumFrequency.ifEmpty {
-                PolicyItem.PremiumFrequency
-            }
-            val NextDueText = NextDueDate(
-                PaidForDate = RenewalItem.DueDate,
-                FrequencyText = FrequencyText
-            )
-            val NextDueObj = ParseDate(RawText = NextDueText)
+            val AnchorItem = AnchorRow(Rows = RowList, PolicyDueDate = PolicyItem.RenewalDueDate)
+            if (AnchorItem != null) AnchoredCount++
+            val LatestItem = LatestRow(Rows = RowList)
+
+            val NextDueObj = listOfNotNull(AnchorItem, LatestItem)
+                .mapNotNull { RowItem ->
+                    ParseDate(
+                        RawText = NextDueDate(
+                            PaidForDate = RowItem.DueDate,
+                            FrequencyText = RowItem.PremiumFrequency.ifEmpty {
+                                PolicyItem.PremiumFrequency
+                            }
+                        )
+                    )
+                }
+                .maxOrNull()
             if (NextDueObj == null) {
                 SkippedCount++
                 return@map PolicyItem
@@ -157,6 +191,7 @@ object RenewalDueProjection {
                 return@map PolicyItem
             }
 
+            val NextDueText = FormatDate(DateObj = NextDueObj)
             UpdatedCount++
             ChangeList.add(
                 RecordFieldChange(
@@ -173,6 +208,7 @@ object RenewalDueProjection {
             Policies = UpdatedPolicies,
             Changes = ChangeList,
             MatchedCount = MatchedCount,
+            AnchoredCount = AnchoredCount,
             UpdatedCount = UpdatedCount,
             UnchangedCount = UnchangedCount,
             SkippedCount = SkippedCount

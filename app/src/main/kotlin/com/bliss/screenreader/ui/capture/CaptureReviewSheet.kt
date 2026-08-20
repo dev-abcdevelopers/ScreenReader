@@ -106,27 +106,6 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                         "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +
                         "updated=${CommitBreakdown.UpdatedCount} nodes=${SessionObj.NodeCount}"
             )
-            if (SavedCount > 0 && SessionObj.DueDateChanges.isNotEmpty()) {
-                PolicyRepository.SaveFieldChanges(
-                    ContextRef = AppContext,
-                    ModeVal = SessionObj.Mode,
-                    SessionId = SessionObj.SessionId,
-                    Changes = SessionObj.DueDateChanges
-                )
-            }
-            if (SavedCount > 0 && SessionObj.DueDateSummary.isNotEmpty()) {
-                CaptureDiagnostics.LogForSession(
-                    ContextObj = AppContext,
-                    SessionId = SessionObj.SessionId,
-                    EventName = "SESSION_DUE_DATES",
-                    MessageText = SessionObj.DueDateSummary
-                )
-                Toast.makeText(
-                    AppContext,
-                    SessionObj.DueDateSummary,
-                    Toast.LENGTH_LONG
-                ).show()
-            }
             if (SessionObj.GapRecords.isNotEmpty()) {
                 val GapNumberText = SessionObj.GapRecords.joinToString(",") { GapItem ->
                     GapItem.PolicyNumber

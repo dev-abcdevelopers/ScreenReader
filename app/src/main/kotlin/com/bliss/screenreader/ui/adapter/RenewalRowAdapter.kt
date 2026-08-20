@@ -73,12 +73,8 @@ class RenewalRowAdapter(
             PaidForDate = RenewalItem.DueDate,
             FrequencyText = FrequencyText
         )
-        BindingRef.tvRenewalNextDue.text = if (NextDueText.isEmpty()) {
-            ""
-        } else {
-            ContextRef.getString(R.string.renewal_next_due_format, NextDueText)
-        }
-        BindingRef.tvRenewalNextDue.visibility =
+        BindingRef.tvRenewalNextDue.text = NextDueText
+        BindingRef.nextDueBox.visibility =
             if (NextDueText.isEmpty()) View.GONE else View.VISIBLE
 
         BindStatus(BindingRef = BindingRef, StatusText = RenewalItem.Status)

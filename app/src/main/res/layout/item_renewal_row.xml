@@ -176,15 +176,45 @@
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvRenewalNextDue"
+        <LinearLayout
+            android:id="@+id/nextDueBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_sm"
-            android:drawablePadding="@dimen/space_sm"
-            android:textAppearance="@style/TextAppearance.App.Caption"
-            android:textColor="@color/text_accent"
-            android:textStyle="bold" />
+            android:layout_marginTop="@dimen/card_gap"
+            android:background="@drawable/bg_next_due"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/card_padding"
+            android:paddingTop="@dimen/space_md"
+            android:paddingEnd="@dimen/card_padding"
+            android:paddingBottom="@dimen/space_md">
+
+            <ImageView
+                android:layout_width="@dimen/icon_sm"
+                android:layout_height="@dimen/icon_sm"
+                android:layout_marginEnd="@dimen/space_sm"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_calendar_repeat"
+                app:tint="@color/on_primary_container" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/renewal_next_due_label"
+                android:textAppearance="@style/TextAppearance.App.Caption"
+                android:textColor="@color/on_primary_container" />
+
+            <TextView
+                android:id="@+id/tvRenewalNextDue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.App.Metric"
+                android:textColor="@color/on_primary_container"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

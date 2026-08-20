@@ -51,9 +51,7 @@ data class CaptureSession(
     val CapturePolicyDetails: Boolean = false,
     val TargetPackage: String = "",
     val OriginActivity: String = "",
-    val GapRecords: List<SessionGap> = emptyList(),
-    val DueDateChanges: List<RecordFieldChange> = emptyList(),
-    val DueDateSummary: String = ""
+    val GapRecords: List<SessionGap> = emptyList()
 ) {
     val DurationMs: Long get() = (EndedAt - StartedAt).coerceAtLeast(0L)
 
