@@ -14,7 +14,6 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/bg_light"
         app:navigationContentDescription="@string/cd_back"
-        app:navigationIcon="@drawable/ic_arrow_back"
         app:title="@string/changes_title">
 
         <ImageButton
