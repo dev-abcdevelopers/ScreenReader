@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.text.method.PasswordTransformationMethod
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +25,7 @@ class MpinActivity : AppCompatActivity() {
     private lateinit var BoxViews: List<EditText>
     private var IsRevealed = false
     private var IsSpreadingDigits = false
+    private var IsEditingMpin = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,12 +46,22 @@ class MpinActivity : AppCompatActivity() {
         ViewBindingObj.swAutoEnter.isChecked = MpinStore.IsAutoEnterOn(ContextRef = this)
         ViewBindingObj.swAutoEnter.setOnCheckedChangeListener { ViewRef, _ ->
             HapticFeedback.Tap(ViewRef = ViewRef)
+            if (!IsEditingMpin && MpinStore.HasMpin(ContextRef = this)) {
+                MpinStore.SetAutoEnter(
+                    ContextRef = this,
+                    EnabledVal = ViewBindingObj.swAutoEnter.isChecked
+                )
+            }
             RenderAutoBody()
         }
         ViewBindingObj.btnRevealMpin.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             IsRevealed = !IsRevealed
             RenderReveal()
+        }
+        ViewBindingObj.btnEditMpin.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            BeginEditing(ShowKeyboardVal = true, FocusLastBoxVal = true)
         }
         ViewBindingObj.btnSaveMpin.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -118,7 +130,7 @@ class MpinActivity : AppCompatActivity() {
     private fun ShowSavedMpin() {
         val SavedText = MpinStore.MpinOrNull(ContextRef = this).orEmpty()
         if (!MpinStore.IsWellFormed(CodeText = SavedText)) {
-            BoxViews.first().requestFocus()
+            BeginEditing(ShowKeyboardVal = false)
             return
         }
         IsSpreadingDigits = true
@@ -126,8 +138,46 @@ class MpinActivity : AppCompatActivity() {
             BoxViews[IndexVal].setText(SavedText[IndexVal].toString())
         }
         IsSpreadingDigits = false
-        BoxViews.last().requestFocus()
-        BoxViews.last().setSelection(BoxViews.last().text?.length ?: 0)
+        LockMpin()
+    }
+
+    private fun BeginEditing(ShowKeyboardVal: Boolean, FocusLastBoxVal: Boolean = false) {
+        IsEditingMpin = true
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED)
+        RenderEditingState()
+
+        val FocusBox = if (FocusLastBoxVal) BoxViews.last() else BoxViews.first()
+        FocusBox.requestFocus()
+        FocusBox.selectAll()
+        if (!ShowKeyboardVal) return
+
+        FocusBox.post {
+            val ManagerRef = getSystemService<InputMethodManager>() ?: return@post
+            ManagerRef.showSoftInput(FocusBox, 0)
+        }
+    }
+
+    private fun LockMpin() {
+        IsEditingMpin = false
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        RenderEditingState()
+        HideKeyboard()
+    }
+
+    private fun RenderEditingState() {
+        for (BoxRef in BoxViews) {
+            BoxRef.isEnabled = IsEditingMpin
+            BoxRef.isFocusable = IsEditingMpin
+            BoxRef.isFocusableInTouchMode = IsEditingMpin
+            BoxRef.isCursorVisible = IsEditingMpin
+            BoxRef.alpha = if (IsEditingMpin) 1f else 0.65f
+        }
+
+        val HasSavedMpin = MpinStore.HasMpin(ContextRef = this)
+        ViewBindingObj.btnEditMpin.visibility =
+            if (HasSavedMpin && !IsEditingMpin) View.VISIBLE else View.GONE
+        ViewBindingObj.btnSaveMpin.visibility =
+            if (IsEditingMpin) View.VISIBLE else View.GONE
     }
 
     private fun CurrentCode(): String = BoxViews.joinToString(separator = "") { BoxRef ->
@@ -184,8 +234,8 @@ class MpinActivity : AppCompatActivity() {
         val AutoEnterVal = ViewBindingObj.swAutoEnter.isChecked
         MpinStore.Save(ContextRef = this, CodeText = CodeText, AutoEnterVal = AutoEnterVal)
         ClearError()
-        HideKeyboard()
         RenderClearButton()
+        LockMpin()
         HapticFeedback.Confirm(ViewRef = ViewBindingObj.btnSaveMpin)
         Snackbar.make(
             ViewBindingObj.root,
@@ -204,7 +254,7 @@ class MpinActivity : AppCompatActivity() {
         HideKeyboard()
         RenderAutoBody()
         RenderClearButton()
-        BoxViews.first().requestFocus()
+        BeginEditing(ShowKeyboardVal = false)
         Snackbar.make(ViewBindingObj.root, R.string.mpin_cleared, Snackbar.LENGTH_SHORT).show()
     }
 

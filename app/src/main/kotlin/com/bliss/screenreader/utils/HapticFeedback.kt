@@ -14,7 +14,16 @@ import androidx.annotation.RequiresApi
 
 object HapticFeedback {
     fun Tap(ViewRef: View?) {
-        ViewRef?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        PerformViewFeedback(
+            ViewRef = ViewRef,
+            FeedbackConstant = HapticFeedbackConstants.CLOCK_TICK,
+            FallbackEffectId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                VibrationEffect.EFFECT_TICK
+            } else {
+                null
+            },
+            FallbackDurationMs = 12L
+        )
     }
 
     fun Confirm(ViewRef: View?) {
@@ -23,7 +32,16 @@ object HapticFeedback {
         } else {
             HapticFeedbackConstants.VIRTUAL_KEY
         }
-        ViewRef?.performHapticFeedback(ConstantVal)
+        PerformViewFeedback(
+            ViewRef = ViewRef,
+            FeedbackConstant = ConstantVal,
+            FallbackEffectId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                VibrationEffect.EFFECT_CLICK
+            } else {
+                null
+            },
+            FallbackDurationMs = 30L
+        )
     }
 
     fun Reject(ViewRef: View?) {
@@ -32,7 +50,44 @@ object HapticFeedback {
         } else {
             HapticFeedbackConstants.LONG_PRESS
         }
-        ViewRef?.performHapticFeedback(ConstantVal)
+        PerformViewFeedback(
+            ViewRef = ViewRef,
+            FeedbackConstant = ConstantVal,
+            FallbackEffectId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                VibrationEffect.EFFECT_HEAVY_CLICK
+            } else {
+                null
+            },
+            FallbackDurationMs = 60L
+        )
+    }
+
+    private fun PerformViewFeedback(
+        ViewRef: View?,
+        FeedbackConstant: Int,
+        FallbackEffectId: Int?,
+        FallbackDurationMs: Long
+    ) {
+        ViewRef ?: return
+        val WasPerformed = try {
+            ViewRef.performHapticFeedback(
+                FeedbackConstant,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+            )
+        } catch (_: Exception) {
+            false
+        }
+        if (WasPerformed) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && FallbackEffectId != null) {
+            PlayPredefined(
+                ContextRef = ViewRef.context,
+                EffectId = FallbackEffectId,
+                FallbackDurationMs = FallbackDurationMs
+            )
+        } else {
+            PlayOneShot(ContextRef = ViewRef.context, DurationMs = FallbackDurationMs)
+        }
     }
 
 
@@ -40,7 +95,8 @@ object HapticFeedback {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PlayPredefined(
                 ContextRef = ContextRef,
-                EffectId = VibrationEffect.EFFECT_DOUBLE_CLICK
+                EffectId = VibrationEffect.EFFECT_DOUBLE_CLICK,
+                FallbackDurationMs = 40L
             )
         } else {
             PlayPattern(
@@ -55,7 +111,8 @@ object HapticFeedback {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PlayPredefined(
                 ContextRef = ContextRef,
-                EffectId = VibrationEffect.EFFECT_HEAVY_CLICK
+                EffectId = VibrationEffect.EFFECT_HEAVY_CLICK,
+                FallbackDurationMs = 160L
             )
         } else {
             PlayPattern(
@@ -66,12 +123,30 @@ object HapticFeedback {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun PlayPredefined(ContextRef: Context, EffectId: Int) {
+    private fun PlayPredefined(
+        ContextRef: Context,
+        EffectId: Int,
+        FallbackDurationMs: Long
+    ) {
         val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
         try {
             VibratorRef.vibrate(VibrationEffect.createPredefined(EffectId))
         } catch (_: Exception) {
-            // A device can advertise a vibrator and still reject an effect.
+            // Some devices expose a vibrator but reject optional predefined effects.
+            PlayOneShot(ContextRef = ContextRef, DurationMs = FallbackDurationMs)
+        }
+    }
+
+    private fun PlayOneShot(ContextRef: Context, DurationMs: Long) {
+        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
+        try {
+            VibratorRef.vibrate(
+                VibrationEffect.createOneShot(
+                    DurationMs,
+                    VibrationEffect.DEFAULT_AMPLITUDE
+                )
+            )
+        } catch (_: Exception) {
         }
     }
 
