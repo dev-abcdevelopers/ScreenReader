@@ -53,6 +53,8 @@ import com.bliss.screenreader.data.parser.PlanIdentity
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.security.MpinStore
+import com.bliss.screenreader.settings.PaceProfile
+import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.data.parser.ScreenDataParser
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
@@ -329,6 +331,13 @@ class ScreenReaderService : AccessibilityService() {
     private var ErrorHealthySinceAt = 0L
     private var ConsecutiveErrorGiveUps = 0
     private var ErrorPaceExtraMs = 0L
+    private var PaceProfileValue = PaceProfile.NORMAL
+    private var OfflineWaitMs = OFFLINE_MAX_WAIT_MS
+    private var ErrorRetryLimit = ERROR_SHEET_MAX_RETRIES
+    private var ErrorGiveUpLimit = ERROR_SHEET_GIVEUP_LIMIT
+    private var ErrorSlowDownEnabled = true
+    private var ContactOcrEnabled = true
+    private var AgentPackageName = AppLauncherUtils.PS_AGENT_APP_PACKAGES.first()
     private var LastHealthyRecordCount = 0
     private var OfflineSinceAt = 0L
     private var OfflineRetryCount = 0
@@ -1157,6 +1166,18 @@ class ScreenReaderService : AccessibilityService() {
     }
 
 
+    private fun Paced(BaseMs: Long): Long = PaceProfileValue.Scale(BaseMs = BaseMs)
+
+    private fun LoadRunSettings() {
+        PaceProfileValue = SettingsStore.PaceOf(ContextRef = this)
+        OfflineWaitMs = SettingsStore.OfflineWaitMs(ContextRef = this)
+        ErrorRetryLimit = SettingsStore.ErrorRetryLimit(ContextRef = this)
+        ErrorGiveUpLimit = SettingsStore.ErrorGiveUpLimit(ContextRef = this)
+        ErrorSlowDownEnabled = SettingsStore.IsErrorSlowDownOn(ContextRef = this)
+        ContactOcrEnabled = SettingsStore.IsContactOcrOn(ContextRef = this)
+        AgentPackageName = AppLauncherUtils.ResolveAgentPackage(ContextRef = this)
+    }
+
     fun StartCaptureSession(
         ModeVal: CaptureMode,
         CapturePolicyDetailsVal: Boolean = false,
@@ -1165,6 +1186,7 @@ class ScreenReaderService : AccessibilityService() {
         RevisitFilledVal: Boolean = false
     ) {
         CurrentMode = ModeVal
+        LoadRunSettings()
         RevisitFilledEnabled = RevisitFilledVal
         CancelEventWindowCapture()
         IsResumedSession = ResumeSessionIdVal.isNotBlank()
@@ -2008,7 +2030,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun ExpectedTargetPackage(): String {
         return if (CurrentMode == CaptureMode.PS) {
-            AppLauncherUtils.PS_AGENT_APP_PACKAGE
+            AgentPackageName
         } else {
             AppLauncherUtils.LIC_SUPER_APP_PACKAGE
         }
@@ -3236,7 +3258,7 @@ class ScreenReaderService : AccessibilityService() {
             if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
                 RenderWaitCount++
                 PolicyAutomationRunnable = WrappedRunnable
-                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
+                MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = SCREEN_READY_RECHECK_MS))
                 return@Runnable
             }
 
@@ -3244,7 +3266,7 @@ class ScreenReaderService : AccessibilityService() {
             ActionRef()
         }
         PolicyAutomationRunnable = WrappedRunnable
-        MainHandler.postDelayed(WrappedRunnable, DelayMs)
+        MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = DelayMs))
     }
 
     private fun ClickPolicyPageSelector(
@@ -4575,7 +4597,7 @@ class ScreenReaderService : AccessibilityService() {
             if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
                 RenderWaitCount++
                 RenewalAutomationRunnable = WrappedRunnable
-                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
+                MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = SCREEN_READY_RECHECK_MS))
                 return@Runnable
             }
 
@@ -4583,7 +4605,7 @@ class ScreenReaderService : AccessibilityService() {
             ActionRef()
         }
         RenewalAutomationRunnable = WrappedRunnable
-        MainHandler.postDelayed(WrappedRunnable, DelayMs)
+        MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = DelayMs))
     }
 
     private fun StartAutoScroll(ScreenSignature: Int) {
@@ -4636,7 +4658,7 @@ class ScreenReaderService : AccessibilityService() {
             }
         }
         AutoScrollRunnable = RunnableObj
-        MainHandler.postDelayed(RunnableObj, AUTO_SCROLL_START_DELAY_MS)
+        MainHandler.postDelayed(RunnableObj, Paced(BaseMs = AUTO_SCROLL_START_DELAY_MS))
     }
 
     private fun StopAutoScroll(CompletedVal: Boolean = false) {
@@ -5835,7 +5857,7 @@ class ScreenReaderService : AccessibilityService() {
                 return
             }
 
-            if (WaitedMs >= OFFLINE_MAX_WAIT_MS) {
+            if (WaitedMs >= OfflineWaitMs) {
                 StopSessionForOffline(WaitedMs = WaitedMs)
                 return
             }
@@ -5974,7 +5996,7 @@ class ScreenReaderService : AccessibilityService() {
 
         SuspendAutomationForError()
 
-        if (ErrorRetryCount >= ERROR_SHEET_MAX_RETRIES) {
+        if (ErrorRetryCount >= ErrorRetryLimit) {
             GiveUpOnErrorSheet(ReasonText = "retries=$ErrorRetryCount exhausted")
             return
         }
@@ -5995,7 +6017,7 @@ class ScreenReaderService : AccessibilityService() {
 
         DiagnosticWarning(
             EventName = "ERROR_SHEET_SEEN",
-            MessageText = "attempt=$ErrorRetryCount of $ERROR_SHEET_MAX_RETRIES " +
+            MessageText = "attempt=$ErrorRetryCount of $ErrorRetryLimit " +
                     "backoffMs=$BackoffMs mode=${CurrentMode.name} " +
                     "customer=$ActiveCustomerName"
         )
@@ -6117,8 +6139,10 @@ class ScreenReaderService : AccessibilityService() {
         ErrorBoundsMissCount = 0
         ErrorHealthySinceAt = 0L
         ConsecutiveErrorGiveUps++
-        ErrorPaceExtraMs = (ErrorPaceExtraMs + ERROR_SHEET_PACE_STEP_MS)
-            .coerceAtMost(ERROR_SHEET_PACE_CEILING_MS)
+        if (ErrorSlowDownEnabled) {
+            ErrorPaceExtraMs = (ErrorPaceExtraMs + ERROR_SHEET_PACE_STEP_MS)
+                .coerceAtMost(ERROR_SHEET_PACE_CEILING_MS)
+        }
 
         DiagnosticWarning(
             EventName = "ERROR_SHEET_GIVEUP",
@@ -6128,7 +6152,7 @@ class ScreenReaderService : AccessibilityService() {
                     "expectedPage=$PolicyExpectedPage customer=$ActiveCustomerName"
         )
 
-        if (ConsecutiveErrorGiveUps >= ERROR_SHEET_GIVEUP_LIMIT) {
+        if (ConsecutiveErrorGiveUps >= ErrorGiveUpLimit) {
             StopSessionForErrors()
             return
         }
@@ -6196,14 +6220,14 @@ class ScreenReaderService : AccessibilityService() {
             if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
                 RenderWaitCount++
                 CustomerAutomationRunnable = WrappedRunnable
-                MainHandler.postDelayed(WrappedRunnable, SCREEN_READY_RECHECK_MS)
+                MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = SCREEN_READY_RECHECK_MS))
                 return@Runnable
             }
             CustomerAutomationRunnable = null
             ActionRef()
         }
         CustomerAutomationRunnable = WrappedRunnable
-        MainHandler.postDelayed(WrappedRunnable, DelayMs + ErrorPaceExtraMs)
+        MainHandler.postDelayed(WrappedRunnable, Paced(BaseMs = DelayMs) + ErrorPaceExtraMs)
     }
 
     private data class CustomerRow(
@@ -7187,6 +7211,7 @@ class ScreenReaderService : AccessibilityService() {
 
 
     private fun ShouldTryOcr(SheetKind: CustomerProfileParser.ContactKind): Boolean {
+        if (!ContactOcrEnabled) return false
         if (!CustomerSheetOcr.IsSupported()) return false
         if (OcrAttemptedKinds.contains(SheetKind)) return false
         return System.currentTimeMillis() - SheetOpenedAt >= CUSTOMER_SHEET_OCR_MIN_MS

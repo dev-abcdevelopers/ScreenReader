@@ -14,7 +14,22 @@ import androidx.core.net.toUri
 object AppLauncherUtils {
 
     const val LIC_SUPER_APP_PACKAGE = "com.lic.sales.superapp"
-    const val PS_AGENT_APP_PACKAGE = "com.perfectandroidappforagents"
+
+    val PS_AGENT_APP_PACKAGES = listOf(
+        "com.bliss.blissbma.pro",
+        "com.bliss.combo"
+    )
+
+    fun IsInstalled(ContextRef: Context, PackageNameVal: String): Boolean = try {
+        ContextRef.packageManager.getLaunchIntentForPackage(PackageNameVal) != null
+    } catch (_: Exception) {
+        false
+    }
+
+    fun ResolveAgentPackage(ContextRef: Context): String =
+        PS_AGENT_APP_PACKAGES.firstOrNull { PackageNameVal ->
+            IsInstalled(ContextRef = ContextRef, PackageNameVal = PackageNameVal)
+        } ?: PS_AGENT_APP_PACKAGES.first()
 
     fun LaunchTargetApp(
         ContextRef: Context,

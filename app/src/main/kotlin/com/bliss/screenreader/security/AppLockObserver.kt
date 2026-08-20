@@ -7,13 +7,13 @@ import android.app.Application
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
+import com.bliss.screenreader.settings.SettingsStore
 
 class AppLockObserver : Application.ActivityLifecycleCallbacks {
     private var StartedCount = 0
 
-    private val SecureWindow = false
-
     override fun onActivityCreated(ActivityRef: Activity, SavedState: Bundle?) {
+        val SecureWindow = SettingsStore.IsSecureWindowOn(ContextRef = ActivityRef)
         if (SecureWindow && !LicenceGate.IsGateActivity(CandidateRef = ActivityRef)) {
             ActivityRef.window.setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,

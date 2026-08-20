@@ -24,8 +24,7 @@ import com.bliss.screenreader.databinding.SheetSessionPickerBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.CustomerSheetOcr
 import com.bliss.screenreader.service.ScreenReaderService
-import com.bliss.screenreader.security.MpinStore
-import com.bliss.screenreader.ui.mpin.MpinActivity
+import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -53,8 +52,7 @@ class CaptureFragment : Fragment() {
         val BindingObj = ViewBindingObj ?: return
 
         savedInstanceState?.getString(KEY_MODE)?.let {
-            val RestoredMode = CaptureMode.FromName(NameVal = it)
-            SelectedMode = if (RestoredMode == CaptureMode.PS) CaptureMode.POLICY else RestoredMode
+            SelectedMode = CaptureMode.FromName(NameVal = it)
         }
 
         BindModeRow(
@@ -62,6 +60,12 @@ class CaptureFragment : Fragment() {
             IconRes = R.drawable.ic_policy,
             TitleRes = R.string.capture_mode_policy,
             DescRes = R.string.capture_mode_policy_desc
+        )
+        BindModeRow(
+            RowBinding = BindingObj.rowModePs,
+            IconRes = R.drawable.ic_history,
+            TitleRes = R.string.capture_mode_ps,
+            DescRes = R.string.capture_mode_ps_desc
         )
         BindModeRow(
             RowBinding = BindingObj.rowModeFup,
@@ -80,6 +84,10 @@ class CaptureFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SelectMode(ModeVal = CaptureMode.POLICY)
         }
+        BindingObj.cardModePs.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SelectMode(ModeVal = CaptureMode.PS)
+        }
         BindingObj.cardModeFup.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SelectMode(ModeVal = CaptureMode.FUP)
@@ -91,12 +99,8 @@ class CaptureFragment : Fragment() {
 
         BindingObj.btnPrimaryAction.setOnClickListener { OnPrimaryAction() }
 
-        BindingObj.tvMpinLink.setOnClickListener { ViewRef ->
-            HapticFeedback.Tap(ViewRef = ViewRef)
-            startActivity(Intent(requireContext(), MpinActivity::class.java))
-        }
-
         ObserveCaptureState()
+        RenderModeVisibility()
         RenderSelection()
     }
 
@@ -104,7 +108,7 @@ class CaptureFragment : Fragment() {
         super.onResume()
         RenderPreflight()
         RenderActionState()
-        RenderMpinLink()
+        RenderModeVisibility()
         ShowPendingReviewIfAny()
     }
 
@@ -145,6 +149,7 @@ class CaptureFragment : Fragment() {
 
         val Entries = listOf(
             Triple(CaptureMode.POLICY, BindingObj.cardModePolicy, BindingObj.rowModePolicy),
+            Triple(CaptureMode.PS, BindingObj.cardModePs, BindingObj.rowModePs),
             Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup),
             Triple(CaptureMode.CUSTOMER, BindingObj.cardModeCustomer, BindingObj.rowModeCustomer)
         )
@@ -167,15 +172,14 @@ class CaptureFragment : Fragment() {
     }
 
 
-    private fun RenderMpinLink() {
+    private fun RenderModeVisibility() {
         val BindingObj = ViewBindingObj ?: return
-        val ContextRef = BindingObj.root.context
-        val LabelRes = when {
-            !MpinStore.HasMpin(ContextRef = ContextRef) -> R.string.mpin_link_not_set
-            MpinStore.IsAutoEnterOn(ContextRef = ContextRef) -> R.string.mpin_link_auto
-            else -> R.string.mpin_link_saved
+        val PsVisible = SettingsStore.IsPsModeVisible(ContextRef = BindingObj.root.context)
+        BindingObj.cardModePs.visibility = if (PsVisible) View.VISIBLE else View.GONE
+        if (!PsVisible && SelectedMode == CaptureMode.PS) {
+            SelectedMode = CaptureMode.POLICY
         }
-        BindingObj.tvMpinLink.setText(LabelRes)
+        RenderSelection()
     }
 
 
@@ -265,7 +269,9 @@ class CaptureFragment : Fragment() {
         BindingObj.cardLiveState.visibility = if (IsRunning) View.VISIBLE else View.GONE
 
         BindingObj.cardModePolicy.isEnabled = !IsRunning
+        BindingObj.cardModePs.isEnabled = !IsRunning
         BindingObj.cardModeFup.isEnabled = !IsRunning
+        BindingObj.cardModeCustomer.isEnabled = !IsRunning
 
         if (IsRunning) RenderLiveState()
     }
@@ -295,8 +301,15 @@ class CaptureFragment : Fragment() {
         }
 
         if (SelectedMode == CaptureMode.POLICY) {
-            HapticFeedback.Tap(ViewRef = BindingObj?.btnPrimaryAction)
-            ShowPolicyCaptureModeSheet(ActivityRef = ActivityRef)
+            val DepthVal = SettingsStore.DepthOf(ContextRef = ActivityRef)
+            if (DepthVal == SettingsStore.CaptureDepth.ASK) {
+                HapticFeedback.Tap(ViewRef = BindingObj?.btnPrimaryAction)
+                ShowPolicyCaptureModeSheet(ActivityRef = ActivityRef)
+                return
+            }
+            StartSelectedCapture(
+                CapturePolicyDetails = DepthVal == SettingsStore.CaptureDepth.FULL
+            )
             return
         }
 

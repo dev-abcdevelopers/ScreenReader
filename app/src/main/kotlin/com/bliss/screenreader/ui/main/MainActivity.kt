@@ -15,8 +15,10 @@ import com.bliss.screenreader.databinding.ActivityMainBinding
 import com.bliss.screenreader.ui.capture.CaptureFragment
 import com.bliss.screenreader.ui.exports.ExportsFragment
 import com.bliss.screenreader.ui.policies.PoliciesFragment
+import com.bliss.screenreader.ui.settings.SettingsFragment
 import com.bliss.screenreader.ui.update.UpdateSheet
 import com.bliss.screenreader.update.UpdateChecker
+import com.bliss.screenreader.utils.HapticFeedback
 
 
 class MainActivity : AppCompatActivity() {
@@ -32,10 +34,13 @@ class MainActivity : AppCompatActivity() {
         ApplyInsets()
 
         ViewBindingObj.bottomNav.setOnItemSelectedListener { MenuItemRef ->
+            HapticFeedback.Tap(ViewRef = ViewBindingObj.bottomNav)
             ShowTab(ItemId = MenuItemRef.itemId)
             true
         }
-        ViewBindingObj.bottomNav.setOnItemReselectedListener { }
+        ViewBindingObj.bottomNav.setOnItemReselectedListener {
+            HapticFeedback.Tap(ViewRef = ViewBindingObj.bottomNav)
+        }
 
 
         if (savedInstanceState == null) {
@@ -81,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         val TagVal = when (ItemId) {
             R.id.tabPolicies -> TAG_POLICIES
             R.id.tabExports -> TAG_EXPORTS
+            R.id.tabSettings -> TAG_SETTINGS
             else -> TAG_CAPTURE
         }
 
@@ -112,6 +118,7 @@ class MainActivity : AppCompatActivity() {
     private fun BuildFragment(TagVal: String): Fragment = when (TagVal) {
         TAG_POLICIES -> PoliciesFragment()
         TAG_EXPORTS -> ExportsFragment()
+        TAG_SETTINGS -> SettingsFragment()
         else -> CaptureFragment()
     }
 
@@ -123,5 +130,6 @@ class MainActivity : AppCompatActivity() {
         private const val TAG_CAPTURE = "tab_capture"
         private const val TAG_POLICIES = "tab_policies"
         private const val TAG_EXPORTS = "tab_exports"
+        private const val TAG_SETTINGS = "tab_settings"
     }
 }

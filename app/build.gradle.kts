@@ -71,7 +71,7 @@ android {
 
     buildTypes {
         getByName("debug") {
-            buildConfigField("boolean", "BYPASS_AUTH", "true")
+            buildConfigField("boolean", "BYPASS_AUTH", "false")
         }
         getByName("release") {
             buildConfigField("boolean", "BYPASS_AUTH", "false")

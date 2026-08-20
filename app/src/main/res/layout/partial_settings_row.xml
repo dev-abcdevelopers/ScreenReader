@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <View
+        android:id="@+id/rowDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
+
+    <LinearLayout
+        android:id="@+id/settingsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/card_padding"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingEnd="@dimen/card_padding"
+        android:paddingBottom="@dimen/space_sm">
+
+        <ImageView
+            android:id="@+id/ivRowIcon"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginEnd="@dimen/space_md"
+            android:background="@drawable/bg_stat_tile"
+            android:contentDescription="@null"
+            android:padding="@dimen/space_sm"
+            android:src="@drawable/ic_settings" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.App.Body"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvRowDesc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvRowValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:gravity="end"
+            android:maxWidth="120dp"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_accent"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvRowBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:background="@drawable/bg_badge_neutral"
+            android:paddingStart="@dimen/space_sm"
+            android:paddingTop="2dp"
+            android:paddingEnd="@dimen/space_sm"
+            android:paddingBottom="2dp"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_sm"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/ivRowChevron"
+            android:layout_width="@dimen/icon_sm"
+            android:layout_height="@dimen/icon_sm"
+            android:layout_marginStart="@dimen/space_sm"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_chevron_right"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</LinearLayout>

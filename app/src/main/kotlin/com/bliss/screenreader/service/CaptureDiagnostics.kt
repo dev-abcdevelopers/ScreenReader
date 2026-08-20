@@ -159,6 +159,32 @@ object CaptureDiagnostics {
         return GetSessionLogFiles(ContextObj = ContextObj, SessionId = ActiveSessionId)
     }
 
+    fun AllLogFiles(ContextObj: Context): List<File> {
+        synchronized(FileLock) {
+            val DirectoryObj = GetDirectory(ContextObj = ContextObj)
+            val FileList = DirectoryObj.listFiles { FileRef ->
+                FileRef.isFile && FileRef.name.endsWith(FILE_EXTENSION)
+            } ?: return emptyList()
+            return FileList.sortedByDescending { FileRef -> FileRef.lastModified() }
+        }
+    }
+
+    fun TotalLogBytes(ContextObj: Context): Long =
+        AllLogFiles(ContextObj = ContextObj).sumOf { FileRef -> FileRef.length() }
+
+    fun DeleteAllLogs(ContextObj: Context): Int {
+        synchronized(FileLock) {
+            val DirectoryObj = GetDirectory(ContextObj = ContextObj)
+            val FileList = DirectoryObj.listFiles { FileRef -> FileRef.isFile } ?: return 0
+            var DeletedCount = 0
+            for (FileRef in FileList) {
+                if (ActiveSessionId.isNotEmpty() && FileRef.name.contains(ActiveSessionId)) continue
+                if (runCatching { FileRef.delete() }.getOrDefault(false)) DeletedCount++
+            }
+            return DeletedCount
+        }
+    }
+
     fun HasSessionLogs(ContextObj: Context, SessionId: String): Boolean {
         return GetSessionLogFiles(ContextObj = ContextObj, SessionId = SessionId).isNotEmpty()
     }

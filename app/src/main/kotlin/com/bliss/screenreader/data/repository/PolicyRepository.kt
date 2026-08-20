@@ -512,6 +512,48 @@ object PolicyRepository {
         return PrefsObj.getString(KEY_LAST_AGENCY_CODE, "").orEmpty()
     }
 
+    fun GetDefaultAgencyCode(ContextRef: Context): String =
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(KEY_LAST_AGENCY_CODE, "")
+            .orEmpty()
+
+    fun SetDefaultAgencyCode(ContextRef: Context, AgencyCode: String) {
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(KEY_LAST_AGENCY_CODE, AgencyCode.trim())
+        }
+    }
+
+    data class StorageSummary(val SessionCount: Int, val RecordCount: Int)
+
+    fun SummariseStorage(ContextRef: Context): StorageSummary {
+        val HistoryList = GetSessionHistory(ContextRef = ContextRef)
+        return StorageSummary(
+            SessionCount = HistoryList.size,
+            RecordCount = HistoryList.sumOf { SessionRef -> SessionRef.RecordCount }
+        )
+    }
+
+    fun DeleteAllSessions(ContextRef: Context): Int {
+        val HistoryList = GetSessionHistory(ContextRef = ContextRef)
+        for (SessionRef in HistoryList) {
+            DeleteSession(
+                ContextRef = ContextRef,
+                SessionId = SessionRef.SessionId,
+                ModeVal = SessionRef.Mode
+            )
+        }
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            remove(KEY_CUSTOMER_POLICIES)
+            remove(KEY_FUP_POLICIES)
+            remove(KEY_PS_POLICIES)
+            remove(KEY_LATEST_POLICY_SESSION)
+            remove(KEY_LATEST_FUP_SESSION)
+            remove(KEY_LATEST_PS_SESSION)
+            remove(KEY_SESSION_HISTORY)
+        }
+        return HistoryList.size
+    }
+
     private fun AgencyStorageKey(SessionId: String): String {
         return "${AGENCY_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
     }

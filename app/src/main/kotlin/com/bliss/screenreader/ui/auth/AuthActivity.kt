@@ -25,6 +25,7 @@ import com.bliss.screenreader.security.AuthManager
 import com.bliss.screenreader.security.DeviceIdentity
 import com.bliss.screenreader.security.IntegrityGuard
 import com.bliss.screenreader.ui.main.MainActivity
+import com.bliss.screenreader.utils.HapticFeedback
 
 class AuthActivity : AppCompatActivity() {
     private lateinit var ViewBindingObj: ActivityAuthBinding
@@ -125,7 +126,8 @@ class AuthActivity : AppCompatActivity() {
     }
 
     private fun WireActivationCard() {
-        ViewBindingObj.btnCopyDeviceId.setOnClickListener {
+        ViewBindingObj.btnCopyDeviceId.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
             val ClipboardRef = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
             ClipboardRef.setPrimaryClip(
                 ClipData.newPlainText(
@@ -136,7 +138,8 @@ class AuthActivity : AppCompatActivity() {
             ShowActivationMessage(MessageRes = R.string.auth_device_id_copied, IsError = false)
         }
 
-        ViewBindingObj.btnPasteBlob.setOnClickListener {
+        ViewBindingObj.btnPasteBlob.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
             val ClipboardRef = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
             val ClipText = ClipboardRef.primaryClip
                 ?.takeIf { it.itemCount > 0 }
@@ -151,7 +154,10 @@ class AuthActivity : AppCompatActivity() {
             }
         }
 
-        ViewBindingObj.btnActivate.setOnClickListener { AttemptActivation() }
+        ViewBindingObj.btnActivate.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            AttemptActivation()
+        }
     }
 
     private fun AttemptActivation() {
@@ -187,6 +193,11 @@ class AuthActivity : AppCompatActivity() {
     }
 
     private fun ShowActivationMessage(MessageRes: Int, IsError: Boolean) {
+        if (IsError) {
+            HapticFeedback.Reject(ViewRef = ViewBindingObj.root)
+        } else {
+            HapticFeedback.Confirm(ViewRef = ViewBindingObj.root)
+        }
         ViewBindingObj.txtActivateError.visibility = View.VISIBLE
         ViewBindingObj.txtActivateError.setText(MessageRes)
         ViewBindingObj.txtActivateError.setTextColor(
@@ -206,14 +217,19 @@ class AuthActivity : AppCompatActivity() {
             }
         })
 
-        ViewBindingObj.btnUnlock.setOnClickListener { AttemptUnlock() }
+        ViewBindingObj.btnUnlock.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            AttemptUnlock()
+        }
 
-        ViewBindingObj.btnClearActivation.setOnClickListener {
+        ViewBindingObj.btnClearActivation.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
             AlertDialog.Builder(this)
                 .setTitle(R.string.auth_clear_title)
                 .setMessage(R.string.auth_clear_message)
                 .setNegativeButton(R.string.auth_cancel, null)
                 .setPositiveButton(R.string.auth_clear_confirm) { _, _ ->
+                    HapticFeedback.Confirm(ViewRef = ViewBindingObj.btnClearActivation)
                     AuthManager.ClearActivation(ContextRef = this)
                     RenderState()
                 }
@@ -230,6 +246,7 @@ class AuthActivity : AppCompatActivity() {
 
         when (val OutcomeRef = AuthManager.VerifyCode(ContextRef = this, CodeText = CodeText)) {
             AuthManager.UnlockOutcome.Unlocked -> {
+                HapticFeedback.Success(ContextRef = this)
                 HideKeyboard()
                 GoToApp()
             }
@@ -267,6 +284,7 @@ class AuthActivity : AppCompatActivity() {
     }
 
     private fun ShowUnlockError(MessageText: String) {
+        HapticFeedback.Reject(ViewRef = ViewBindingObj.root)
         ViewBindingObj.txtUnlockError.visibility = View.VISIBLE
         ViewBindingObj.txtUnlockError.text = MessageText
     }
@@ -280,6 +298,7 @@ class AuthActivity : AppCompatActivity() {
     }
 
     private fun ShowTamperBlock() {
+        HapticFeedback.Failure(ContextRef = this)
         ViewBindingObj.cardActivate.visibility = View.GONE
         ViewBindingObj.cardUnlock.visibility = View.GONE
         ViewBindingObj.txtClockWarning.visibility = View.VISIBLE

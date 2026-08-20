@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="tab_settings">Settings</string>
+    <string name="settings_heading">Settings</string>
+
+    <string name="settings_version_format">%1$s · build %2$d · %3$s</string>
+    <string name="settings_licence_ok">Licence verified</string>
+    <string name="settings_licence_ok_format">Licence verified · last confirmed %1$s</string>
+    <string name="settings_licence_grace_format">Offline · %1$d day(s) left</string>
+    <string name="settings_licence_stale">Not verified yet</string>
+    <string name="settings_licence_activated_format">Activated · %1$s</string>
+    <string name="settings_licence_not_activated">Not activated</string>
+    <string name="settings_confirmed_today">today</string>
+    <string name="settings_confirmed_days_format">%1$d day(s) ago</string>
+
+    <string name="settings_section_capture">Capture</string>
+    <string name="settings_section_login">Login &amp; target app</string>
+    <string name="settings_section_permissions">Permissions</string>
+    <string name="settings_section_data">Data</string>
+    <string name="settings_section_security">Security</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_support">Diagnostics &amp; support</string>
+
+    <string name="settings_depth_title">How much to capture</string>
+    <string name="settings_depth_desc">Fast, full details, or ask each run</string>
+    <string name="settings_depth_ask">Ask each run</string>
+    <string name="settings_depth_ask_desc">The picker appears every time you start a policy capture.</string>
+    <string name="settings_depth_fast_desc">Reads dashboard cards and pages without opening individual policies.</string>
+    <string name="settings_depth_full_desc">Opens each policy and expands its sections. Slower but more complete.</string>
+
+    <string name="settings_pace_title">Pace</string>
+    <string name="settings_pace_desc">How long to wait for each screen to settle</string>
+    <string name="settings_pace_body">The LIC app needs a moment to draw each screen before it can be read. Slower is safer on older phones and weak networks.</string>
+    <string name="settings_pace_fast">Fast</string>
+    <string name="settings_pace_fast_desc">New phone, good network. Fewer waits.</string>
+    <string name="settings_pace_normal">Normal</string>
+    <string name="settings_pace_normal_desc">The tested timings. Leave it here unless a run keeps failing.</string>
+    <string name="settings_pace_patient">Patient</string>
+    <string name="settings_pace_patient_desc">Older phone or slow network. Every wait is longer.</string>
+    <string name="settings_pace_note">A run that keeps reading half-drawn screens usually gets better on Patient, not by restarting.</string>
+
+    <string name="settings_recovery_title">When the app misbehaves</string>
+    <string name="settings_recovery_desc">Offline wait, retries, when to give up</string>
+    <string name="settings_offline_title">Wait for the network</string>
+    <string name="settings_offline_desc">The run holds instead of skipping anyone</string>
+    <string name="settings_offline_body">If the phone drops off the network mid-run, this is how long the capture waits before stopping and keeping what it has.</string>
+    <string name="settings_offline_minutes_format">%1$d minute(s)</string>
+    <string name="settings_retry_title">Retries per error sheet</string>
+    <string name="settings_retry_desc">Taps Try Again before moving on</string>
+    <string name="settings_retry_body">How many times to tap Try Again on the app’s “something went wrong” sheet before skipping that item.</string>
+    <string name="settings_giveup_title">Give up after</string>
+    <string name="settings_giveup_desc">Consecutive error sheets before stopping</string>
+    <string name="settings_giveup_body">When this many items in a row end in an error sheet, the run stops and hands you what it captured.</string>
+    <string name="settings_count_format">%1$d</string>
+    <string name="settings_slowdown_title">Slow down after an error</string>
+    <string name="settings_slowdown_desc">Adds waiting time each time one appears</string>
+
+    <string name="settings_ocr_title">Read contact details</string>
+    <string name="settings_ocr_desc">Screenshots the contact sheet · Android 11+</string>
+    <string name="settings_ocr_unsupported_format">Needs Android 11; this phone runs Android %1$s</string>
+
+    <string name="settings_ps_title">Show servicing history</string>
+    <string name="settings_ps_desc">Adds the parked PS mode to the Capture tab</string>
+
+    <string name="settings_mpin_title">LIC login mPIN</string>
+    <string name="settings_mpin_desc_none">Not saved</string>
+    <string name="settings_mpin_desc_saved">Saved · you type it yourself</string>
+    <string name="settings_mpin_desc_auto">Saved · typed for you at login</string>
+    <string name="settings_mpin_badge">Auto</string>
+
+    <string name="settings_target_title">LIC SuperApp</string>
+    <string name="settings_agent_title">Agent Pro</string>
+    <string name="settings_agent_desc">For menu 41 → Import from Cloud</string>
+    <string name="settings_app_installed">Installed</string>
+    <string name="settings_app_missing">Not installed</string>
+    <string name="settings_app_open">Open</string>
+
+    <string name="settings_permission_on">On</string>
+    <string name="settings_permission_off">Off</string>
+    <string name="settings_permission_fix">Fix</string>
+    <string name="settings_permission_allow">Allow</string>
+    <string name="settings_accessibility_desc_on">Active &amp; ready for automation</string>
+    <string name="settings_accessibility_desc_off">Nothing can be read until you turn it on</string>
+    <string name="settings_battery_desc_on">Unrestricted · background persistence active</string>
+    <string name="settings_battery_desc_off">Long captures may be cut short</string>
+    <string name="settings_install_title">Install unknown apps</string>
+    <string name="settings_install_desc_on">Updates can install from here</string>
+    <string name="settings_install_desc_off">Needed to install an update from here</string>
+    <string name="settings_contact_title">Contact sheet reading</string>
+    <string name="settings_contact_desc_format">Android %1$s</string>
+    <string name="settings_permission_supported">Supported</string>
+    <string name="settings_permission_unsupported">Unsupported</string>
+    <string name="settings_permissions_clear">Everything is ready to capture.</string>
+
+    <string name="settings_storage_title">Storage</string>
+    <string name="settings_storage_format">%1$d session(s) · %2$d record(s)</string>
+    <string name="settings_storage_empty">Nothing captured yet</string>
+    <string name="settings_agency_title">Default agency code</string>
+    <string name="settings_agency_desc">Pre-fills the export and upload sheets</string>
+    <string name="settings_agency_none">Not set</string>
+    <string name="settings_agency_body">Used whenever a session has no agency code of its own. Exports and uploads still ask, with this filled in.</string>
+    <string name="settings_agency_save">Save</string>
+    <string name="settings_agency_saved">Default agency code saved</string>
+    <string name="settings_transfer_title">Transfer sessions</string>
+    <string name="settings_transfer_desc">Move captured work between phones</string>
+    <string name="settings_upload_title">Upload to server</string>
+    <string name="settings_upload_desc_ready">Configured · upload from a session in Policies</string>
+    <string name="settings_upload_desc_missing">Not configured in this build</string>
+    <string name="settings_delete_title">Delete all captured data</string>
+    <string name="settings_delete_desc">Sessions, policies, renewals and changes</string>
+    <string name="settings_delete_sheet_title">Delete everything captured?</string>
+    <string name="settings_delete_sheet_body">%1$d session(s) and %2$d record(s) go for good — policies, renewals, personal details and the change history. Exported files and diagnostic logs are left alone.</string>
+    <string name="settings_delete_note">Export or transfer first if any of this has not reached the server.</string>
+    <string name="settings_delete_word">DELETE</string>
+    <string name="settings_delete_hint">Type DELETE to confirm</string>
+    <string name="settings_delete_confirm">Delete everything</string>
+    <string name="settings_delete_done_format">Deleted %1$d session(s)</string>
+    <string name="settings_delete_nothing">There is nothing captured to delete</string>
+
+    <string name="settings_licence_title">Licence &amp; device</string>
+    <string name="settings_licence_row_desc">Device ID, status, customer support</string>
+    <string name="settings_licence_device_label">Device ID</string>
+    <string name="settings_licence_device_body">Customer support needs this to register the handset. It changes if the phone is factory reset.</string>
+    <string name="settings_licence_recheck">Check licence now</string>
+    <string name="settings_licence_expiry_label">Licence</string>
+    <string name="settings_idle_title">Lock after inactivity</string>
+    <string name="settings_idle_desc">Asks for a code again when you come back</string>
+    <string name="settings_idle_body">How long the app can sit in the background before it locks. A running capture never locks.</string>
+
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_desc">Light, dark, or follow the phone</string>
+    <string name="settings_theme_system">Follow the phone</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_haptics_title">Vibration</string>
+    <string name="settings_haptics_desc">Taps, confirmations and warnings buzz</string>
+    <string name="settings_secure_title">Hide contents in recents</string>
+    <string name="settings_secure_desc">Blanks the app in the task switcher</string>
+    <string name="settings_secure_restart">Takes effect on screens opened from now on</string>
+
+    <string name="settings_logs_title">Diagnostic logs</string>
+    <string name="settings_logs_desc_format">%1$d file(s) kept · %2$s</string>
+    <string name="settings_logs_desc_empty">Nothing logged yet</string>
+    <string name="settings_logs_body">One file per capture session. The ten newest are kept; the running session is never deleted.</string>
+    <string name="settings_logs_row_format">%1$s · %2$s</string>
+    <string name="settings_logs_general">General log</string>
+    <string name="settings_logs_general_desc">Events logged outside a capture session</string>
+    <string name="settings_logs_share_newest">Share the newest log</string>
+    <string name="settings_logs_clear">Delete every stored log</string>
+    <string name="settings_logs_cleared">Diagnostic logs deleted</string>
+    <string name="settings_logs_privacy">Logs contain policy numbers and customer names. Share them only with customer support.</string>
+    <string name="settings_logs_empty">No diagnostic logs are stored yet</string>
+
+    <string name="settings_raw_title">Raw node inspector</string>
+    <string name="settings_raw_desc">What the last capture actually saw</string>
+    <string name="settings_raw_badge">Advanced</string>
+
+    <string name="settings_about_title">About</string>
+    <string name="settings_about_desc">Version, package, device, service name</string>
+    <string name="settings_about_app">App</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_build">Build</string>
+    <string name="settings_about_flavour">Flavour</string>
+    <string name="settings_about_package">Package</string>
+    <string name="settings_about_android">Android</string>
+    <string name="settings_about_device">Device</string>
+    <string name="settings_about_service">Service row</string>
+    <string name="settings_about_target">Target app</string>
+
+    <string name="settings_close">Close</string>
+    <string name="settings_capture_running">Finish the capture that is running before changing this</string>
+
+</resources>

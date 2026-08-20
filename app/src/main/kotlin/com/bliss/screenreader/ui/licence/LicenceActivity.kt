@@ -26,6 +26,7 @@ import com.bliss.screenreader.security.BlissLicenceStore
 import com.bliss.screenreader.security.DeviceIdentity
 import com.bliss.screenreader.security.IntegrityGuard
 import com.bliss.screenreader.ui.main.MainActivity
+import com.bliss.screenreader.utils.HapticFeedback
 import java.util.concurrent.Executors
 
 class LicenceActivity : AppCompatActivity() {
@@ -137,6 +138,7 @@ class LicenceActivity : AppCompatActivity() {
 
     private fun ShowValid() {
         StopShield()
+        HapticFeedback.Success(ContextRef = this)
         ViewBindingObj.imgResult.setImageResource(R.drawable.ic_licence_ok)
         ViewBindingObj.imgResult.visibility = View.VISIBLE
         ViewBindingObj.txtHelpline.visibility = View.GONE
@@ -147,6 +149,7 @@ class LicenceActivity : AppCompatActivity() {
 
     private fun ShowBlocked(TitleRes: Int, BodyRes: Int) {
         StopShield()
+        HapticFeedback.Failure(ContextRef = this)
         ViewBindingObj.imgResult.setImageResource(R.drawable.ic_licence_blocked)
         ViewBindingObj.imgResult.visibility = View.VISIBLE
         ViewBindingObj.txtTitle.setText(TitleRes)
@@ -157,14 +160,21 @@ class LicenceActivity : AppCompatActivity() {
 
         ViewBindingObj.btnStack.visibility = View.VISIBLE
         ViewBindingObj.btnPrimary.setText(R.string.licence_call_support)
-        ViewBindingObj.btnPrimary.setOnClickListener { DialSupport() }
+        ViewBindingObj.btnPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            DialSupport()
+        }
         ViewBindingObj.btnSecondary.visibility = View.VISIBLE
         ViewBindingObj.btnSecondary.setText(R.string.licence_copy_device_id)
-        ViewBindingObj.btnSecondary.setOnClickListener { CopyDeviceId() }
+        ViewBindingObj.btnSecondary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            CopyDeviceId()
+        }
     }
 
     private fun ShowOffline() {
         StopShield()
+        HapticFeedback.Failure(ContextRef = this)
         ViewBindingObj.imgResult.setImageResource(R.drawable.ic_licence_offline)
         ViewBindingObj.imgResult.visibility = View.VISIBLE
         ViewBindingObj.txtHelpline.visibility = View.GONE
@@ -193,7 +203,10 @@ class LicenceActivity : AppCompatActivity() {
 
         ViewBindingObj.btnStack.visibility = View.VISIBLE
         ViewBindingObj.btnPrimary.setText(R.string.licence_retry)
-        ViewBindingObj.btnPrimary.setOnClickListener { StartCheck() }
+        ViewBindingObj.btnPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            StartCheck()
+        }
 
         if (BlissLicenceStore.IsUsable(ContextRef = this)) {
             val DaysLeft = BlissLicenceStore.GraceDaysLeft(
@@ -206,7 +219,10 @@ class LicenceActivity : AppCompatActivity() {
                 DaysLeft,
                 DaysLeft
             )
-            ViewBindingObj.btnSecondary.setOnClickListener { GoToApp() }
+            ViewBindingObj.btnSecondary.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                GoToApp()
+            }
         } else {
             ViewBindingObj.btnSecondary.visibility = View.GONE
         }
@@ -214,6 +230,7 @@ class LicenceActivity : AppCompatActivity() {
 
     private fun ShowTampered() {
         StopShield()
+        HapticFeedback.Failure(ContextRef = this)
         ViewBindingObj.imgResult.setImageResource(R.drawable.ic_licence_blocked)
         ViewBindingObj.imgResult.visibility = View.VISIBLE
         ViewBindingObj.btnStack.visibility = View.GONE

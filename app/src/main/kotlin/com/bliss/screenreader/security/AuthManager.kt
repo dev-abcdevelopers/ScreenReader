@@ -26,6 +26,9 @@ object AuthManager {
     private const val CLOCK_SLACK_MS = 24L * 60L * 60L * 1000L
 
     @Volatile
+    private var IdleLockMs = IDLE_LOCK_MS
+
+    @Volatile
     private var UnlockedFlag = false
 
     @Volatile
@@ -202,11 +205,15 @@ object AuthManager {
             return true
         }
 
-        if (SystemClock.elapsedRealtime() - BackgroundedAtElapsed > IDLE_LOCK_MS) {
+        if (SystemClock.elapsedRealtime() - BackgroundedAtElapsed > IdleLockMs) {
             UnlockedFlag = false
             return false
         }
         return true
+    }
+
+    fun SetIdleLockMs(ValueMs: Long) {
+        IdleLockMs = if (ValueMs > 0L) ValueMs else IDLE_LOCK_MS
     }
 
     fun NoteForegrounded() {

@@ -6,11 +6,13 @@ import android.app.Application
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.security.AppLockObserver
 import com.bliss.screenreader.security.SecurePrefs
+import com.bliss.screenreader.settings.SettingsStore
 
 class DataReaderApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Instance = this
+        SettingsStore.ApplyGlobals(ContextRef = this)
         registerActivityLifecycleCallbacks(AppLockObserver())
         Thread {
             SecurePrefs.MigrateExisting(

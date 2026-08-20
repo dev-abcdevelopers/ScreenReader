@@ -152,7 +152,7 @@ object CaptureFlow {
 
         if (LaunchTarget) {
             val TargetPackage = if (ModeVal == CaptureMode.PS) {
-                AppLauncherUtils.PS_AGENT_APP_PACKAGE
+                AppLauncherUtils.ResolveAgentPackage(ContextRef = ActivityRef)
             } else {
                 AppLauncherUtils.LIC_SUPER_APP_PACKAGE
             }

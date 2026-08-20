@@ -21,6 +21,8 @@ object CaptureParsers {
 
     private val POLICY_NO_REGEX: Pattern = Pattern.compile("^\\d{9}$")
 
+    private const val MIN_SINGLE_SCREEN_FIELDS = 2
+
     private val NAME_STOP_WORDS = setOf(
         "SUM ASSURED", "DATE OF MATURITY", "DATE OF COMMENCEMENT", "POLICY DETAILS",
         "END OF PREMIUM PAYING TERM", "MODE OF PAYMENT", "POLICY STATUS", "PLAN NAME"
@@ -104,16 +106,23 @@ object CaptureParsers {
             emptyList()
         }
         val PolicyList = DashboardPolicies.ifEmpty {
-            listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
-                CountPolicyFields(PolicyItem = PolicyItem) > 0
-            }
+            SingleScreenPolicies(Nodes = Nodes)
         }
 
         return PreviewPolicies(Policies = PolicyList)
     }
 
+    private fun SingleScreenPolicies(Nodes: List<String>): List<CustomerPolicy> {
+        return listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
+            PolicyItem.PolicyNumber.isNotEmpty() &&
+                    CountPolicyFields(PolicyItem = PolicyItem) >= MIN_SINGLE_SCREEN_FIELDS
+        }
+    }
+
     fun PreviewPolicies(Policies: List<CustomerPolicy>): List<ParsedRecord> {
-        return Policies.map { PolicyItem ->
+        return Policies.filter { PolicyItem ->
+            PolicyItem.PolicyNumber.isNotEmpty()
+        }.map { PolicyItem ->
             val FieldCount = CountPolicyFields(PolicyItem = PolicyItem)
             ParsedRecord(
                 PolicyNumber = PolicyItem.PolicyNumber.ifEmpty { "Unknown policy" },
@@ -258,9 +267,9 @@ object CaptureParsers {
             emptyList()
         }
         val ParsedPolicies = DashboardPolicies.ifEmpty {
-            listOf(BuildPolicy(Nodes = Nodes)).filter { PolicyItem ->
-                CountPolicyFields(PolicyItem = PolicyItem) > 0
-            }
+            SingleScreenPolicies(Nodes = Nodes)
+        }.filter { PolicyItem ->
+            PolicyItem.PolicyNumber.isNotEmpty()
         }
         if (ParsedPolicies.isEmpty()) return 0
 
