@@ -17,6 +17,8 @@
     <string name="mpin_save">Save mPIN</string>
     <string name="mpin_clear">Remove saved mPIN</string>
     <string name="mpin_error_length">Enter all four digits.</string>
+    <string name="mpin_error_rejected">LIC rejected this mPIN, so auto-entry was switched off. Correct it and save to turn it back on.</string>
+    <string name="mpin_rejected_toast">LIC says that mPIN is incorrect. Auto-entry is now off — log in by hand and save the new mPIN.</string>
     <string name="mpin_saved">mPIN saved</string>
     <string name="mpin_saved_auto">mPIN saved · auto-entry on</string>
     <string name="mpin_cleared">mPIN removed</string>

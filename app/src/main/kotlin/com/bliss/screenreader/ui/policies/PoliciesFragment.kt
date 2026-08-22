@@ -26,6 +26,9 @@ import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.model.PolicyResumeMark
+import com.bliss.screenreader.data.model.PolicyResumeTarget
+import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.model.DueDateReport
@@ -48,6 +51,7 @@ import com.bliss.screenreader.databinding.SheetUploadProgressBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
 import com.bliss.screenreader.service.CaptureDiagnostics
+import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
@@ -118,6 +122,13 @@ class PoliciesFragment : Fragment() {
             ShowSessions()
         }
 
+        CaptureSessionState.IsCapturingLive.observe(viewLifecycleOwner) { IsCapturingVal ->
+            if (IsCapturingVal == false) ReloadFromStore()
+        }
+        CaptureSessionState.PendingSessionLive.observe(viewLifecycleOwner) { SessionObj ->
+            if (SessionObj == null) ReloadFromStore()
+        }
+
         BindingObj.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -160,10 +171,18 @@ class PoliciesFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (SelectedSessionId.isEmpty()) {
-            LoadSessions()
-        } else {
-            LoadSessionRecords()
+        ReloadFromStore()
+    }
+
+    private fun ReloadFromStore() {
+        if (ViewBindingObj == null) return
+        LoadSessions()
+        if (SelectedSessionId.isNotEmpty()) {
+            if (SessionList.none { SessionRef -> SessionRef.SessionId == SelectedSessionId }) {
+                SelectedSessionId = ""
+            } else {
+                LoadSessionRecords()
+            }
         }
         RenderList()
     }
@@ -940,13 +959,31 @@ class PoliciesFragment : Fragment() {
             val SheetBinding = SheetPolicyCaptureModeBinding.inflate(layoutInflater)
             val SheetDialog = BottomSheetDialog(ActivityRef)
             SheetDialog.setContentView(SheetBinding.root)
+            val ResumePages = BindResumeFromPageRow(
+                SheetBinding = SheetBinding,
+                SessionRef = SessionRef
+            )
             SheetBinding.cardFastCapture.setOnClickListener {
                 SheetDialog.dismiss()
-                LaunchResume(SessionRef = SessionRef, CapturePolicyDetails = false)
+                LaunchResume(
+                    SessionRef = SessionRef,
+                    CapturePolicyDetails = false,
+                    ResumeFromPage = SelectedResumePage(
+                        SheetBinding = SheetBinding,
+                        ResumePage = ResumePages.first
+                    )
+                )
             }
             SheetBinding.cardFullCapture.setOnClickListener {
                 SheetDialog.dismiss()
-                LaunchResume(SessionRef = SessionRef, CapturePolicyDetails = true)
+                LaunchResume(
+                    SessionRef = SessionRef,
+                    CapturePolicyDetails = true,
+                    ResumeFromPage = SelectedResumePage(
+                        SheetBinding = SheetBinding,
+                        ResumePage = ResumePages.second
+                    )
+                )
             }
             SheetBinding.btnCancelCaptureMode.setOnClickListener { CancelViewRef ->
                 HapticFeedback.Tap(ViewRef = CancelViewRef)
@@ -959,9 +996,136 @@ class PoliciesFragment : Fragment() {
         LaunchResume(SessionRef = SessionRef, CapturePolicyDetails = false)
     }
 
+    private fun BindResumeFromPageRow(
+        SheetBinding: SheetPolicyCaptureModeBinding,
+        SessionRef: PolicyRepository.CaptureSessionReference
+    ): Pair<Int, Int> {
+        val ContextRef = context ?: return Pair(0, 0)
+        val FastMark = PolicyRepository.GetPolicyResumeMark(
+            ContextRef = ContextRef,
+            SessionId = SessionRef.SessionId,
+            TrackVal = PolicyResumeTrack.POLICY_FAST
+        )
+        val FullMark = PolicyRepository.GetPolicyResumeMark(
+            ContextRef = ContextRef,
+            SessionId = SessionRef.SessionId,
+            TrackVal = PolicyResumeTrack.POLICY_FULL
+        )
+        val FastChoice = PolicyResumeTarget.ChooseMark(
+            TrackVal = PolicyResumeTrack.POLICY_FAST,
+            FastMark = FastMark,
+            FullMark = FullMark,
+            CustomerMark = null,
+            StoredRecordCount = SessionRef.RecordCount
+        )
+        val FullChoice = PolicyResumeTarget.ChooseMark(
+            TrackVal = PolicyResumeTrack.POLICY_FULL,
+            FastMark = FastMark,
+            FullMark = FullMark,
+            CustomerMark = null,
+            StoredRecordCount = SessionRef.RecordCount
+        )
+
+        RenderResumeCardNotes(
+            SheetBinding = SheetBinding,
+            FastChoice = FastChoice,
+            FullChoice = FullChoice,
+            FastMark = FastMark,
+            FullMark = FullMark,
+            ShowResumePage = true
+        )
+
+        val LatestMark = listOfNotNull(FastChoice, FullChoice)
+            .maxByOrNull { MarkItem -> MarkItem.SavedAt }
+        if (LatestMark == null) {
+            SheetBinding.resumeFromPageGroup.visibility = View.GONE
+            return Pair(0, 0)
+        }
+
+        val DateFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
+        SheetBinding.tvResumeFromPageMeta.text = getString(
+            R.string.policy_resume_checkbox_meta,
+            DateFormatter.format(Date(LatestMark.SavedAt)),
+            CaptureMode.POLICY.DescribeCount(CountVal = LatestMark.CapturedCount)
+        )
+        SheetBinding.cbResumeFromPage.isChecked = true
+        SheetBinding.cbResumeFromPage.setOnCheckedChangeListener { _, IsCheckedVal ->
+            RenderResumeCardNotes(
+                SheetBinding = SheetBinding,
+                FastChoice = FastChoice,
+                FullChoice = FullChoice,
+                FastMark = FastMark,
+                FullMark = FullMark,
+                ShowResumePage = IsCheckedVal
+            )
+        }
+        SheetBinding.resumeFromPageGroup.setOnClickListener { CardViewRef ->
+            HapticFeedback.Tap(ViewRef = CardViewRef)
+            SheetBinding.cbResumeFromPage.isChecked = !SheetBinding.cbResumeFromPage.isChecked
+        }
+        SheetBinding.resumeFromPageGroup.visibility = View.VISIBLE
+        return Pair(
+            FastChoice?.LastCompletedPage ?: 0,
+            FullChoice?.LastCompletedPage ?: 0
+        )
+    }
+
+    private fun RenderResumeCardNotes(
+        SheetBinding: SheetPolicyCaptureModeBinding,
+        FastChoice: PolicyResumeMark?,
+        FullChoice: PolicyResumeMark?,
+        FastMark: PolicyResumeMark?,
+        FullMark: PolicyResumeMark?,
+        ShowResumePage: Boolean
+    ) {
+        BindResumeCardNote(
+            NoteView = SheetBinding.tvFastResumeNote,
+            ChosenMark = if (ShowResumePage) FastChoice else null,
+            OwnMark = FastMark
+        )
+        BindResumeCardNote(
+            NoteView = SheetBinding.tvFullResumeNote,
+            ChosenMark = if (ShowResumePage) FullChoice else null,
+            OwnMark = FullMark
+        )
+    }
+
+    private fun BindResumeCardNote(
+        NoteView: android.widget.TextView,
+        ChosenMark: PolicyResumeMark?,
+        OwnMark: PolicyResumeMark?
+    ) {
+        when {
+            ChosenMark != null -> {
+                NoteView.text = getString(
+                    R.string.policy_resume_card_note,
+                    ChosenMark.LastCompletedPage,
+                    ChosenMark.TotalPages
+                )
+                NoteView.visibility = View.VISIBLE
+            }
+
+            OwnMark?.IsComplete == true -> {
+                NoteView.setText(R.string.policy_resume_card_complete)
+                NoteView.visibility = View.VISIBLE
+            }
+
+            else -> NoteView.visibility = View.GONE
+        }
+    }
+
+    private fun SelectedResumePage(
+        SheetBinding: SheetPolicyCaptureModeBinding,
+        ResumePage: Int
+    ): Int {
+        if (ResumePage <= 0) return 0
+        return if (SheetBinding.cbResumeFromPage.isChecked) ResumePage else 0
+    }
+
     private fun LaunchResume(
         SessionRef: PolicyRepository.CaptureSessionReference,
-        CapturePolicyDetails: Boolean
+        CapturePolicyDetails: Boolean,
+        ResumeFromPage: Int = 0
     ) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         HapticFeedback.Confirm(ViewRef = ViewBindingObj?.root)
@@ -970,7 +1134,8 @@ class PoliciesFragment : Fragment() {
             ModeVal = SessionRef.Mode,
             LaunchTarget = true,
             CapturePolicyDetails = CapturePolicyDetails,
-            ResumeSessionId = SessionRef.SessionId
+            ResumeSessionId = SessionRef.SessionId,
+            ResumeFromPage = ResumeFromPage
         )
     }
 

@@ -47,6 +47,9 @@ import com.bliss.screenreader.data.parser.SheetOcrParser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
+import com.bliss.screenreader.data.model.PolicyResumeMark
+import com.bliss.screenreader.data.model.PolicyResumeTarget
+import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
@@ -101,6 +104,17 @@ class ScreenReaderService : AccessibilityService() {
         private const val POLICY_RETURN_TO_TOP_LIMIT = 20
         private const val POLICY_PAGE_RETRY_LIMIT = 3
         private const val POLICY_AUTOMATION_RECOVERY_LIMIT = 3
+        private const val POLICY_SELECTOR_SCROLL_LIMIT = 12
+        private const val POLICY_SELECTOR_SCROLL_SETTLE_MS = 650L
+        private const val POLICY_SELECTOR_SCROLL_DURATION_MS = 420L
+        private const val POLICY_SELECTOR_OPTION_MIN_COUNT = 4
+        private const val POLICY_SELECTOR_COLUMN_MAX_WIDTH_RATIO = 0.4f
+        private const val POLICY_SELECTOR_SCROLLABLE_MAX_WIDTH_RATIO = 0.6f
+        private const val POLICY_RESUME_JUMP_LIMIT = 3
+        private const val POLICY_RESUME_WAIT_LIMIT = 6
+        private const val POLICY_JUMP_NONE = ""
+        private const val POLICY_JUMP_DETAIL_RESTORE = "detail-restore"
+        private const val POLICY_JUMP_RESUME = "resume"
         private const val PORTFOLIO_CLICK_RETRY_MS = 3000L
         private const val PORTFOLIO_TRANSITION_TIMEOUT_MS = 4000L
         private const val HOME_NAV_CLICK_RETRY_MS = 3000L
@@ -109,7 +123,8 @@ class ScreenReaderService : AccessibilityService() {
         private const val HOME_BOTTOM_NAV_TOP_RATIO = 0.85f
         private const val HOME_BOTTOM_NAV_BAND_DP = 180f
         private const val HOME_NAV_REVEAL_RETRY_MS = 1200L
-        private const val HOME_NAV_REVEAL_LIMIT = 2
+        private const val HOME_NAV_REVEAL_LIMIT = 4
+        private const val HOME_NAV_BLIND_TAP_AFTER_ATTEMPTS = 4
         private const val HOME_CUSTOMERS_TAB_X_RATIO = 0.30f
         private const val HOME_RENEWALS_TAB_X_RATIO = 0.707f
         private const val HOME_TAB_CUSTOMERS = "Customers"
@@ -214,6 +229,13 @@ class ScreenReaderService : AccessibilityService() {
         private const val MPIN_SUBMIT_RETRY_LIMIT = 4
         private const val MPIN_SUBMIT_RETRY_MS = 700L
         private const val MPIN_FILL_RETRY_MS = 1500L
+        private val MPIN_REJECT_MARKERS = listOf(
+            "incorrect mpin",
+            "invalid mpin",
+            "wrong mpin",
+            "mpin is incorrect",
+            "mpin does not match"
+        )
         private const val MPIN_RELEASE_DELAY_MS = 5000L
         private const val ROOT_DIAGNOSTIC_INTERVAL_MS = 3000L
         private const val ACCESSIBILITY_CAPTURE_DEBOUNCE_MS = 200L
@@ -348,6 +370,8 @@ class ScreenReaderService : AccessibilityService() {
     private var MpinFillInFlight = false
     private var MpinSkipLogged = false
     private var MpinSubmitAttempts = 0
+    private var MpinLoginSubmitted = false
+    private var MpinRejectedHandled = false
     private var MpinKeyboardHidden = false
     private var LastScreenSignature = 0
     private var LastScreenNodeCount = 0
@@ -371,14 +395,27 @@ class ScreenReaderService : AccessibilityService() {
     private var PolicyDetailOpenAttempts = 0
     private var PolicyDetailReturnAttempts = 0
     private var PolicyDetailOriginPage = 0
-    private var PolicyPageRestoreTarget = 0
-    private var IsRestoringPolicyPageAfterDetail = false
+    private var PolicyJumpTarget = 0
+    private var PolicyJumpReason = POLICY_JUMP_NONE
+    private var PolicyResumeTargetPage = 0
+    private var PolicyResumeJumpAttempts = 0
+    private var PolicyResumeWaitCount = 0
+    private var PolicySelectorScrollCount = 0
+    private var PolicySelectorHighestOption = 0
+    private var PolicySelectorScrollStalls = 0
+    private var PolicyLastFailurePage = 0
     private var IsPolicyDetailScreenActive = false
     private var IsPolicyDashboardScreenVisible = false
     private var LatestPolicyDetailNodes: List<String> = emptyList()
     private var PolicySectionRetryRounds = 0
     private var PolicyDetailSweepCount = 0
     private var LastPolicyDetailSweepSignature = 0
+
+    private val IsRestoringPolicyPageAfterDetail: Boolean
+        get() = PolicyJumpTarget > 0 && PolicyJumpReason == POLICY_JUMP_DETAIL_RESTORE
+
+    private val IsPolicyPageJumpPending: Boolean
+        get() = PolicyJumpTarget > 0
 
     private val PolicySectionsInFlight = linkedSetOf<String>()
     private val ProcessedPolicyDetailNumbers = linkedSetOf<String>()
@@ -1183,7 +1220,8 @@ class ScreenReaderService : AccessibilityService() {
         CapturePolicyDetailsVal: Boolean = false,
         OriginActivityVal: String = "",
         ResumeSessionIdVal: String = "",
-        RevisitFilledVal: Boolean = false
+        RevisitFilledVal: Boolean = false,
+        ResumeFromPageVal: Int = 0
     ) {
         CurrentMode = ModeVal
         LoadRunSettings()
@@ -1202,6 +1240,8 @@ class ScreenReaderService : AccessibilityService() {
         MpinFillInFlight = false
         MpinSkipLogged = false
         MpinSubmitAttempts = 0
+        MpinLoginSubmitted = false
+        MpinRejectedHandled = false
         RestoreSoftKeyboard()
         CancelErrorRetry()
         ErrorRetryCount = 0
@@ -1235,8 +1275,14 @@ class ScreenReaderService : AccessibilityService() {
         PolicyDetailOpenAttempts = 0
         PolicyDetailReturnAttempts = 0
         PolicyDetailOriginPage = 0
-        PolicyPageRestoreTarget = 0
-        IsRestoringPolicyPageAfterDetail = false
+        ClearPolicyJump()
+        PolicyResumeTargetPage = 0
+        PolicyResumeJumpAttempts = 0
+        PolicyResumeWaitCount = 0
+        PolicySelectorScrollCount = 0
+        PolicySelectorHighestOption = 0
+        PolicySelectorScrollStalls = 0
+        PolicyLastFailurePage = 0
         IsPolicyDetailScreenActive = false
         IsPolicyDashboardScreenVisible = false
         LatestPolicyDetailNodes = emptyList()
@@ -1279,6 +1325,7 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "session=$CurrentSessionId mode=${ModeVal.name} " +
                     "resumed=$IsResumedSession " +
                     "capturePolicyDetails=$CapturePolicyDetailsEnabled " +
+                    "resumeFromPage=$ResumeFromPageVal " +
                     "expected=${ExpectedTargetPackage()} " +
                     "origin=$OriginActivityVal"
         )
@@ -1306,6 +1353,23 @@ class ScreenReaderService : AccessibilityService() {
 
 
         if (IsResumedSession) SeedFromStoredSession()
+
+        if (ModeVal == CaptureMode.POLICY && ResumeFromPageVal > 1) {
+            PolicyResumeTargetPage = ResumeFromPageVal
+            DiagnosticInfo(
+                EventName = "POLICY_RESUME_TARGET",
+                MessageText = "source=session track=${CurrentResumeTrack()} " +
+                        "page=$ResumeFromPageVal session=$CurrentSessionId"
+            )
+        }
+
+        if (ModeVal == CaptureMode.CUSTOMER && ResumeFromPageVal > 1) {
+            TargetCustomerPage = ResumeFromPageVal
+            DiagnosticInfo(
+                EventName = "CUSTOMER_RESUME_TARGET",
+                MessageText = "source=session page=$ResumeFromPageVal session=$CurrentSessionId"
+            )
+        }
 
         CaptureSessionState.OnSessionStarted(
             ModeVal = ModeVal,
@@ -1496,6 +1560,13 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "Capture discarded; nodes=${CapturedNodes.size} policies=${CapturedPolicyMap.size}"
         )
         TeardownSession()
+        if (CurrentSessionId.isNotBlank() && CurrentResumeTrack().isNotEmpty()) {
+            PolicyRepository.ClearPolicyResumeMark(
+                ContextRef = this,
+                SessionId = CurrentSessionId,
+                TrackVal = CurrentResumeTrack()
+            )
+        }
         CapturedNodes.clear()
     }
 
@@ -1558,7 +1629,7 @@ class ScreenReaderService : AccessibilityService() {
         if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE &&
             IsMpinLoginScreen(VisibleNodes = VisibleNodes)
         ) {
-            HandleMpinLoginScreen(RootNode = RootNode)
+            HandleMpinLoginScreen(RootNode = RootNode, VisibleNodes = VisibleNodes)
             return
         }
 
@@ -1671,7 +1742,42 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun HandleMpinLoginScreen(RootNode: AccessibilityNodeInfo) {
+    private fun IsMpinRejectionNotice(VisibleNodes: List<String>): Boolean {
+        return VisibleNodes.any { NodeText ->
+            MPIN_REJECT_MARKERS.any { MarkerText ->
+                NodeText.contains(MarkerText, ignoreCase = true)
+            }
+        }
+    }
+
+    private fun HandleRejectedMpin() {
+        MpinRejectedHandled = true
+        MpinFillInFlight = false
+        MpinAttemptCount = MPIN_ATTEMPT_LIMIT
+        MpinSkipLogged = true
+        RestoreSoftKeyboard()
+        MpinStore.MarkRejected(ContextRef = this)
+        DiagnosticWarning(
+            EventName = "MPIN_REJECTED",
+            MessageText = "LIC rejected the saved mPIN; auto-entry switched off so repeated " +
+                    "attempts cannot lock the account, log in by hand and save the new mPIN"
+        )
+        HapticFeedback.Failure(ContextRef = this)
+        Toast.makeText(this, getString(R.string.mpin_rejected_toast), Toast.LENGTH_LONG).show()
+    }
+
+    private fun HandleMpinLoginScreen(
+        RootNode: AccessibilityNodeInfo,
+        VisibleNodes: List<String>
+    ) {
+        if (MpinLoginSubmitted &&
+            !MpinRejectedHandled &&
+            IsMpinRejectionNotice(VisibleNodes = VisibleNodes)
+        ) {
+            HandleRejectedMpin()
+            return
+        }
+        if (MpinRejectedHandled) return
         if (MpinFillInFlight) return
 
         val CodeText = MpinStore.MpinOrNull(ContextRef = this)
@@ -1858,6 +1964,7 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         if (ClickedOk) {
+            MpinLoginSubmitted = true
             DiagnosticInfo(
                 EventName = "MPIN_LOGIN_TAPPED",
                 MessageText = "Login tapped after entering the saved mPIN"
@@ -2061,11 +2168,6 @@ class ScreenReaderService : AccessibilityService() {
         return HasHomeMarker
     }
 
-    private fun HasBottomNavLabel(VisibleNodes: List<String>, TabLabel: String): Boolean {
-        return VisibleNodes.any { NodeText -> NodeText.trim().equals(TabLabel, ignoreCase = true) }
-    }
-
-
     private fun HomeNavTabLabel(): String {
         return if (CurrentMode == CaptureMode.FUP) HOME_TAB_RENEWALS else HOME_TAB_CUSTOMERS
     }
@@ -2086,24 +2188,33 @@ class ScreenReaderService : AccessibilityService() {
                         "${HOME_NAV_TRANSITION_TIMEOUT_MS}ms; allowing another attempt"
             )
             HasClickedHomeNavTab = false
+            HomeNavRevealCount = 0
         }
 
         val RetryDelayPassed = CurrentTime - HomeNavLastAttemptAt >= HOME_NAV_CLICK_RETRY_MS
         if (HasClickedHomeNavTab || !RetryDelayPassed) return
 
-        val VisibleLabels = CollectVisibleTextNodes(RootNode = RootNode)
-            .map { NodePair -> NodePair.first }
-        val HasTabLabel = HasBottomNavLabel(VisibleNodes = VisibleLabels, TabLabel = TabLabel)
+        val TabCandidates = RankedBottomNavTabBounds(RootNode = RootNode, TabLabel = TabLabel)
+        val TabBounds = TabCandidates.firstOrNull()
+        val IsTabTappable = TabBounds != null && IsBottomNavigationBounds(BoundsObj = TabBounds)
 
-        if (!HasTabLabel && HomeNavRevealCount < HOME_NAV_REVEAL_LIMIT) {
+        if (!IsTabTappable && HomeNavRevealCount < HOME_NAV_REVEAL_LIMIT) {
             if (CurrentTime - HomeNavRevealAt < HOME_NAV_REVEAL_RETRY_MS) return
             HomeNavRevealAt = CurrentTime
             HomeNavRevealCount++
-            val NudgeAccepted = PerformPolicyRevealNudge()
+            val NudgeForward = when {
+                TabBounds == null -> HomeNavRevealCount % 2 == 1
+                TabBounds.centerY() >= resources.displayMetrics.heightPixels -> true
+                else -> false
+            }
+            val NudgeAccepted = PerformPolicyRevealNudge(ForwardVal = NudgeForward)
             DiagnosticInfo(
                 EventName = "HOME_NAV_REVEAL",
-                MessageText = "tab=$TabLabel is not in the tree yet; nudging the page so the " +
-                        "bottom bar renders attempt=$HomeNavRevealCount accepted=$NudgeAccepted"
+                MessageText = "tab=$TabLabel is not tappable yet " +
+                        "bounds=${TabBounds ?: "absent"} " +
+                        "screenHeight=${resources.displayMetrics.heightPixels} " +
+                        "nudge=${if (NudgeForward) "content-up" else "content-down"} " +
+                        "attempt=$HomeNavRevealCount accepted=$NudgeAccepted"
             )
             return
         }
@@ -2112,19 +2223,92 @@ class ScreenReaderService : AccessibilityService() {
         HomeNavLastAttemptAt = CurrentTime
         DiagnosticInfo(
             EventName = "HOME_NAV_CLICK_ATTEMPT",
-            MessageText = "tab=$TabLabel attempt=$HomeNavClickAttempts labelInTree=$HasTabLabel " +
-                    "nudges=$HomeNavRevealCount"
+            MessageText = "tab=$TabLabel attempt=$HomeNavClickAttempts " +
+                    "bounds=${TabBounds ?: "absent"} tappable=$IsTabTappable " +
+                    "candidates=${TabCandidates.size} nudges=$HomeNavRevealCount"
         )
         HasClickedHomeNavTab = ClickHomeBottomNavTab(
             RootNode = RootNode,
-            TabLabel = TabLabel
+            TabLabel = TabLabel,
+            RankedBounds = TabCandidates
         )
+        if (!HasClickedHomeNavTab) HomeNavRevealCount = 0
+    }
+
+    private fun RankedBottomNavTabBounds(
+        RootNode: AccessibilityNodeInfo,
+        TabLabel: String
+    ): List<Rect> {
+        val AllBounds = mutableListOf<Rect>()
+        CollectBottomNavTabBounds(
+            TargetNode = RootNode,
+            TabLabel = TabLabel,
+            OutList = AllBounds
+        )
+        val BarBounds = AllBounds.filter { BoundsObj ->
+            IsBottomNavigationBounds(BoundsObj = BoundsObj)
+        }
+        val PoolList = BarBounds.ifEmpty { AllBounds }
+        return PoolList.sortedWith(
+            compareBy(
+                { BoundsObj -> BoundsObj.width() },
+                { BoundsObj -> -BoundsObj.centerY() }
+            )
+        )
+    }
+
+    private fun CollectBottomNavTabBounds(
+        TargetNode: AccessibilityNodeInfo,
+        TabLabel: String,
+        OutList: MutableList<Rect>
+    ) {
+        try {
+            val MatchText = NodeTextValue(NodeRef = TargetNode).trim()
+            if (MatchText.equals(TabLabel, ignoreCase = true)) {
+                val MatchBounds = Rect()
+                TargetNode.getBoundsInScreen(MatchBounds)
+                if (!MatchBounds.isEmpty) OutList.add(Rect(MatchBounds))
+            }
+            for (ChildIdx in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
+                try {
+                    CollectBottomNavTabBounds(
+                        TargetNode = ChildNode,
+                        TabLabel = TabLabel,
+                        OutList = OutList
+                    )
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Bottom nav label node became stale", ExceptionObj)
+        }
     }
 
     private fun ClickHomeBottomNavTab(
         RootNode: AccessibilityNodeInfo,
-        TabLabel: String
+        TabLabel: String,
+        RankedBounds: List<Rect>
     ): Boolean {
+        val PreferAccessibilityClick = HomeNavClickAttempts > 2
+        if (RankedBounds.isNotEmpty() && !PreferAccessibilityClick) {
+            val CandidateIndex = (HomeNavClickAttempts - 1).coerceAtLeast(0) % RankedBounds.size
+            val ChosenBounds = RankedBounds[CandidateIndex]
+            DiagnosticInfo(
+                EventName = "HOME_NAV_RANKED_CANDIDATE",
+                MessageText = "tab=$TabLabel index=$CandidateIndex of ${RankedBounds.size} " +
+                        "bounds=$ChosenBounds all=${RankedBounds.joinToString(separator = " ")}"
+            )
+            if (TapBottomNavTab(TabLabel = TabLabel, TabBounds = ChosenBounds)) {
+                DiagnosticInfo(
+                    EventName = "HOME_NAV_CLICKED",
+                    MessageText = "tab=$TabLabel ranked candidate=$CandidateIndex " +
+                            "bounds=$ChosenBounds"
+                )
+                return true
+            }
+        }
         val MatchList = try {
             RootNode.findAccessibilityNodeInfosByText(TabLabel)
         } catch (ExceptionObj: Exception) {
@@ -2157,6 +2341,14 @@ class ScreenReaderService : AccessibilityService() {
                 )
                 if (!IsBottomNavArea) continue
 
+                if (PreferAccessibilityClick && ClickNodeOrParent(StartNode = MatchNode)) {
+                    DiagnosticInfo(
+                        EventName = "HOME_NAV_CLICKED",
+                        MessageText = "tab=$TabLabel accessibility click accepted for " +
+                                "candidate=$CandidateIndex bounds=$MatchBounds"
+                    )
+                    return true
+                }
                 if (TapBottomNavTab(TabLabel = TabLabel, TabBounds = MatchBounds)) {
                     DiagnosticInfo(
                         EventName = "HOME_NAV_CLICKED",
@@ -2184,8 +2376,24 @@ class ScreenReaderService : AccessibilityService() {
         } finally {
             for (MatchNode in MatchList) RecycleNode(NodeRef = MatchNode)
         }
-        if (ClickHomeBottomNavTabByTraversal(TargetNode = RootNode, TabLabel = TabLabel)) {
+        if (ClickHomeBottomNavTabByTraversal(
+                TargetNode = RootNode,
+                TabLabel = TabLabel,
+                PreferAccessibilityClick = PreferAccessibilityClick
+            )
+        ) {
             return true
+        }
+        val OffScreenBounds = RankedBounds.firstOrNull()
+        if (OffScreenBounds != null && HomeNavClickAttempts < HOME_NAV_BLIND_TAP_AFTER_ATTEMPTS) {
+            DiagnosticWarning(
+                EventName = "HOME_NAV_TAB_OFFSCREEN",
+                MessageText = "tab=$TabLabel bounds=$OffScreenBounds " +
+                        "screen=${resources.displayMetrics.widthPixels}x" +
+                        "${resources.displayMetrics.heightPixels}; skipping the fixed-position " +
+                        "tap and nudging the page instead"
+            )
+            return false
         }
         if (TapHomeBottomNavTabFallback(TabLabel = TabLabel)) {
             DiagnosticInfo(
@@ -2203,7 +2411,8 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun ClickHomeBottomNavTabByTraversal(
         TargetNode: AccessibilityNodeInfo,
-        TabLabel: String
+        TabLabel: String,
+        PreferAccessibilityClick: Boolean
     ): Boolean {
         try {
             val MatchText = NodeTextValue(NodeRef = TargetNode)
@@ -2214,8 +2423,12 @@ class ScreenReaderService : AccessibilityService() {
                     DiagnosticInfo(
                         EventName = "HOME_NAV_TREE_CANDIDATE",
                         MessageText = "tab=$TabLabel text=[$MatchText] class=${TargetNode.className} " +
-                                "clickable=${TargetNode.isClickable} bounds=$MatchBounds"
+                                "clickable=${TargetNode.isClickable} bounds=$MatchBounds " +
+                                "preferAccessibility=$PreferAccessibilityClick"
                     )
+                    if (PreferAccessibilityClick && ClickNodeOrParent(StartNode = TargetNode)) {
+                        return true
+                    }
                     if (TapBottomNavTab(TabLabel = TabLabel, TabBounds = MatchBounds)) {
                         return true
                     }
@@ -2228,7 +2441,8 @@ class ScreenReaderService : AccessibilityService() {
                 try {
                     if (ClickHomeBottomNavTabByTraversal(
                             TargetNode = ChildNode,
-                            TabLabel = TabLabel
+                            TabLabel = TabLabel,
+                            PreferAccessibilityClick = PreferAccessibilityClick
                         )
                     ) {
                         return true
@@ -2495,7 +2709,8 @@ class ScreenReaderService : AccessibilityService() {
         DiagnosticInfo(
             EventName = "POLICY_AUTOMATION_START",
             MessageText = "page=$PolicyCurrentPage total=$PolicyTotalPages " +
-                    "captured=${CapturedPolicyMap.size} recoveryCount=$PolicyAutomationFailureCount"
+                    "captured=${CapturedPolicyMap.size} recoveryCount=$PolicyAutomationFailureCount " +
+                    "resumeTarget=$PolicyResumeTargetPage"
         )
         SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
             StartPolicyPageWork()
@@ -2504,6 +2719,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun StartPolicyPageWork() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (MaybeJumpToResumeTarget()) return
         if (!CapturePolicyDetailsEnabled) {
             ScrollPolicyDashboardPage()
             return
@@ -2800,8 +3016,10 @@ class ScreenReaderService : AccessibilityService() {
             PolicyDetailReturnAttempts = 0
             HasExpandedCurrentPolicyScreen = false
             if (PolicyDetailOriginPage > 0 && PolicyCurrentPage != PolicyDetailOriginPage) {
-                PolicyPageRestoreTarget = PolicyDetailOriginPage
-                IsRestoringPolicyPageAfterDetail = true
+                SetPolicyJump(
+                    TargetPage = PolicyDetailOriginPage,
+                    ReasonVal = POLICY_JUMP_DETAIL_RESTORE
+                )
                 PolicyReturnToTopCount = 0
                 PolicyPageRetryCount = 0
                 DiagnosticWarning(
@@ -2908,6 +3126,7 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "page=$PolicyCurrentPage total=$PolicyTotalPages " +
                     "selectorVisible=$IsPolicyPageSelectorVisible captured=${CapturedPolicyMap.size}"
         )
+        SavePolicyResumeProgress(IsCompleteVal = false)
         if (PolicyCurrentPage > 0 &&
             PolicyTotalPages > 0 &&
             PolicyCurrentPage >= PolicyTotalPages
@@ -2933,7 +3152,8 @@ class ScreenReaderService : AccessibilityService() {
                     "controlOnScreen=$IsSelectorActuallyVisible returnAttempts=$PolicyReturnToTopCount"
         )
         if (IsSelectorActuallyVisible) {
-            if (!IsRestoringPolicyPageAfterDetail &&
+            if (!IsPolicyPageJumpPending &&
+                PolicyResumeTargetPage <= 0 &&
                 PolicyTotalPages > 0 &&
                 PolicyCurrentPage >= PolicyTotalPages
             ) {
@@ -2970,8 +3190,8 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun OpenPolicyPageSelector() {
-        PolicyExpectedPage = if (IsRestoringPolicyPageAfterDetail && PolicyPageRestoreTarget > 0) {
-            PolicyPageRestoreTarget
+        PolicyExpectedPage = if (PolicyJumpTarget > 0) {
+            PolicyJumpTarget
         } else if (PolicyCurrentPage > 0) {
             PolicyCurrentPage + 1
         } else {
@@ -3023,6 +3243,7 @@ class ScreenReaderService : AccessibilityService() {
         val RootNode = FindReadableRoot(
             ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
         ) ?: run {
+            ResetPolicySelectorScrollState()
             performGlobalAction(GLOBAL_ACTION_BACK)
             RetryPolicyPageNavigation("Page options are unavailable")
             return
@@ -3035,11 +3256,19 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         if (!PageSelected) {
+            if (ScrollPolicyPageSelectorList()) {
+                SchedulePolicyAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                    SelectNextPolicyPage()
+                }
+                return
+            }
+            ResetPolicySelectorScrollState()
             performGlobalAction(GLOBAL_ACTION_BACK)
             RetryPolicyPageNavigation("Could not select page $PolicyExpectedPage")
             return
         }
 
+        ResetPolicySelectorScrollState()
         DiagnosticInfo(
             EventName = "POLICY_PAGE_SELECTED",
             MessageText = "selected=$PolicyExpectedPage; waiting for dashboard to load"
@@ -3076,7 +3305,10 @@ class ScreenReaderService : AccessibilityService() {
 
             PolicyPageRetryCount = 0
             PolicyScrollStallCount = 0
-            PolicyAutomationFailureCount = 0
+            if (PolicyCurrentPage > PolicyLastFailurePage) {
+                PolicyAutomationFailureCount = 0
+                PolicyLastFailurePage = 0
+            }
             Log.d(
                 LOG_TAG,
                 "Capturing Policy Dashboard page $PolicyCurrentPage of $PolicyTotalPages"
@@ -3092,17 +3324,368 @@ class ScreenReaderService : AccessibilityService() {
                     MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
                             "restoredPage=$PolicyCurrentPage queueIndex=$PolicyDetailQueueIndex"
                 )
-                IsRestoringPolicyPageAfterDetail = false
-                PolicyPageRestoreTarget = 0
+                ClearPolicyJump()
                 PolicyDetailOriginPage = PolicyCurrentPage
                 SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
                     ProcessNextPolicyDetail()
                 }
                 return@SchedulePolicyAction
             }
+            ClearPolicyJump()
             SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
                 StartPolicyPageWork()
             }
+        }
+    }
+
+    private fun SetPolicyJump(TargetPage: Int, ReasonVal: String) {
+        PolicyJumpTarget = TargetPage
+        PolicyJumpReason = ReasonVal
+    }
+
+    private fun ClearPolicyJump() {
+        PolicyJumpTarget = 0
+        PolicyJumpReason = POLICY_JUMP_NONE
+    }
+
+    private fun ResetPolicySelectorScrollState() {
+        PolicySelectorScrollCount = 0
+        PolicySelectorHighestOption = 0
+        PolicySelectorScrollStalls = 0
+    }
+
+    private fun CurrentResumeTrack(): String {
+        return PolicyResumeTrack.OfMode(
+            ModeVal = CurrentMode,
+            CapturePolicyDetails = CapturePolicyDetailsEnabled
+        )
+    }
+
+    private fun SavePolicyResumeProgress(IsCompleteVal: Boolean) {
+        if (CurrentMode != CaptureMode.POLICY) return
+        if (CurrentSessionId.isBlank()) return
+        if (PolicyCurrentPage <= 0 || PolicyTotalPages <= 0) return
+        val TrackVal = CurrentResumeTrack()
+        try {
+            PolicyRepository.SavePolicyResumeMark(
+                ContextRef = this,
+                MarkObj = PolicyResumeMark(
+                    SessionId = CurrentSessionId,
+                    Track = TrackVal,
+                    LastCompletedPage = PolicyCurrentPage,
+                    TotalPages = PolicyTotalPages,
+                    CapturedCount = CapturedPolicyMap.size,
+                    SavedAt = System.currentTimeMillis(),
+                    IsComplete = IsCompleteVal
+                )
+            )
+            DiagnosticInfo(
+                EventName = "POLICY_RESUME_MARK",
+                MessageText = "track=$TrackVal page=$PolicyCurrentPage total=$PolicyTotalPages " +
+                        "captured=${CapturedPolicyMap.size} complete=$IsCompleteVal"
+            )
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "POLICY_RESUME_MARK_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun OutstandingCustomerCount(): Int {
+        return ProcessedCustomerKeys.count { KeyText ->
+            !VisitedCustomerNames.contains(KeyText.substringAfter('|'))
+        }
+    }
+
+    private fun SaveCustomerResumeProgress(IsCompleteVal: Boolean) {
+        if (CurrentMode != CaptureMode.CUSTOMER) return
+        if (CurrentSessionId.isBlank()) return
+        if (TargetCustomerPage <= 0 || CustomerTotalPages <= 0) return
+        val OutstandingCount = OutstandingCustomerCount()
+        try {
+            PolicyRepository.SavePolicyResumeMark(
+                ContextRef = this,
+                MarkObj = PolicyResumeMark(
+                    SessionId = CurrentSessionId,
+                    Track = PolicyResumeTrack.CUSTOMER,
+                    LastCompletedPage = TargetCustomerPage,
+                    TotalPages = CustomerTotalPages,
+                    CapturedCount = FilledPolicyNumbers.size,
+                    OutstandingBefore = OutstandingCount,
+                    SavedAt = System.currentTimeMillis(),
+                    IsComplete = IsCompleteVal
+                )
+            )
+            DiagnosticInfo(
+                EventName = "CUSTOMER_RESUME_MARK",
+                MessageText = "page=$TargetCustomerPage total=$CustomerTotalPages " +
+                        "filled=${FilledPolicyNumbers.size} outstanding=$OutstandingCount " +
+                        "complete=$IsCompleteVal"
+            )
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_RESUME_MARK_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun MaybeJumpToResumeTarget(): Boolean {
+        if (PolicyResumeTargetPage <= 0) return false
+
+        if (PolicyCurrentPage <= 0 || PolicyTotalPages <= 0) {
+            PolicyResumeWaitCount++
+            if (PolicyResumeWaitCount > POLICY_RESUME_WAIT_LIMIT) {
+                DiagnosticWarning(
+                    EventName = "POLICY_RESUME_ABANDONED",
+                    MessageText = "reason=[page never detected] target=$PolicyResumeTargetPage " +
+                            "waits=$PolicyResumeWaitCount"
+                )
+                PolicyResumeTargetPage = 0
+                return false
+            }
+            SchedulePolicyAction(DelayMs = POLICY_PAGE_LOAD_DELAY_MS) {
+                StartPolicyPageWork()
+            }
+            return true
+        }
+        PolicyResumeWaitCount = 0
+
+        val ClampedTarget = PolicyResumeTarget.ClampToTotal(
+            TargetPage = PolicyResumeTargetPage,
+            TotalPages = PolicyTotalPages
+        )
+        if (ClampedTarget != PolicyResumeTargetPage) {
+            DiagnosticWarning(
+                EventName = "POLICY_RESUME_CLAMPED",
+                MessageText = "target=$PolicyResumeTargetPage clamped=$ClampedTarget " +
+                        "total=$PolicyTotalPages"
+            )
+            PolicyResumeTargetPage = ClampedTarget
+        }
+
+        if (PolicyResumeTargetPage <= 0 || PolicyCurrentPage >= PolicyResumeTargetPage) {
+            DiagnosticInfo(
+                EventName = "POLICY_RESUME_REACHED",
+                MessageText = "page=$PolicyCurrentPage target=$PolicyResumeTargetPage " +
+                        "total=$PolicyTotalPages captured=${CapturedPolicyMap.size}"
+            )
+            PolicyResumeTargetPage = 0
+            PolicyResumeJumpAttempts = 0
+            return false
+        }
+
+        PolicyResumeJumpAttempts++
+        if (PolicyResumeJumpAttempts > POLICY_RESUME_JUMP_LIMIT) {
+            DiagnosticWarning(
+                EventName = "POLICY_RESUME_ABANDONED",
+                MessageText = "reason=[jump attempts exhausted] target=$PolicyResumeTargetPage " +
+                        "page=$PolicyCurrentPage attempts=$PolicyResumeJumpAttempts"
+            )
+            PolicyResumeTargetPage = 0
+            return false
+        }
+
+        DiagnosticInfo(
+            EventName = "POLICY_RESUME_JUMP",
+            MessageText = "page=$PolicyCurrentPage target=$PolicyResumeTargetPage " +
+                    "total=$PolicyTotalPages attempt=$PolicyResumeJumpAttempts"
+        )
+        SetPolicyJump(TargetPage = PolicyResumeTargetPage, ReasonVal = POLICY_JUMP_RESUME)
+        PolicyReturnToTopCount = 0
+        PolicyPageRetryCount = 0
+        SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
+            ReturnToPolicyPageSelector()
+        }
+        return true
+    }
+
+    private fun ScrollPolicyPageSelectorList(): Boolean {
+        if (PolicySelectorScrollCount >= POLICY_SELECTOR_SCROLL_LIMIT) {
+            DiagnosticWarning(
+                EventName = "POLICY_SELECTOR_SCROLL_LIMIT",
+                MessageText = "expected=$PolicyExpectedPage scrolls=$PolicySelectorScrollCount " +
+                        "highestVisible=$PolicySelectorHighestOption"
+            )
+            return false
+        }
+
+        val OptionList = mutableListOf<Pair<Int, Rect>>()
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return false
+        try {
+            CollectPolicyPageOptions(TargetNode = RootNode, OutList = OptionList)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        val ModalLeft = OptionList
+            .groupingBy { OptionItem -> OptionItem.second.left }
+            .eachCount()
+            .maxByOrNull { EntryItem -> EntryItem.value }
+            ?.key
+        val ColumnList = if (ModalLeft == null) {
+            emptyList<Pair<Int, Rect>>()
+        } else {
+            OptionList.filter { OptionItem -> OptionItem.second.left == ModalLeft }
+        }
+        val ColumnWidthLimit =
+            resources.displayMetrics.widthPixels * POLICY_SELECTOR_COLUMN_MAX_WIDTH_RATIO
+        val OptionBounds = Rect()
+        for (OptionItem in ColumnList) OptionBounds.union(OptionItem.second)
+        if (ColumnList.size < POLICY_SELECTOR_OPTION_MIN_COUNT ||
+            OptionBounds.isEmpty ||
+            OptionBounds.width() > ColumnWidthLimit
+        ) {
+            DiagnosticWarning(
+                EventName = "POLICY_SELECTOR_LIST_MISSING",
+                MessageText = "expected=$PolicyExpectedPage options=${ColumnList.size} " +
+                        "bounds=$OptionBounds"
+            )
+            return false
+        }
+
+        val HighestOption = ColumnList.maxOf { OptionItem -> OptionItem.first }
+        if (HighestOption <= PolicySelectorHighestOption) {
+            PolicySelectorScrollStalls++
+        } else {
+            PolicySelectorScrollStalls = 0
+        }
+        if (HighestOption > PolicySelectorHighestOption) {
+            PolicySelectorHighestOption = HighestOption
+        }
+        if (PolicySelectorScrollStalls >= POLICY_SCROLL_STALL_LIMIT) {
+            DiagnosticWarning(
+                EventName = "POLICY_SELECTOR_SCROLL_STALLED",
+                MessageText = "expected=$PolicyExpectedPage highestVisible=$PolicySelectorHighestOption"
+            )
+            return false
+        }
+
+        val ScrollAccepted = ScrollNodeCoveringBounds(BoundsObj = OptionBounds) ||
+                SwipePolicyPageOptionColumn(BoundsObj = OptionBounds)
+        PolicySelectorScrollCount++
+        DiagnosticInfo(
+            EventName = "POLICY_SELECTOR_SCROLL",
+            MessageText = "expected=$PolicyExpectedPage attempt=$PolicySelectorScrollCount " +
+                    "options=${ColumnList.size} highestVisible=$HighestOption " +
+                    "bounds=$OptionBounds accepted=$ScrollAccepted"
+        )
+        return ScrollAccepted
+    }
+
+    private fun CollectPolicyPageOptions(
+        TargetNode: AccessibilityNodeInfo,
+        OutList: MutableList<Pair<Int, Rect>>
+    ) {
+        try {
+            val NodeText = NodeTextValue(NodeRef = TargetNode).trim()
+            if (NodeText.length in 1..3 &&
+                NodeText.all { CharValue -> CharValue.isDigit() }
+            ) {
+                val OptionNumber = NodeText.toIntOrNull() ?: 0
+                val OptionCap = if (PolicyTotalPages > 0) PolicyTotalPages else 999
+                if (OptionNumber in 1..OptionCap &&
+                    IsRightSidePageOption(NodeRef = TargetNode)
+                ) {
+                    val NodeBounds = Rect()
+                    TargetNode.getBoundsInScreen(NodeBounds)
+                    OutList.add(Pair(OptionNumber, NodeBounds))
+                }
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIndex) ?: continue
+                try {
+                    CollectPolicyPageOptions(TargetNode = ChildNode, OutList = OutList)
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun ScrollNodeCoveringBounds(BoundsObj: Rect): Boolean {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return false
+        return try {
+            ScrollScrollableNodeCovering(TargetNode = RootNode, BoundsObj = BoundsObj)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun ScrollScrollableNodeCovering(
+        TargetNode: AccessibilityNodeInfo,
+        BoundsObj: Rect
+    ): Boolean {
+        try {
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIndex) ?: continue
+                try {
+                    if (ScrollScrollableNodeCovering(
+                            TargetNode = ChildNode,
+                            BoundsObj = BoundsObj
+                        )
+                    ) {
+                        return true
+                    }
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+            if (!TargetNode.isScrollable) return false
+            val NodeBounds = Rect()
+            TargetNode.getBoundsInScreen(NodeBounds)
+            val WidthLimit =
+                resources.displayMetrics.widthPixels * POLICY_SELECTOR_SCROLLABLE_MAX_WIDTH_RATIO
+            if (NodeBounds.width() > WidthLimit) return false
+            if (!NodeBounds.contains(BoundsObj.centerX(), BoundsObj.centerY())) return false
+            return TargetNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+        } catch (_: Exception) {
+        }
+        return false
+    }
+
+    private fun SwipePolicyPageOptionColumn(BoundsObj: Rect): Boolean {
+        CollapseBubbleForGesture()
+        val DisplayMetricsObj = resources.displayMetrics
+        val ColumnHeight = BoundsObj.height().toFloat()
+        if (ColumnHeight < DisplayMetricsObj.heightPixels * 0.15f) return false
+
+        val StartXVal = BoundsObj.centerX().toFloat()
+        val BottomLimit = minOf(
+            BoundsObj.bottom.toFloat(),
+            DisplayMetricsObj.heightPixels * 0.92f
+        )
+        val StartYVal = BottomLimit - ColumnHeight * 0.06f
+        val EndYVal = BoundsObj.top + ColumnHeight * 0.06f
+        if (StartYVal <= EndYVal) return false
+
+        val ScrollPath = Path().apply {
+            moveTo(StartXVal, StartYVal)
+            lineTo(StartXVal, EndYVal)
+        }
+        val GestureObj = GestureDescription.Builder()
+            .addStroke(
+                GestureDescription.StrokeDescription(
+                    ScrollPath,
+                    0,
+                    POLICY_SELECTOR_SCROLL_DURATION_MS
+                )
+            )
+            .build()
+        return try {
+            dispatchGesture(GestureObj, null, null)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "POLICY_SELECTOR_SCROLL_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            false
         }
     }
 
@@ -3127,6 +3710,8 @@ class ScreenReaderService : AccessibilityService() {
         if (IsPolicyDashboardComplete) return
         IsPolicyDashboardComplete = true
         IsPolicyDashboardAutomationRunning = false
+        PolicyResumeTargetPage = 0
+        SavePolicyResumeProgress(IsCompleteVal = true)
         PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         PolicyAutomationRunnable = null
         Log.d(LOG_TAG, "Policy Dashboard capture completed with ${CapturedPolicyMap.size} policies")
@@ -3155,6 +3740,19 @@ class ScreenReaderService : AccessibilityService() {
         PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         PolicyAutomationRunnable = null
         PolicyAutomationFailureCount++
+        if (CurrentMode == CaptureMode.POLICY && PolicyCurrentPage > 1) {
+            PolicyLastFailurePage = PolicyCurrentPage
+            if (PolicyResumeTargetPage <= 0) {
+                PolicyResumeTargetPage = PolicyCurrentPage
+                PolicyResumeJumpAttempts = 0
+                PolicyResumeWaitCount = 0
+                DiagnosticInfo(
+                    EventName = "POLICY_RESUME_TARGET",
+                    MessageText = "source=recovery page=$PolicyCurrentPage total=$PolicyTotalPages"
+                )
+            }
+        }
+        SavePolicyResumeProgress(IsCompleteVal = false)
         val CanRetryAutomatically = PolicyAutomationFailureCount < POLICY_AUTOMATION_RECOVERY_LIMIT
         PolicyAutomationRetryAfter = if (CanRetryAutomatically) {
             System.currentTimeMillis() + POLICY_FAILURE_RETRY_MS
@@ -3211,8 +3809,8 @@ class ScreenReaderService : AccessibilityService() {
             PolicyDetailOpenAttempts = 0
             PolicyDetailReturnAttempts = 0
             PolicyDetailOriginPage = 0
-            PolicyPageRestoreTarget = 0
-            IsRestoringPolicyPageAfterDetail = false
+            ClearPolicyJump()
+            ResetPolicySelectorScrollState()
             IsPolicyDetailScreenActive = false
             IsPolicyDashboardScreenVisible = false
             LatestPolicyDetailNodes = emptyList()
@@ -3221,8 +3819,6 @@ class ScreenReaderService : AccessibilityService() {
             LastPolicyDetailSweepSignature = 0
             PolicySectionsInFlight.clear()
             ProcessedPolicyDetailNumbers.clear()
-            PolicyAutomationRetryAfter = 0L
-            PolicyAutomationFailureCount = 0
         }
     }
 
@@ -3335,13 +3931,14 @@ class ScreenReaderService : AccessibilityService() {
                 for (MatchNode in MatchList) {
                     val NodeText = NodeTextValue(NodeRef = MatchNode)
                     if (!IsPageNumberLabel(TextValue = NodeText, PageNumber = PageNumber)) continue
+                    if (!IsRightSidePageOption(NodeRef = MatchNode)) continue
                     if (ClickNodeOrParent(StartNode = MatchNode)) {
                         Log.d(LOG_TAG, "Selected policy page $PageNumber")
                         return true
                     }
                     val MatchBounds = Rect()
                     MatchNode.getBoundsInScreen(MatchBounds)
-                    if (IsRightSidePageOption(NodeRef = MatchNode) && PerformTapGesture(
+                    if (PerformTapGesture(
                             XPos = MatchBounds.centerX().toFloat(),
                             YPos = MatchBounds.centerY().toFloat()
                         )
@@ -4728,17 +5325,19 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun PerformPolicyRevealNudge(): Boolean {
+    private fun PerformPolicyRevealNudge(ForwardVal: Boolean = true): Boolean {
         CollapseBubbleForGesture()
         val DisplayMetricsObj = resources.displayMetrics
+        val LowerYVal = DisplayMetricsObj.heightPixels * 0.78f
+        val UpperYVal = DisplayMetricsObj.heightPixels * 0.58f
         val ScrollPath = Path().apply {
             moveTo(
                 DisplayMetricsObj.widthPixels * 0.5f,
-                DisplayMetricsObj.heightPixels * 0.78f
+                if (ForwardVal) LowerYVal else UpperYVal
             )
             lineTo(
                 DisplayMetricsObj.widthPixels * 0.5f,
-                DisplayMetricsObj.heightPixels * 0.58f
+                if (ForwardVal) UpperYVal else LowerYVal
             )
         }
         val GestureObj = GestureDescription.Builder()
@@ -6428,6 +7027,14 @@ class ScreenReaderService : AccessibilityService() {
         if (PageInfo != null) {
             CustomerCurrentPage = PageInfo.first
             CustomerTotalPages = PageInfo.second
+            if (CustomerTotalPages in 1..<TargetCustomerPage) {
+                DiagnosticWarning(
+                    EventName = "CUSTOMER_RESUME_CLAMPED",
+                    MessageText = "target=$TargetCustomerPage clamped=$CustomerTotalPages " +
+                            "total=$CustomerTotalPages"
+                )
+                TargetCustomerPage = CustomerTotalPages
+            }
             if (TargetCustomerPage == 0) {
                 if (ProcessedCustomerKeys.isNotEmpty()) {
                     DiagnosticWarning(
@@ -6581,6 +7188,7 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun BeginNextCustomerPage() {
+        SaveCustomerResumeProgress(IsCompleteVal = false)
         if (CustomerTotalPages in 1..TargetCustomerPage) {
             CompleteCustomerAutomation(ReasonText = "last customer page reached")
             return
@@ -6734,12 +7342,20 @@ class ScreenReaderService : AccessibilityService() {
             .minByOrNull { NodePair -> NodePair.second.top }
             ?.second
         if (OptionBounds == null) {
+            if (ScrollCustomerPageOptionList(OptionNodes = OptionNodes)) {
+                ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                    SelectNextCustomerPage()
+                }
+                return
+            }
+            ResetPolicySelectorScrollState()
             RetryCustomerPageNavigation(
                 ReasonText = "option $TargetCustomerPage missing from " +
                         "${OptionNodes.size} open option(s)"
             )
             return
         }
+        ResetPolicySelectorScrollState()
         val TapAccepted = PerformTapGesture(
             XPos = OptionBounds.centerX().toFloat(),
             YPos = OptionBounds.centerY().toFloat()
@@ -6749,6 +7365,43 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "target=$TargetCustomerPage bounds=$OptionBounds accepted=$TapAccepted"
         )
         ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_LOAD_DELAY_MS) { WaitForCustomerPageLoad() }
+    }
+
+    private fun ScrollCustomerPageOptionList(OptionNodes: List<Pair<String, Rect>>): Boolean {
+        if (PolicySelectorScrollCount >= POLICY_SELECTOR_SCROLL_LIMIT) return false
+        if (OptionNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
+
+        val OptionBounds = Rect()
+        for (NodePair in OptionNodes) OptionBounds.union(NodePair.second)
+        if (OptionBounds.isEmpty) return false
+
+        val HighestOption = OptionNodes
+            .mapNotNull { NodePair -> NodePair.first.trim().toIntOrNull() }
+            .maxOrNull() ?: 0
+        if (HighestOption <= PolicySelectorHighestOption) {
+            PolicySelectorScrollStalls++
+        } else {
+            PolicySelectorScrollStalls = 0
+            PolicySelectorHighestOption = HighestOption
+        }
+        if (PolicySelectorScrollStalls >= POLICY_SCROLL_STALL_LIMIT) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_STALLED",
+                MessageText = "target=$TargetCustomerPage highestVisible=$PolicySelectorHighestOption"
+            )
+            return false
+        }
+
+        val ScrollAccepted = ScrollNodeCoveringBounds(BoundsObj = OptionBounds) ||
+                SwipePolicyPageOptionColumn(BoundsObj = OptionBounds)
+        PolicySelectorScrollCount++
+        DiagnosticInfo(
+            EventName = "CUSTOMER_PAGE_OPTION_SCROLL",
+            MessageText = "target=$TargetCustomerPage attempt=$PolicySelectorScrollCount " +
+                    "options=${OptionNodes.size} highestVisible=$HighestOption " +
+                    "bounds=$OptionBounds accepted=$ScrollAccepted"
+        )
+        return ScrollAccepted
     }
 
     private fun WaitForCustomerPageLoad() {
@@ -7635,6 +8288,7 @@ class ScreenReaderService : AccessibilityService() {
         if (IsCustomerAutomationComplete) return
         IsCustomerAutomationComplete = true
         IsCustomerAutomationRunning = false
+        SaveCustomerResumeProgress(IsCompleteVal = true)
         CustomerStageValue = CustomerStage.IDLE
         CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         CustomerAutomationRunnable = null
@@ -7649,6 +8303,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun FailCustomerAutomation(ReasonText: String) {
         CustomerAutomationFailureCount++
+        SaveCustomerResumeProgress(IsCompleteVal = false)
         IsCustomerAutomationRunning = false
         CustomerStageValue = CustomerStage.IDLE
         CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }

@@ -12,6 +12,7 @@ import android.widget.Toast
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
+import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCaptureReviewBinding
@@ -68,6 +69,14 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
 
         BindingObj.btnReviewDiscard.setOnClickListener { ViewRef ->
             HapticFeedback.Reject(ViewRef = ViewRef)
+            PolicyRepository.ClearPolicyResumeMark(
+                ContextRef = requireContext().applicationContext,
+                SessionId = SessionObj.SessionId,
+                TrackVal = PolicyResumeTrack.OfMode(
+                    ModeVal = SessionObj.Mode,
+                    CapturePolicyDetails = SessionObj.CapturePolicyDetails
+                )
+            )
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(0)
             dismissAllowingStateLoss()

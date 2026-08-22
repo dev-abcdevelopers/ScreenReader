@@ -1,4 +1,6 @@
-@file:Suppress("FunctionName", "LocalVariableName")
+@file:Suppress("FunctionName", "LocalVariableName", "TestFunctionName", "PrivatePropertyName",
+    "SpellCheckingInspection"
+)
 
 package com.bliss.screenreader.data.model
 
@@ -10,19 +12,43 @@ import org.junit.Test
 class PolicyCompletenessTest {
 
     private val Labels = PolicyCompleteness.LabelSet(
-        CardTitle = "Card", PolicyDetailsTitle = "Policy details",
-        CommissionsTitle = "Commissions", KeyDatesTitle = "Key dates",
-        CustomerTitle = "Customer", PlanCode = "Plan code", PlanName = "Plan name",
-        Status = "Status", Premium = "Premium", PremiumFrequency = "Frequency",
-        AutoPay = "Auto pay", RenewalType = "Renewal type", RenewalDue = "Renewal due",
-        SumAssured = "Sum assured", TermPpt = "Term / PPT",
-        CommissionType = "Commission type", CommissionPaid = "Commission paid",
-        BonusCommission = "Bonus commission", CommissionPaymentDate = "Commission paid on",
-        CommissionPremiumDate = "Premium paid on", Commenced = "Commenced",
-        PremiumsEnd = "Premiums end", Matures = "Matures", Mobile = "Mobile",
-        Dob = "Date of birth", Address = "Address", FlagKyc = "KYC not updated",
-        FlagNeft = "NEFT not updated", FlagNominee = "Nominee not updated",
-        FlagMobile = "Mobile not updated", FlagAddress = "Address not updated"
+        CardTitle = "Card",
+        PolicyDetailsTitle = "Policy details",
+        CommissionsTitle = "Commissions",
+        KeyDatesTitle = "Key dates",
+        CustomerTitle = "Customer",
+        PlanCode = "Plan code",
+        PlanName = "Plan name",
+        Status = "Status",
+        Premium = "Premium",
+        PremiumFrequency = "Frequency",
+        AutoPay = "Auto pay",
+        RenewalType = "Renewal type",
+        RenewalDue = "Renewal due",
+        SumAssured = "Sum assured",
+        TermPpt = "Term / PPT",
+        CommissionType = "Commission type",
+        CommissionPaid = "Commission paid",
+        BonusCommission = "Bonus commission",
+        CommissionPaymentDate = "Commission paid on",
+        CommissionPremiumDate = "Premium paid on",
+        Commenced = "Commenced",
+        PremiumsEnd = "Premiums end",
+        Matures = "Matures",
+        Mobile = "Mobile",
+        Dob = "Date of birth",
+        Address = "Address",
+        FlagKyc = "KYC not updated",
+        FlagNeft = "NEFT not updated",
+        FlagNominee = "Nominee not updated",
+        FlagMobile = "Mobile not updated",
+        FlagAddress = "Address not updated",
+        Email = "",
+        Gender = "",
+        Education = "",
+        Occupation = "",
+        MaritalStatus = "",
+        AnnualIncome = ""
     )
 
     private val FastCapturedPolicy = CustomerPolicy(

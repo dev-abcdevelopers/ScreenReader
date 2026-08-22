@@ -119,6 +119,13 @@
     <string name="policy_capture_depth_title">Capture policy details?</string>
     <string name="policy_capture_depth_message">Full details opens every policy and expands available sections to collect Sum Assured, Term/PPT, commission and key-date information. This can be much slower—about 10 policy visits per page.</string>
     <string name="policy_capture_full">Full details</string>
+    <string name="policy_resume_checkbox">Resume where this session stopped</string>
+    <string name="policy_resume_checkbox_meta">Last stopped %1$s · %2$s captured</string>
+    <string name="policy_resume_card_note">Resumes at page %1$d of %2$d</string>
+    <string name="policy_resume_card_complete">Already completed · starts from page 1</string>
+    <string name="customer_resume_page">It will resume at page %1$d of %2$d.</string>
+    <string name="customer_resume_page_blocked">Some customers were missed earlier, so Continue starts from page 1 and skips the ones already filled.</string>
+    <string name="customer_resume_skip_ahead">Skip ahead to page %1$d anyway</string>
     <string name="policy_capture_fast">Fast capture</string>
     <string name="policy_capture_sheet_subtitle">Choose how much information this session should collect.</string>
     <string name="policy_capture_fast_desc">Reads all dashboard cards and pages without opening individual policies. Best when speed matters.</string>

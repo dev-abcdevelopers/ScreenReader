@@ -44,6 +44,9 @@ class MpinActivity : AppCompatActivity() {
         BindBoxes()
 
         ViewBindingObj.swAutoEnter.isChecked = MpinStore.IsAutoEnterOn(ContextRef = this)
+        if (MpinStore.WasRejected(ContextRef = this)) {
+            ShowError(MessageRes = R.string.mpin_error_rejected)
+        }
         ViewBindingObj.swAutoEnter.setOnCheckedChangeListener { ViewRef, _ ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             if (!IsEditingMpin && MpinStore.HasMpin(ContextRef = this)) {

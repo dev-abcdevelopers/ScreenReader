@@ -31,6 +31,14 @@
         android:text="@string/customer_resume_continue" />
 
     <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCustomerSkipAhead"
+        style="@style/Widget.App.Button.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_sm"
+        android:visibility="gone" />
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnCustomerRestart"
         style="@style/Widget.App.Button.Outlined"
         android:layout_width="match_parent"

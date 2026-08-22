@@ -55,6 +55,66 @@
     </LinearLayout>
 
     <com.google.android.material.card.MaterialCardView
+        android:id="@+id/resumeFromPageGroup"
+        style="@style/Widget.App.Card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_lg"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:visibility="gone"
+        app:cardBackgroundColor="@color/primary_container"
+        app:strokeColor="@color/primary"
+        app:strokeWidth="2dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="@dimen/card_padding">
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cbResumeFromPage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_md"
+                android:checked="true"
+                android:clickable="false"
+                android:focusable="false"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:padding="0dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/policy_resume_checkbox"
+                    android:textAppearance="@style/TextAppearance.App.Heading"
+                    android:textColor="@color/on_primary_container" />
+
+                <TextView
+                    android:id="@+id/tvResumeFromPageMeta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/on_primary_container" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardFastCapture"
         style="@style/Widget.App.Card"
         android:layout_width="match_parent"
@@ -97,6 +157,15 @@
                     android:layout_marginTop="@dimen/space_xs"
                     android:text="@string/policy_capture_fast_desc"
                     android:textAppearance="@style/TextAppearance.App.Label" />
+
+                <TextView
+                    android:id="@+id/tvFastResumeNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/primary"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -154,6 +223,15 @@
                     android:layout_marginTop="@dimen/space_xs"
                     android:text="@string/policy_capture_full_desc"
                     android:textAppearance="@style/TextAppearance.App.Label" />
+
+                <TextView
+                    android:id="@+id/tvFullResumeNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/primary"
+                    android:visibility="gone" />
 
             </LinearLayout>
 

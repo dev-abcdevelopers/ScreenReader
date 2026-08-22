@@ -2,9 +2,12 @@
 
 package com.bliss.screenreader.ui.capture
 
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.model.PolicyResumeTarget
+import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCustomerResumeBinding
@@ -30,6 +33,23 @@ object CaptureFlow {
             RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem)
         }
         val OutstandingCount = PolicyList.size - FilledCount
+        val CustomerMark = PolicyRepository.GetPolicyResumeMark(
+            ContextRef = ActivityRef,
+            SessionId = SessionIdVal,
+            TrackVal = PolicyResumeTrack.CUSTOMER
+        )
+        val ResumePage = PolicyResumeTarget.ResolveForTrack(
+            TrackVal = PolicyResumeTrack.CUSTOMER,
+            FastMark = null,
+            FullMark = null,
+            CustomerMark = CustomerMark,
+            StoredRecordCount = PolicyList.size
+        )
+
+        val SkipAheadPage = PolicyResumeTarget.CustomerSkipAheadPage(
+            MarkObj = CustomerMark,
+            StoredRecordCount = PolicyList.size
+        )
 
         if (VisitedNames.isEmpty() && FilledCount == 0) {
             LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
@@ -58,12 +78,45 @@ object CaptureFlow {
                     )
                 )
             }
+            if (ResumePage > 0 && CustomerMark != null) {
+                append(" ")
+                append(
+                    ActivityRef.getString(
+                        R.string.customer_resume_page,
+                        ResumePage,
+                        CustomerMark.TotalPages
+                    )
+                )
+            } else if (SkipAheadPage > 0) {
+                append(" ")
+                append(ActivityRef.getString(R.string.customer_resume_page_blocked))
+            }
         }
         SheetBinding.tvCustomerResumeBody.text = BodyText
         SheetBinding.btnCustomerResume.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             SheetDialog.dismiss()
-            LaunchCustomerCapture(ActivityRef = ActivityRef, SessionIdVal = SessionIdVal)
+            LaunchCustomerCapture(
+                ActivityRef = ActivityRef,
+                SessionIdVal = SessionIdVal,
+                ResumeFromPage = ResumePage
+            )
+        }
+        if (SkipAheadPage > 0) {
+            SheetBinding.btnCustomerSkipAhead.text = ActivityRef.getString(
+                R.string.customer_resume_skip_ahead,
+                SkipAheadPage
+            )
+            SheetBinding.btnCustomerSkipAhead.visibility = View.VISIBLE
+            SheetBinding.btnCustomerSkipAhead.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                SheetDialog.dismiss()
+                LaunchCustomerCapture(
+                    ActivityRef = ActivityRef,
+                    SessionIdVal = SessionIdVal,
+                    ResumeFromPage = SkipAheadPage
+                )
+            }
         }
         SheetBinding.btnCustomerRestart.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -88,14 +141,16 @@ object CaptureFlow {
     private fun LaunchCustomerCapture(
         ActivityRef: AppCompatActivity,
         SessionIdVal: String,
-        RevisitFilled: Boolean = false
+        RevisitFilled: Boolean = false,
+        ResumeFromPage: Int = 0
     ) {
         Start(
             ActivityRef = ActivityRef,
             ModeVal = CaptureMode.CUSTOMER,
             LaunchTarget = true,
             ResumeSessionId = SessionIdVal,
-            RevisitFilled = RevisitFilled
+            RevisitFilled = RevisitFilled,
+            ResumeFromPage = ResumeFromPage
         )
     }
 
@@ -106,7 +161,8 @@ object CaptureFlow {
         CapturePolicyDetails: Boolean = false,
         OriginOverride: String = "",
         ResumeSessionId: String = "",
-        RevisitFilled: Boolean = false
+        RevisitFilled: Boolean = false,
+        ResumeFromPage: Int = 0
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -147,7 +203,8 @@ object CaptureFlow {
             CapturePolicyDetailsVal = CapturePolicyDetails,
             OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name },
             ResumeSessionIdVal = ResumeSessionId,
-            RevisitFilledVal = RevisitFilled
+            RevisitFilledVal = RevisitFilled,
+            ResumeFromPageVal = ResumeFromPage
         )
 
         if (LaunchTarget) {

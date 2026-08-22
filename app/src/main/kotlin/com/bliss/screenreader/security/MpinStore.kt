@@ -12,6 +12,7 @@ object MpinStore {
     private const val PREFS_NAME = "screenreader_mpin"
     private const val KEY_MPIN = "lic_mpin"
     private const val KEY_AUTO_ENTER = "lic_mpin_auto_enter"
+    private const val KEY_REJECTED_AT = "lic_mpin_rejected_at"
 
     private fun Prefs(ContextRef: Context) =
         SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
@@ -42,9 +43,22 @@ object MpinStore {
         Prefs(ContextRef = ContextRef).edit {
             putString(KEY_MPIN, TrimmedText)
             putBoolean(KEY_AUTO_ENTER, AutoEnterVal)
+            remove(KEY_REJECTED_AT)
         }
         return true
     }
+
+    fun MarkRejected(ContextRef: Context) {
+        Prefs(ContextRef = ContextRef).edit {
+            putLong(KEY_REJECTED_AT, System.currentTimeMillis())
+            putBoolean(KEY_AUTO_ENTER, false)
+        }
+    }
+
+    fun RejectedAt(ContextRef: Context): Long =
+        Prefs(ContextRef = ContextRef).getLong(KEY_REJECTED_AT, 0L)
+
+    fun WasRejected(ContextRef: Context): Boolean = RejectedAt(ContextRef = ContextRef) > 0L
 
     fun SetAutoEnter(ContextRef: Context, EnabledVal: Boolean) {
         Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_AUTO_ENTER, EnabledVal) }
@@ -53,6 +67,7 @@ object MpinStore {
     fun Clear(ContextRef: Context) {
         Prefs(ContextRef = ContextRef).edit {
             remove(KEY_MPIN)
+            remove(KEY_REJECTED_AT)
             putBoolean(KEY_AUTO_ENTER, false)
         }
     }

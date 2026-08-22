@@ -8,6 +8,8 @@ import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.DueDateReport
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.model.PolicyResumeMark
+import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.model.SessionGap
@@ -32,6 +34,7 @@ object PolicyRepository {
     private const val GAP_KEY_PREFIX = "capture_gaps"
     private const val AGENCY_KEY_PREFIX = "capture_agency"
     private const val VISITED_KEY_PREFIX = "capture_visited_customers"
+    private const val RESUME_KEY_PREFIX = "capture_resume"
     private const val KEY_LAST_AGENCY_CODE = "last_agency_code"
 
     private const val MAX_CHANGE_ENTRIES = 500
@@ -367,6 +370,9 @@ object PolicyRepository {
             remove(AgencyStorageKey(SessionId = SessionId))
             remove(VisitedStorageKey(SessionId = SessionId))
             remove(DueReportStorageKey(SessionId = SessionId))
+            for (TrackVal in PolicyResumeTrack.All) {
+                remove(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal))
+            }
             putString(KEY_SESSION_HISTORY, GsonInstance.toJson(RemainingHistory))
             if (WasLatest) {
                 if (ReplacementSessionId.isEmpty()) {
@@ -459,6 +465,44 @@ object PolicyRepository {
 
     private fun SessionStorageKey(ModeVal: CaptureMode, SessionId: String): String {
         return "${SESSION_KEY_PREFIX}_${ModeVal.name.lowercase()}_${SafeSessionId(SessionId = SessionId)}"
+    }
+
+    fun SavePolicyResumeMark(ContextRef: Context, MarkObj: PolicyResumeMark) {
+        val TrackVal = MarkObj.Track.orEmpty()
+        if (MarkObj.SessionId.isBlank() || TrackVal.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(
+                ResumeStorageKey(SessionId = MarkObj.SessionId, TrackVal = TrackVal),
+                GsonInstance.toJson(MarkObj)
+            )
+        }
+    }
+
+    fun GetPolicyResumeMark(
+        ContextRef: Context,
+        SessionId: String,
+        TrackVal: String
+    ): PolicyResumeMark? {
+        if (SessionId.isBlank() || TrackVal.isBlank()) return null
+        val JsonText = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal), null)
+            ?: return null
+        return try {
+            GsonInstance.fromJson(JsonText, PolicyResumeMark::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun ClearPolicyResumeMark(ContextRef: Context, SessionId: String, TrackVal: String) {
+        if (SessionId.isBlank() || TrackVal.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            remove(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal))
+        }
+    }
+
+    private fun ResumeStorageKey(SessionId: String, TrackVal: String): String {
+        return "${RESUME_KEY_PREFIX}_${TrackVal}_${SafeSessionId(SessionId = SessionId)}"
     }
 
     fun SaveVisitedCustomers(ContextRef: Context, SessionId: String, Names: Set<String>) {
