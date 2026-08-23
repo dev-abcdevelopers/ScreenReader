@@ -67,6 +67,7 @@
     <string name="renewal_cell_mode">Mode</string>
     <string name="renewal_premium_format">%1$s / %2$s</string>
     <string name="renewal_next_due_label">Next due</string>
+    <string name="renewal_page_position_format">%1$d / %2$d</string>
     <string name="renewals_filter_all">All</string>
     <string name="renewals_filter_ontime">Paid on time</string>
     <string name="renewals_filter_grace">Grace / late</string>
@@ -129,9 +130,12 @@
     <string name="action_cancel">Cancel</string>
     <string name="customer_resume_title">Continue where you left off?</string>
     <string name="customer_resume_body">%1$d of %2$d policy(ies) in this session already have personal details, and %3$d still have none.</string>
-    <string name="customer_resume_visited">%1$d customer(s) were visited in an earlier run.</string>
     <string name="customer_resume_continue">Resume — skip visited customers</string>
     <string name="customer_resume_restart">Start fresh — visit everyone again</string>
+    <string name="customer_resume_continue_desc">Skips the %1$d customer(s) already visited and fills only what is missing</string>
+    <string name="customer_resume_continue_desc_filled">Fills only the %1$d policy(ies) that still have no personal details</string>
+    <string name="customer_resume_skip_ahead_desc">Starts at that page — anyone before it is left unfilled</string>
+    <string name="customer_resume_restart_desc">Clears the visited list and walks all %1$d policy(ies) again from page 1</string>
     <string name="export_agency_title">Agency code</string>
     <string name="export_agency_body">This is written into every row of the spreadsheet. It is remembered for this session and can be changed here any time.</string>
     <string name="export_agency_hint">Agency code</string>
@@ -222,6 +226,7 @@
     <string name="due_section_change">Will change</string>
     <string name="due_section_keep">Will not change</string>
     <string name="due_not_set">not set</string>
+    <string name="due_group_no_date">No due date set</string>
     <string name="due_reason_current">Already updated to this date or later</string>
     <string name="due_reason_frequency">No premium frequency on either record</string>
     <string name="due_reason_norow">No renewal record for this policy</string>

@@ -4,9 +4,7 @@
     android:layout_height="wrap_content"
     android:background="@drawable/bg_bottom_sheet"
     android:orientation="vertical"
-    android:paddingStart="@dimen/screen_margin"
     android:paddingTop="@dimen/space_md"
-    android:paddingEnd="@dimen/screen_margin"
     android:paddingBottom="@dimen/space_xl">
 
     <View
@@ -20,6 +18,8 @@
         android:id="@+id/tvRenewalSheetTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
         android:text="@string/detail_renewals_title"
         android:textAppearance="@style/TextAppearance.App.Heading" />
 
@@ -28,11 +28,33 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/space_sm"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
         android:textAppearance="@style/TextAppearance.App.Caption" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvRenewalSheet"
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/vpRenewalSheet"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_xs"
+        android:orientation="horizontal" />
+
+    <LinearLayout
+        android:id="@+id/dotsRenewalSheet"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/space_md"
+        android:gravity="center"
+        android:orientation="horizontal" />
+
+    <TextView
+        android:id="@+id/tvRenewalPageLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/space_md"
+        android:textAppearance="@style/TextAppearance.App.Caption"
+        android:visibility="gone" />
 
 </LinearLayout>

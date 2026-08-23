@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_bottom_sheet"
     android:orientation="vertical"
     android:paddingStart="@dimen/screen_margin"
-    android:paddingTop="@dimen/space_lg"
+    android:paddingTop="@dimen/space_sm"
     android:paddingEnd="@dimen/screen_margin"
     android:paddingBottom="@dimen/space_lg">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="@dimen/space_md"
+        android:background="@drawable/bg_sheet_handle" />
 
     <TextView
         android:layout_width="match_parent"
@@ -20,38 +28,158 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_xs"
-        android:layout_marginBottom="@dimen/space_md"
+        android:layout_marginBottom="@dimen/space_sm"
+        android:lineSpacingMultiplier="1.25"
         android:textAppearance="@style/TextAppearance.App.Caption" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCustomerResume"
-        style="@style/Widget.App.Button"
+    <LinearLayout
+        android:id="@+id/rowCustomerResume"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/customer_resume_continue" />
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingBottom="@dimen/space_sm">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCustomerSkipAhead"
-        style="@style/Widget.App.Button.Outlined"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_sm"
-        android:visibility="gone" />
+        <ImageView
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_marginEnd="@dimen/space_md"
+            android:background="@drawable/bg_stat_tile"
+            android:contentDescription="@null"
+            android:padding="@dimen/space_md"
+            android:src="@drawable/ic_history"
+            app:tint="@color/primary" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCustomerRestart"
-        style="@style/Widget.App.Button.Outlined"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/customer_resume_continue"
+                android:textAppearance="@style/TextAppearance.App.Body"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvCustomerResumeDesc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/rowCustomerSkipAhead"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_sm"
-        android:text="@string/customer_resume_restart" />
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingBottom="@dimen/space_sm"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_marginEnd="@dimen/space_md"
+            android:background="@drawable/bg_stat_tile"
+            android:contentDescription="@null"
+            android:padding="@dimen/space_md"
+            android:src="@drawable/ic_launch"
+            app:tint="@color/primary" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvCustomerSkipAheadTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.App.Body"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="@string/customer_resume_skip_ahead_desc"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/rowCustomerRestart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingTop="@dimen/space_sm"
+        android:paddingBottom="@dimen/space_sm">
+
+        <ImageView
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_marginEnd="@dimen/space_md"
+            android:background="@drawable/bg_stat_tile"
+            android:contentDescription="@null"
+            android:padding="@dimen/space_md"
+            android:src="@drawable/ic_update"
+            app:tint="@color/primary" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/customer_resume_restart"
+                android:textAppearance="@style/TextAppearance.App.Body"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvCustomerRestartDesc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+    </LinearLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnCustomerResumeCancel"
         style="@style/Widget.App.Button.Outlined"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_sm"
+        android:layout_marginTop="@dimen/space_md"
         android:text="@string/action_cancel" />
 
 </LinearLayout>

@@ -25,6 +25,10 @@
     <dimen name="icon_md">24dp</dimen>
     <dimen name="icon_lg">32dp</dimen>
 
+    <dimen name="page_dot_size">6dp</dimen>
+    <dimen name="page_dot_active_width">18dp</dimen>
+    <dimen name="page_dot_gap">3dp</dimen>
+
     <!-- Content inset that clears the bottom navigation bar. -->
     <dimen name="list_bottom_inset">88dp</dimen>
 

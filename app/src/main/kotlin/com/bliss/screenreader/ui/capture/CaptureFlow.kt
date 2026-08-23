@@ -60,26 +60,31 @@ object CaptureFlow {
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
 
-        val BodyText = buildString {
-            append(
-                ActivityRef.getString(
-                    R.string.customer_resume_body,
-                    FilledCount,
-                    PolicyList.size,
-                    OutstandingCount
-                )
-            )
+        SheetBinding.tvCustomerResumeBody.text = ActivityRef.getString(
+            R.string.customer_resume_body,
+            FilledCount,
+            PolicyList.size,
+            OutstandingCount
+        )
+
+        SheetBinding.tvCustomerResumeDesc.text = buildString {
             if (VisitedNames.isNotEmpty()) {
-                append(" ")
                 append(
                     ActivityRef.getString(
-                        R.string.customer_resume_visited,
+                        R.string.customer_resume_continue_desc,
                         VisitedNames.size
+                    )
+                )
+            } else {
+                append(
+                    ActivityRef.getString(
+                        R.string.customer_resume_continue_desc_filled,
+                        OutstandingCount
                     )
                 )
             }
             if (ResumePage > 0 && CustomerMark != null) {
-                append(" ")
+                append(". ")
                 append(
                     ActivityRef.getString(
                         R.string.customer_resume_page,
@@ -88,12 +93,17 @@ object CaptureFlow {
                     )
                 )
             } else if (SkipAheadPage > 0) {
-                append(" ")
+                append(". ")
                 append(ActivityRef.getString(R.string.customer_resume_page_blocked))
             }
         }
-        SheetBinding.tvCustomerResumeBody.text = BodyText
-        SheetBinding.btnCustomerResume.setOnClickListener { ViewRef ->
+
+        SheetBinding.tvCustomerRestartDesc.text = ActivityRef.getString(
+            R.string.customer_resume_restart_desc,
+            PolicyList.size
+        )
+
+        SheetBinding.rowCustomerResume.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             SheetDialog.dismiss()
             LaunchCustomerCapture(
@@ -102,13 +112,14 @@ object CaptureFlow {
                 ResumeFromPage = ResumePage
             )
         }
+
         if (SkipAheadPage > 0) {
-            SheetBinding.btnCustomerSkipAhead.text = ActivityRef.getString(
+            SheetBinding.tvCustomerSkipAheadTitle.text = ActivityRef.getString(
                 R.string.customer_resume_skip_ahead,
                 SkipAheadPage
             )
-            SheetBinding.btnCustomerSkipAhead.visibility = View.VISIBLE
-            SheetBinding.btnCustomerSkipAhead.setOnClickListener { ViewRef ->
+            SheetBinding.rowCustomerSkipAhead.visibility = View.VISIBLE
+            SheetBinding.rowCustomerSkipAhead.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
                 SheetDialog.dismiss()
                 LaunchCustomerCapture(
@@ -118,7 +129,8 @@ object CaptureFlow {
                 )
             }
         }
-        SheetBinding.btnCustomerRestart.setOnClickListener { ViewRef ->
+
+        SheetBinding.rowCustomerRestart.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             PolicyRepository.ClearVisitedCustomers(

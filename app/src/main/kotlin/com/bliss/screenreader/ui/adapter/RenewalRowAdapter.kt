@@ -15,18 +15,24 @@ import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.databinding.ItemRenewalRowBinding
 
 class RenewalRowAdapter(
-    private var RenewalList: List<FupPolicy> = emptyList()
+    private var RenewalList: List<FupPolicy> = emptyList(),
+    private val PageMode: Boolean = false
 ) : RecyclerView.Adapter<RenewalRowAdapter.RenewalViewHolder>() {
 
     class RenewalViewHolder(val BindingRef: ItemRenewalRowBinding) :
         RecyclerView.ViewHolder(BindingRef.root)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RenewalViewHolder {
-        return RenewalViewHolder(
-            BindingRef = ItemRenewalRowBinding.inflate(
-                LayoutInflater.from(parent.context), parent, false
-            )
+        val BindingRef = ItemRenewalRowBinding.inflate(
+            LayoutInflater.from(parent.context), parent, false
         )
+        if (PageMode) {
+            BindingRef.root.layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        return RenewalViewHolder(BindingRef = BindingRef)
     }
 
     override fun getItemCount(): Int = RenewalList.size

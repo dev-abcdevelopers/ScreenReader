@@ -19,10 +19,9 @@ import com.bliss.screenreader.databinding.ActivityChangesBinding
 import com.bliss.screenreader.databinding.PartialChangeFieldGroupBinding
 import com.bliss.screenreader.databinding.PartialChangeRunBinding
 import com.bliss.screenreader.databinding.PartialChangeValueRowBinding
-import com.bliss.screenreader.databinding.PartialDueChipBinding
 import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
 import com.bliss.screenreader.databinding.PartialDueDateRowBinding
-import com.bliss.screenreader.databinding.PartialDueGroupBinding
+import com.bliss.screenreader.databinding.PartialDueReasonGroupBinding
 import com.bliss.screenreader.ui.SetupEdgeToEdge
 import com.bliss.screenreader.utils.HapticFeedback
 import java.text.SimpleDateFormat
@@ -284,11 +283,15 @@ class ChangesActivity : AppCompatActivity() {
         val GroupedMap = SkipList.groupBy { SkipItem -> SkipItem.ReasonName }
 
         for ((ReasonName, GroupList) in GroupedMap) {
-            val GroupBinding = PartialDueGroupBinding.inflate(layoutInflater, ContainerRef, false)
-            GroupBinding.tvDueGroupTitle.setText(ReasonTitleRes(ReasonName = ReasonName))
-            GroupBinding.tvDueGroupCount.text = GroupList.size.toString()
-            GroupBinding.tvDueGroupWhy.setText(ReasonBodyRes(ReasonName = ReasonName))
-            GroupBinding.dueGroupDot.backgroundTintList =
+            val GroupBinding = PartialDueReasonGroupBinding.inflate(
+                layoutInflater,
+                ContainerRef,
+                false
+            )
+            GroupBinding.tvDueReasonTitle.setText(ReasonTitleRes(ReasonName = ReasonName))
+            GroupBinding.tvDueReasonCount.text = GroupList.size.toString()
+            GroupBinding.tvDueReasonWhy.setText(ReasonBodyRes(ReasonName = ReasonName))
+            GroupBinding.dueReasonDot.backgroundTintList =
                 android.content.res.ColorStateList.valueOf(
                     androidx.core.content.ContextCompat.getColor(
                         ContainerRef.context,
@@ -296,70 +299,69 @@ class ChangesActivity : AppCompatActivity() {
                     )
                 )
 
-            AddSkipChips(GroupBinding = GroupBinding, SkipList = GroupList)
-            GroupBinding.dueGroupHeader.setOnClickListener { ViewRef ->
+            AddSkipDateGroups(
+                ContainerRef = GroupBinding.dueReasonDates,
+                SkipList = GroupList
+            )
+
+            GroupBinding.dueReasonHeader.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
-                val WillShow = GroupBinding.dueGroupBody.visibility != View.VISIBLE
-                GroupBinding.dueGroupBody.visibility = if (WillShow) View.VISIBLE else View.GONE
-                GroupBinding.ivDueGroupChevron.rotation = if (WillShow) 90f else 0f
+                val WillShow = GroupBinding.dueReasonBody.visibility != View.VISIBLE
+                GroupBinding.dueReasonBody.visibility = if (WillShow) View.VISIBLE else View.GONE
+                GroupBinding.ivDueReasonChevron.rotation = if (WillShow) 90f else 0f
             }
             ContainerRef.addView(GroupBinding.root)
         }
     }
 
-    private fun AddSkipChips(
-        GroupBinding: PartialDueGroupBinding,
-        SkipList: List<DueDateReportEntry>
-    ) {
-        GroupBinding.dueGroupChips.removeAllViews()
-        val VisibleList = SkipList.take(CHIP_PREVIEW_LIMIT)
-        for ((PolicyNumber) in VisibleList) {
-            AddChip(GroupBinding = GroupBinding, LabelText = PolicyNumber, IsMore = false)
+    private fun AddSkipDateGroups(ContainerRef: ViewGroup, SkipList: List<DueDateReportEntry>) {
+        val GroupedMap = SkipList.groupBy { SkipItem -> SkipItem.OldDate }
+        val OrderedKeys = GroupedMap.keys.sortedBy { DateText ->
+            RenewalDueProjection.ParseDate(RawText = DateText)?.toEpochDay() ?: Long.MAX_VALUE
         }
-        val HiddenCount = SkipList.size - VisibleList.size
-        if (HiddenCount <= 0) return
-
-        AddChip(
-            GroupBinding = GroupBinding,
-            LabelText = getString(R.string.due_group_more, HiddenCount),
-            IsMore = true
-        ) {
-            GroupBinding.dueGroupChips.removeAllViews()
-            for ((PolicyNumber) in SkipList) {
-                AddChip(
-                    GroupBinding = GroupBinding,
-                    LabelText = PolicyNumber,
-                    IsMore = false
-                )
-            }
-        }
-    }
-
-    private fun AddChip(
-        GroupBinding: PartialDueGroupBinding,
-        LabelText: String,
-        IsMore: Boolean,
-        OnClick: (() -> Unit)? = null
-    ) {
-        val ChipBinding = PartialDueChipBinding.inflate(
-            layoutInflater,
-            GroupBinding.dueGroupChips,
-            false
+        val MutedColor = androidx.core.content.ContextCompat.getColor(
+            ContainerRef.context,
+            R.color.text_secondary
         )
-        ChipBinding.tvDueChip.text = LabelText
-        if (IsMore) {
-            ChipBinding.tvDueChip.setTextColor(
-                androidx.core.content.ContextCompat.getColor(
-                    GroupBinding.root.context,
-                    R.color.text_accent
-                )
+
+        for (DateText in OrderedKeys) {
+            val GroupList = GroupedMap[DateText].orEmpty()
+            val GroupBinding = PartialDueDateGroupBinding.inflate(
+                layoutInflater,
+                ContainerRef,
+                false
             )
-            ChipBinding.tvDueChip.setOnClickListener { ViewRef ->
-                HapticFeedback.Tap(ViewRef = ViewRef)
-                OnClick?.invoke()
+            GroupBinding.tvDueGroupDate.text = DateText.ifEmpty {
+                getString(R.string.due_group_no_date)
             }
+            GroupBinding.tvDueGroupPolicies.text = getString(
+                R.string.due_group_policies,
+                GroupList.size
+            )
+            GroupBinding.dueDateGroupHead.setBackgroundResource(
+                R.drawable.bg_due_group_head_muted
+            )
+            GroupBinding.tvDueGroupDate.setTextColor(MutedColor)
+            GroupBinding.tvDueGroupPolicies.setTextColor(MutedColor)
+            GroupBinding.ivDueGroupIcon.imageTintList =
+                android.content.res.ColorStateList.valueOf(MutedColor)
+
+            for (SkipItem in GroupList) {
+                val RowBinding = PartialDueDateRowBinding.inflate(
+                    layoutInflater,
+                    GroupBinding.dueDateGroupBody,
+                    false
+                )
+                RowBinding.tvDueRowPolicy.text = SkipItem.PolicyNumber
+                RowBinding.tvDueRowName.text = SkipItem.HolderName.ifEmpty {
+                    HolderNameOf(PolicyNumber = SkipItem.PolicyNumber)
+                }
+                RowBinding.tvDueRowNote.visibility = View.GONE
+                GroupBinding.dueDateGroupBody.addView(RowBinding.root)
+            }
+
+            ContainerRef.addView(GroupBinding.root)
         }
-        GroupBinding.dueGroupChips.addView(ChipBinding.root)
     }
 
     private fun HolderNameOf(PolicyNumber: String): String =
@@ -451,7 +453,6 @@ class ChangesActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
 
-        private const val CHIP_PREVIEW_LIMIT = 8
         private const val FILTER_ALL = "all"
         private const val FILTER_DUE = "due"
         private const val FILTER_OTHER = "other"

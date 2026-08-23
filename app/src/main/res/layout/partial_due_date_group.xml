@@ -9,6 +9,7 @@
     android:orientation="vertical">
 
     <LinearLayout
+        android:id="@+id/dueDateGroupHead"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/bg_due_group_head"
@@ -20,6 +21,7 @@
         android:paddingBottom="@dimen/space_sm">
 
         <ImageView
+            android:id="@+id/ivDueGroupIcon"
             android:layout_width="@dimen/icon_sm"
             android:layout_height="@dimen/icon_sm"
             android:layout_marginEnd="@dimen/space_sm"

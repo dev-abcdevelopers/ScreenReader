@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.annotation.RequiresApi
 
@@ -21,72 +22,146 @@ object HapticFeedback {
     }
 
     fun Tap(ViewRef: View?) {
-        val ContextRef = ViewRef?.context ?: return
-        Tap(ContextRef = ContextRef)
+        if (!IsEnabled) return
+        val ContextRef = ViewRef?.context
+        if (ContextRef != null && PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Tap)) return
+        PlayOnView(ViewRef = ViewRef, ConstantId = HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
     fun Confirm(ViewRef: View?) {
-        val ContextRef = ViewRef?.context ?: return
-        Confirm(ContextRef = ContextRef)
+        if (!IsEnabled) return
+        val ContextRef = ViewRef?.context
+        if (ContextRef != null && PlayOnVibrator(
+                ContextRef = ContextRef,
+                KindVal = Kind.Confirm
+            )
+        ) return
+        PlayOnView(ViewRef = ViewRef, ConstantId = HapticFeedbackConstants.VIRTUAL_KEY)
     }
 
     fun Reject(ViewRef: View?) {
-        val ContextRef = ViewRef?.context ?: return
-        Reject(ContextRef = ContextRef)
+        if (!IsEnabled) return
+        val ContextRef = ViewRef?.context
+        if (ContextRef != null && PlayOnVibrator(
+                ContextRef = ContextRef,
+                KindVal = Kind.Reject
+            )
+        ) return
+        PlayOnView(ViewRef = ViewRef, ConstantId = HapticFeedbackConstants.LONG_PRESS)
     }
 
     fun Tap(ContextRef: Context) {
         if (!IsEnabled) return
-        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
-        if (PlayComposition(VibratorRef = VibratorRef, ScaleValues = floatArrayOf(0.5f))) return
-        PlayOneShot(VibratorRef = VibratorRef, DurationMs = 16L, AmplitudeValue = 110)
+        PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Tap)
     }
 
     fun Confirm(ContextRef: Context) {
         if (!IsEnabled) return
-        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
-        if (PlayComposition(VibratorRef = VibratorRef, ScaleValues = floatArrayOf(1.0f))) return
-        if (PlayPredefined(VibratorRef = VibratorRef, EffectId = VibrationEffect.EFFECT_CLICK)) return
-        PlayOneShot(VibratorRef = VibratorRef, DurationMs = 28L, AmplitudeValue = null)
+        PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Confirm)
     }
 
     fun Reject(ContextRef: Context) {
         if (!IsEnabled) return
-        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
-        if (PlayComposition(
-                VibratorRef = VibratorRef,
-                ScaleValues = floatArrayOf(1.0f, 0.7f),
-                GapMs = 90
-            )
-        ) return
-        if (PlayPredefined(
-                VibratorRef = VibratorRef,
-                EffectId = VibrationEffect.EFFECT_HEAVY_CLICK
-            )
-        ) return
-        PlayPattern(VibratorRef = VibratorRef, TimingsArray = longArrayOf(0L, 60L, 80L, 60L))
+        PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Reject)
     }
 
     fun Success(ContextRef: Context) {
         if (!IsEnabled) return
-        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
-        if (PlayPredefined(
-                VibratorRef = VibratorRef,
-                EffectId = VibrationEffect.EFFECT_DOUBLE_CLICK
-            )
-        ) return
-        PlayPattern(VibratorRef = VibratorRef, TimingsArray = longArrayOf(0L, 40L, 90L, 40L))
+        PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Success)
     }
 
     fun Failure(ContextRef: Context) {
         if (!IsEnabled) return
-        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return
-        if (PlayPredefined(
+        PlayOnVibrator(ContextRef = ContextRef, KindVal = Kind.Failure)
+    }
+
+    private enum class Kind { Tap, Confirm, Reject, Success, Failure }
+
+    private fun PlayOnVibrator(ContextRef: Context, KindVal: Kind): Boolean {
+        val VibratorRef = ResolveVibrator(ContextRef = ContextRef) ?: return false
+        return when (KindVal) {
+            Kind.Tap -> PlayStrong(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 25L),
+                AmplitudesArray = intArrayOf(0, 190)
+            ) || PlayPredefined(
+                VibratorRef = VibratorRef,
+                EffectId = VibrationEffect.EFFECT_TICK
+            ) || PlayComposition(
+                VibratorRef = VibratorRef,
+                ScaleValues = floatArrayOf(1.0f)
+            ) || PlayPattern(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 30L)
+            )
+
+            Kind.Confirm -> PlayStrong(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 40L),
+                AmplitudesArray = intArrayOf(0, 255)
+            ) || PlayPredefined(
+                VibratorRef = VibratorRef,
+                EffectId = VibrationEffect.EFFECT_CLICK
+            ) || PlayComposition(
+                VibratorRef = VibratorRef,
+                ScaleValues = floatArrayOf(1.0f)
+            ) || PlayPattern(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 45L)
+            )
+
+            Kind.Reject -> PlayStrong(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 55L, 60L, 55L),
+                AmplitudesArray = intArrayOf(0, 255, 0, 255)
+            ) || PlayPredefined(
                 VibratorRef = VibratorRef,
                 EffectId = VibrationEffect.EFFECT_HEAVY_CLICK
+            ) || PlayComposition(
+                VibratorRef = VibratorRef,
+                ScaleValues = floatArrayOf(1.0f, 1.0f),
+                GapMs = 90
+            ) || PlayPattern(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 60L, 80L, 60L)
             )
-        ) return
-        PlayPattern(VibratorRef = VibratorRef, TimingsArray = longArrayOf(0L, 160L))
+
+            Kind.Success -> PlayStrong(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 35L, 70L, 60L),
+                AmplitudesArray = intArrayOf(0, 200, 0, 255)
+            ) || PlayPredefined(
+                VibratorRef = VibratorRef,
+                EffectId = VibrationEffect.EFFECT_DOUBLE_CLICK
+            ) || PlayPattern(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 40L, 90L, 50L)
+            )
+
+            Kind.Failure -> PlayStrong(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 220L),
+                AmplitudesArray = intArrayOf(0, 255)
+            ) || PlayPredefined(
+                VibratorRef = VibratorRef,
+                EffectId = VibrationEffect.EFFECT_HEAVY_CLICK
+            ) || PlayPattern(
+                VibratorRef = VibratorRef,
+                TimingsArray = longArrayOf(0L, 200L)
+            )
+        }
+    }
+
+    private fun PlayOnView(ViewRef: View?, ConstantId: Int): Boolean {
+        val TargetView = ViewRef ?: return false
+        return try {
+            TargetView.performHapticFeedback(
+                ConstantId,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+            )
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun PlayComposition(
@@ -136,31 +211,36 @@ object HapticFeedback {
         }
     }
 
-    private fun PlayOneShot(
+    private fun PlayStrong(
         VibratorRef: Vibrator,
-        DurationMs: Long,
-        AmplitudeValue: Int?
-    ) {
-        val UseAmplitude = try {
-            AmplitudeValue != null && VibratorRef.hasAmplitudeControl()
+        TimingsArray: LongArray,
+        AmplitudesArray: IntArray
+    ): Boolean {
+        val HasAmplitude = try {
+            VibratorRef.hasAmplitudeControl()
         } catch (_: Exception) {
             false
         }
-        val FinalAmplitude = if (UseAmplitude && AmplitudeValue != null) {
-            AmplitudeValue.coerceIn(1, 255)
-        } else {
-            VibrationEffect.DEFAULT_AMPLITUDE
+        if (!HasAmplitude) return false
+        val SafeAmplitudes = IntArray(AmplitudesArray.size) { IndexValue ->
+            AmplitudesArray[IndexValue].coerceIn(0, 255)
         }
-        try {
-            VibratorRef.vibrate(VibrationEffect.createOneShot(DurationMs, FinalAmplitude))
+        return try {
+            VibratorRef.vibrate(
+                VibrationEffect.createWaveform(TimingsArray, SafeAmplitudes, -1)
+            )
+            true
         } catch (_: Exception) {
+            false
         }
     }
 
-    private fun PlayPattern(VibratorRef: Vibrator, TimingsArray: LongArray) {
-        try {
+    private fun PlayPattern(VibratorRef: Vibrator, TimingsArray: LongArray): Boolean {
+        return try {
             VibratorRef.vibrate(VibrationEffect.createWaveform(TimingsArray, -1))
+            true
         } catch (_: Exception) {
+            false
         }
     }
 

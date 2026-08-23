@@ -39,10 +39,9 @@ import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.databinding.PartialChangeSectionBinding
-import com.bliss.screenreader.databinding.PartialDueChipBinding
 import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
 import com.bliss.screenreader.databinding.PartialDueDateRowBinding
-import com.bliss.screenreader.databinding.PartialDueGroupBinding
+import com.bliss.screenreader.databinding.PartialDueReasonGroupBinding
 import com.bliss.screenreader.databinding.PartialDueStatBinding
 import com.bliss.screenreader.databinding.SheetDuePreviewBinding
 import com.bliss.screenreader.databinding.SheetSessionActionsBinding
@@ -62,6 +61,7 @@ import com.bliss.screenreader.ui.changes.ChangesActivity
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
 import java.text.NumberFormat
@@ -360,6 +360,11 @@ class PoliciesFragment : Fragment() {
         val SheetBinding = SheetDuePreviewBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.setCanceledOnTouchOutside(false)
+        SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        SheetDialog.behavior.skipCollapsed = true
+        SheetDialog.behavior.isDraggable = false
+        SheetBinding.dueSheetHandle.visibility = View.INVISIBLE
 
         val HasUpdates = OutcomeObj.Updates.isNotEmpty()
         val SkipGroups = GroupSkips(SkipList = OutcomeObj.Skips)
@@ -534,13 +539,17 @@ class PoliciesFragment : Fragment() {
         ContainerRef: ViewGroup,
         SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
     ) {
-        for ((first, second) in SkipGroups) {
-            val GroupBinding = PartialDueGroupBinding.inflate(layoutInflater, ContainerRef, false)
-            val IsGood = first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
-            GroupBinding.tvDueGroupTitle.setText(StatLabelRes(ReasonVal = first))
-            GroupBinding.tvDueGroupCount.text = second.size.toString()
-            GroupBinding.tvDueGroupWhy.setText(SkipReasonText(ReasonVal = first))
-            GroupBinding.dueGroupDot.backgroundTintList =
+        for ((ReasonVal, SkipList) in SkipGroups) {
+            val GroupBinding = PartialDueReasonGroupBinding.inflate(
+                layoutInflater,
+                ContainerRef,
+                false
+            )
+            val IsGood = ReasonVal == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+            GroupBinding.tvDueReasonTitle.setText(StatLabelRes(ReasonVal = ReasonVal))
+            GroupBinding.tvDueReasonCount.text = SkipList.size.toString()
+            GroupBinding.tvDueReasonWhy.setText(SkipReasonText(ReasonVal = ReasonVal))
+            GroupBinding.dueReasonDot.backgroundTintList =
                 android.content.res.ColorStateList.valueOf(
                     ContextCompat.getColor(
                         ContainerRef.context,
@@ -548,72 +557,27 @@ class PoliciesFragment : Fragment() {
                     )
                 )
 
-            BindGroupChips(GroupBinding = GroupBinding, SkipList = second)
+            AddDueDateGroups(
+                ContainerRef = GroupBinding.dueReasonDates,
+                IsMuted = true,
+                EntryList = SkipList.map { SkipItem ->
+                    DueEntry(
+                        PolicyNumber = SkipItem.PolicyNumber,
+                        HolderName = SkipItem.HolderName,
+                        DateText = SkipItem.CurrentDate,
+                        NoteText = ""
+                    )
+                }
+            )
 
-            GroupBinding.dueGroupHeader.setOnClickListener { ViewRef ->
+            GroupBinding.dueReasonHeader.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
-                val WillShow = GroupBinding.dueGroupBody.visibility != View.VISIBLE
-                GroupBinding.dueGroupBody.visibility = if (WillShow) View.VISIBLE else View.GONE
-                GroupBinding.ivDueGroupChevron.rotation = if (WillShow) 90f else 0f
+                val WillShow = GroupBinding.dueReasonBody.visibility != View.VISIBLE
+                GroupBinding.dueReasonBody.visibility = if (WillShow) View.VISIBLE else View.GONE
+                GroupBinding.ivDueReasonChevron.rotation = if (WillShow) 90f else 0f
             }
             ContainerRef.addView(GroupBinding.root)
         }
-    }
-
-    private fun BindGroupChips(
-        GroupBinding: PartialDueGroupBinding,
-        SkipList: List<RenewalDueProjection.Skip>
-    ) {
-        GroupBinding.dueGroupChips.removeAllViews()
-        val VisibleList = SkipList.take(CHIP_PREVIEW_LIMIT)
-        for ((PolicyNumber) in VisibleList) {
-            AddNumberChip(
-                GroupBinding = GroupBinding,
-                LabelText = PolicyNumber,
-                IsMore = false
-            )
-        }
-        val HiddenCount = SkipList.size - VisibleList.size
-        if (HiddenCount <= 0) return
-
-        AddNumberChip(
-            GroupBinding = GroupBinding,
-            LabelText = getString(R.string.due_group_more, HiddenCount),
-            IsMore = true
-        ) {
-            GroupBinding.dueGroupChips.removeAllViews()
-            for ((PolicyNumber) in SkipList) {
-                AddNumberChip(
-                    GroupBinding = GroupBinding,
-                    LabelText = PolicyNumber,
-                    IsMore = false
-                )
-            }
-        }
-    }
-
-    private fun AddNumberChip(
-        GroupBinding: PartialDueGroupBinding,
-        LabelText: String,
-        IsMore: Boolean,
-        OnClick: (() -> Unit)? = null
-    ) {
-        val ChipBinding = PartialDueChipBinding.inflate(
-            layoutInflater,
-            GroupBinding.dueGroupChips,
-            false
-        )
-        ChipBinding.tvDueChip.text = LabelText
-        if (IsMore) {
-            ChipBinding.tvDueChip.setTextColor(
-                ContextCompat.getColor(GroupBinding.root.context, R.color.text_accent)
-            )
-            ChipBinding.tvDueChip.setOnClickListener { ViewRef ->
-                HapticFeedback.Tap(ViewRef = ViewRef)
-                OnClick?.invoke()
-            }
-        }
-        GroupBinding.dueGroupChips.addView(ChipBinding.root)
     }
 
     private fun StatLabelRes(ReasonVal: RenewalDueProjection.SkipReason): Int = when (ReasonVal) {
@@ -636,7 +600,29 @@ class PoliciesFragment : Fragment() {
         ContainerRef: ViewGroup,
         UpdateList: List<RenewalDueProjection.Update>
     ) {
-        val GroupedMap = UpdateList.groupBy { UpdateItem -> UpdateItem.NewDate }
+        AddDueDateGroups(
+            ContainerRef = ContainerRef,
+            EntryList = UpdateList.map { UpdateItem ->
+                DueEntry(
+                    PolicyNumber = UpdateItem.PolicyNumber,
+                    HolderName = UpdateItem.HolderName,
+                    DateText = UpdateItem.NewDate,
+                    NoteText = if (UpdateItem.OldDate.isEmpty()) {
+                        getString(R.string.due_row_new)
+                    } else {
+                        getString(R.string.due_row_was, UpdateItem.OldDate)
+                    }
+                )
+            }
+        )
+    }
+
+    private fun AddDueDateGroups(
+        ContainerRef: ViewGroup,
+        EntryList: List<DueEntry>,
+        IsMuted: Boolean = false
+    ) {
+        val GroupedMap = EntryList.groupBy { EntryItem -> EntryItem.DateText }
         val OrderedKeys = GroupedMap.keys.sortedBy { DateText ->
             RenewalDueProjection.ParseDate(RawText = DateText)?.toEpochDay() ?: Long.MAX_VALUE
         }
@@ -648,26 +634,43 @@ class PoliciesFragment : Fragment() {
                 ContainerRef,
                 false
             )
-            GroupBinding.tvDueGroupDate.text = DateText
+            GroupBinding.tvDueGroupDate.text = DateText.ifEmpty {
+                getString(R.string.due_group_no_date)
+            }
             GroupBinding.tvDueGroupPolicies.text = getString(
                 R.string.due_group_policies,
                 GroupList.size
             )
 
-            for ((PolicyNumber, HolderName, _, OldDate) in GroupList) {
+            if (IsMuted) {
+                val MutedColor = ContextCompat.getColor(
+                    ContainerRef.context,
+                    R.color.text_secondary
+                )
+                GroupBinding.dueDateGroupHead.setBackgroundResource(
+                    R.drawable.bg_due_group_head_muted
+                )
+                GroupBinding.tvDueGroupDate.setTextColor(MutedColor)
+                GroupBinding.tvDueGroupPolicies.setTextColor(MutedColor)
+                GroupBinding.ivDueGroupIcon.imageTintList =
+                    android.content.res.ColorStateList.valueOf(MutedColor)
+            }
+
+            for (EntryItem in GroupList) {
                 val RowBinding = PartialDueDateRowBinding.inflate(
                     layoutInflater,
                     GroupBinding.dueDateGroupBody,
                     false
                 )
-                RowBinding.tvDueRowPolicy.text = PolicyNumber
-                RowBinding.tvDueRowName.text = HolderName.ifEmpty {
+                RowBinding.tvDueRowPolicy.text = EntryItem.PolicyNumber
+                RowBinding.tvDueRowName.text = EntryItem.HolderName.ifEmpty {
                     getString(R.string.status_unknown)
                 }
-                RowBinding.tvDueRowNote.text = if (OldDate.isEmpty()) {
-                    getString(R.string.due_row_new)
+                RowBinding.tvDueRowNote.text = EntryItem.NoteText
+                RowBinding.tvDueRowNote.visibility = if (EntryItem.NoteText.isEmpty()) {
+                    View.GONE
                 } else {
-                    getString(R.string.due_row_was, OldDate)
+                    View.VISIBLE
                 }
                 GroupBinding.dueDateGroupBody.addView(RowBinding.root)
             }
@@ -1713,8 +1716,14 @@ class PoliciesFragment : Fragment() {
         SessionBackCallback = null
     }
 
+    private data class DueEntry(
+        val PolicyNumber: String,
+        val HolderName: String,
+        val DateText: String,
+        val NoteText: String
+    )
+
     companion object {
-        private const val CHIP_PREVIEW_LIMIT = 8
         private const val FILTER_ALL = "all"
         private const val FILTER_INFORCE = "inforce"
         private const val FILTER_LAPSED = "lapsed"
