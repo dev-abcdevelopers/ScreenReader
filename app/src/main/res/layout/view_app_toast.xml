@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/toastRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:id="@+id/toastCard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginStart="@dimen/toast_margin"
+        android:layout_marginEnd="@dimen/toast_margin"
+        android:background="@drawable/bg_toast_info"
+        android:baselineAligned="false"
+        android:clickable="true"
+        android:elevation="@dimen/toast_elevation"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_md"
+        android:paddingTop="@dimen/space_md"
+        android:paddingEnd="@dimen/space_lg"
+        android:paddingBottom="@dimen/space_md">
+
+        <ImageView
+            android:id="@+id/ivToastIcon"
+            android:layout_width="@dimen/icon_md"
+            android:layout_height="@dimen/icon_md"
+            android:layout_marginEnd="@dimen/space_md"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_info"
+            app:tint="@color/status_blue_text" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvToastTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="@dimen/toast_max_width"
+                android:textAppearance="@style/TextAppearance.App.Heading"
+                android:textColor="@color/status_blue_text"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvToastMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="@dimen/toast_max_width"
+                android:lineSpacingMultiplier="1.25"
+                android:maxLines="4"
+                android:textAppearance="@style/TextAppearance.App.Body"
+                android:textColor="@color/status_blue_text" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

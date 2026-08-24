@@ -8,7 +8,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
-import android.widget.Toast
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
@@ -20,6 +19,7 @@ import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.ui.adapter.ReviewRecordAdapter
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
@@ -126,11 +126,12 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
                     MessageText = "session=${SessionObj.SessionId} " +
                             "gaps=${SessionObj.GapRecords.size} policies=$GapNumberText"
                 )
-                Toast.makeText(
-                    AppContext,
-                    getString(R.string.review_gaps_format, SessionObj.GapRecords.size),
-                    Toast.LENGTH_LONG
-                ).show()
+                AppToast.Warning(
+                    ContextRef = activity,
+                    MessageText = getString(
+                        R.string.review_gaps_format, SessionObj.GapRecords.size
+                    )
+                )
             }
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(SavedCount)

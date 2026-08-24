@@ -137,7 +137,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/space_lg"
+            android:layout_marginBottom="@dimen/space_md"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -154,6 +154,30 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/space_md"
                 android:text="@string/upload_phase_wait"
+                android:textAppearance="@style/TextAppearance.App.Label" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_lg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/ivPhaseDone"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:contentDescription="@string/upload_phase_done"
+                android:src="@drawable/ic_record" />
+
+            <TextView
+                android:id="@+id/tvPhaseDone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_md"
+                android:text="@string/upload_phase_done"
                 android:textAppearance="@style/TextAppearance.App.Label" />
 
         </LinearLayout>

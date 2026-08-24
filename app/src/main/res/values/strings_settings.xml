@@ -21,6 +21,7 @@
     <string name="settings_section_security">Security</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_support">Diagnostics &amp; support</string>
+    <string name="settings_section_advanced">Advanced</string>
 
     <string name="settings_depth_title">How much to capture</string>
     <string name="settings_depth_desc">Fast, full details, or ask each run</string>
@@ -63,11 +64,13 @@
     <string name="settings_ps_title">Show servicing history</string>
     <string name="settings_ps_desc">Adds the parked PS mode to the Capture tab</string>
 
-    <string name="settings_mpin_title">LIC login mPIN</string>
-    <string name="settings_mpin_desc_none">Not saved</string>
-    <string name="settings_mpin_desc_saved">Saved · you type it yourself</string>
-    <string name="settings_mpin_desc_auto">Saved · typed for you at login</string>
-    <string name="settings_mpin_badge">Auto</string>
+    <string name="settings_credentials_title">Credentials</string>
+    <string name="settings_credentials_desc_none">Not set up</string>
+    <string name="settings_credentials_desc_mpin_off">mPIN saved · you type it yourself</string>
+    <string name="settings_credentials_desc_password_off">Password saved · you type it yourself</string>
+    <string name="settings_credentials_desc_mpin_auto">mPIN · typed for you</string>
+    <string name="settings_credentials_desc_password_auto">Password · typed for you</string>
+    <string name="settings_credentials_badge">Auto</string>
 
     <string name="settings_target_title">LIC SuperApp</string>
     <string name="settings_agent_title">Agent Pro</string>
@@ -96,12 +99,35 @@
     <string name="settings_storage_title">Storage</string>
     <string name="settings_storage_format">%1$d session(s) · %2$d record(s)</string>
     <string name="settings_storage_empty">Nothing captured yet</string>
-    <string name="settings_agency_title">Default agency code</string>
-    <string name="settings_agency_desc">Pre-fills the export and upload sheets</string>
+    <string name="settings_agency_title">Agency codes</string>
+    <string name="settings_agency_desc_empty">Tap to add your agency code</string>
+    <string name="settings_agency_desc_format">%1$d saved · used by export and upload</string>
     <string name="settings_agency_none">Not set</string>
-    <string name="settings_agency_body">Used whenever a session has no agency code of its own. Exports and uploads still ask, with this filled in.</string>
+    <string name="settings_agency_pane_body">The default is used wherever a session has no code of its own. Exports and uploads let you pick a different one for that run.</string>
+    <string name="settings_agency_body">Used as the file name on the server and written into every exported row.</string>
+    <string name="settings_agency_add">Add agency code</string>
+    <string name="settings_agency_add_title">Add agency code</string>
+    <string name="settings_agency_edit_title">Edit agency code</string>
+    <string name="settings_agency_label_hint">Name (optional)</string>
+    <string name="settings_agency_make_default">Make this the default</string>
+    <string name="settings_agency_default_badge">Default</string>
+    <string name="settings_agency_actions_cd">Agency code actions</string>
     <string name="settings_agency_save">Save</string>
-    <string name="settings_agency_saved">Default agency code saved</string>
+    <string name="settings_agency_saved">Agency code saved</string>
+    <string name="settings_agency_duplicate">Already saved</string>
+    <string name="settings_agency_default_format">%1$s is now the default</string>
+    <string name="settings_agency_make_default_action">Make default</string>
+    <string name="settings_agency_edit_action">Edit code or name</string>
+    <string name="settings_agency_copy_action">Copy code</string>
+    <string name="settings_agency_copied">Agency code copied</string>
+    <string name="settings_agency_delete_action">Delete</string>
+    <string name="settings_agency_delete_title_format">Delete %1$s?</string>
+    <string name="settings_agency_delete_body">Sessions already stamped with this code keep it. Only the saved list changes.</string>
+    <string name="settings_agency_delete_confirm">Delete</string>
+    <string name="settings_agency_delete_keep">Keep</string>
+    <string name="settings_agency_deleted_format">%1$s removed</string>
+    <string name="settings_agency_last_used_format">Last used %1$s</string>
+    <string name="settings_agency_never_used">Not used yet</string>
     <string name="settings_transfer_title">Transfer sessions</string>
     <string name="settings_transfer_desc">Move captured work between phones</string>
     <string name="settings_upload_title">Upload to server</string>
@@ -182,6 +208,17 @@
     <string name="settings_about_device">Device</string>
     <string name="settings_about_service">Service row</string>
     <string name="settings_about_target">Target app</string>
+
+    <string name="settings_advanced_footer">These are hidden by default so the app stays simple for everyday use. Tap the version line five times again to hide this section.</string>
+    <string name="settings_advanced_exports_title">Excel &amp; PDF export</string>
+    <string name="settings_advanced_exports_desc">Adds Excel and PDF export to a session\u2019s Actions sheet and to a policy\u2019s detail screen</string>
+    <string name="settings_advanced_renewals_title">Renewal history</string>
+    <string name="settings_advanced_renewals_desc">Shows renewal history capture sessions in Policies, and the renewal row on a policy</string>
+    <string name="settings_advanced_hide_title">Hide advanced settings</string>
+    <string name="settings_advanced_hide_desc">Puts this section away; your choices above are kept</string>
+    <string name="settings_advanced_steps_format">%1$d more tap(s) to unlock advanced settings</string>
+    <string name="settings_advanced_unlocked">Advanced settings unlocked</string>
+    <string name="settings_advanced_hidden">Advanced settings hidden</string>
 
     <string name="settings_close">Close</string>
     <string name="settings_capture_running">Finish the capture that is running before changing this</string>

@@ -13,10 +13,10 @@ import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCustomerResumeBinding
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.snackbar.Snackbar
 
 object CaptureFlow {
 
@@ -269,12 +269,17 @@ object CaptureFlow {
         SheetObj.show(ActivityRef.supportFragmentManager, CaptureReviewSheet.TAG)
     }
 
-    fun ShowMessage(ActivityRef: AppCompatActivity, MessageVal: String) {
-        Snackbar.make(
-            ActivityRef.findViewById(android.R.id.content),
-            MessageVal,
-            Snackbar.LENGTH_LONG
-        ).show()
+    fun ShowMessage(
+        ActivityRef: AppCompatActivity,
+        MessageVal: String,
+        KindVal: AppToast.Kind = AppToast.Kind.Info
+    ) {
+        AppToast.Show(
+            ContextRef = ActivityRef,
+            MessageText = MessageVal,
+            KindVal = KindVal,
+            LongDuration = true
+        )
     }
 
 }

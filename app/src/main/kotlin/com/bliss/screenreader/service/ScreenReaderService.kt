@@ -34,7 +34,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.view.ContextThemeWrapper
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
@@ -55,9 +54,10 @@ import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
-import com.bliss.screenreader.security.MpinStore
+import com.bliss.screenreader.security.CredentialStore
 import com.bliss.screenreader.settings.PaceProfile
 import com.bliss.screenreader.settings.SettingsStore
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.data.parser.ScreenDataParser
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.HapticFeedback
@@ -220,23 +220,45 @@ class ScreenReaderService : AccessibilityService() {
         private const val PORTFOLIO_POLICIES_ARROW_X_RATIO = 0.42f
         private const val PORTFOLIO_POLICIES_ARROW_Y_FALLBACK_RATIO = 0.245f
         private const val POLICY_FAILURE_RETRY_MS = 5000L
-        private const val MPIN_PROMPT_MARKER = "enter mpin"
-        private const val MPIN_LOGIN_LABEL = "Login"
-        private const val MPIN_ATTEMPT_LIMIT = 1
+        private const val LOGIN_MPIN_PROMPT = "enter mpin"
+        private const val LOGIN_PASSWORD_PROMPT = "enter password"
+        private const val LOGIN_BUTTON_LABEL = "Login"
+        private const val LOGIN_MPIN_LINK = "Try using mPIN"
+        private const val LOGIN_PASSWORD_LINK = "Try using Password"
+        private const val LOGIN_ATTEMPT_LIMIT = 1
+        private const val LOGIN_SWITCH_LIMIT = 2
+        private const val LOGIN_SWITCH_SETTLE_MS = 1400L
         private const val MPIN_ROW_BUCKET_PX = 8
-        private const val MPIN_FILL_FAILURE_LIMIT = 3
-        private const val MPIN_SUBMIT_DELAY_MS = 900L
-        private const val MPIN_SUBMIT_RETRY_LIMIT = 4
-        private const val MPIN_SUBMIT_RETRY_MS = 700L
-        private const val MPIN_FILL_RETRY_MS = 1500L
-        private val MPIN_REJECT_MARKERS = listOf(
+        private const val LOGIN_FILL_FAILURE_LIMIT = 3
+        private const val LOGIN_SUBMIT_DELAY_MS = 900L
+        private const val LOGIN_SUBMIT_RETRY_LIMIT = 4
+        private const val LOGIN_SUBMIT_RETRY_MS = 700L
+        private const val LOGIN_FILL_RETRY_MS = 1500L
+        private val LOGIN_SETUP_MARKERS = listOf(
+            "new mpin",
+            "confirm mpin",
+            "new password",
+            "confirm password",
+            "old password",
+            "current password"
+        )
+        private val LOGIN_MPIN_REJECT_MARKERS = listOf(
             "incorrect mpin",
             "invalid mpin",
             "wrong mpin",
             "mpin is incorrect",
             "mpin does not match"
         )
-        private const val MPIN_RELEASE_DELAY_MS = 5000L
+        private val LOGIN_PASSWORD_REJECT_MARKERS = listOf(
+            "incorrect password",
+            "invalid password",
+            "wrong password",
+            "password is incorrect",
+            "password does not match",
+            "invalid credentials",
+            "invalid user id or password"
+        )
+        private const val LOGIN_RELEASE_DELAY_MS = 5000L
         private const val ROOT_DIAGNOSTIC_INTERVAL_MS = 3000L
         private const val ACCESSIBILITY_CAPTURE_DEBOUNCE_MS = 200L
         private const val MAX_CAPTURED_NODES = 10000
@@ -365,14 +387,16 @@ class ScreenReaderService : AccessibilityService() {
     private var OfflineRetryCount = 0
     private var OfflineRetryRunnable: Runnable? = null
     private var OfflineLastLogAt = 0L
-    private var MpinAttemptCount = 0
-    private var MpinFillFailureCount = 0
-    private var MpinFillInFlight = false
-    private var MpinSkipLogged = false
-    private var MpinSubmitAttempts = 0
-    private var MpinLoginSubmitted = false
-    private var MpinRejectedHandled = false
-    private var MpinKeyboardHidden = false
+    private var LoginAttemptCount = 0
+    private var LoginFillFailureCount = 0
+    private var LoginFillInFlight = false
+    private var LoginSkipLogged = false
+    private var LoginSubmitAttempts = 0
+    private var LoginSubmitted = false
+    private var LoginRejectedHandled = false
+    private var LoginKeyboardHidden = false
+    private var LoginSwitchCount = 0
+    private var LoginFilledMethod: CredentialStore.Method? = null
     private var LastScreenSignature = 0
     private var LastScreenNodeCount = 0
     private var LastScreenLookAt = 0L
@@ -1235,13 +1259,15 @@ class ScreenReaderService : AccessibilityService() {
         PausedTotalMs = 0L
         PausedAt = 0L
         LatestRecords = emptyList()
-        MpinAttemptCount = 0
-        MpinFillFailureCount = 0
-        MpinFillInFlight = false
-        MpinSkipLogged = false
-        MpinSubmitAttempts = 0
-        MpinLoginSubmitted = false
-        MpinRejectedHandled = false
+        LoginAttemptCount = 0
+        LoginFillFailureCount = 0
+        LoginFillInFlight = false
+        LoginSkipLogged = false
+        LoginSubmitAttempts = 0
+        LoginSubmitted = false
+        LoginRejectedHandled = false
+        LoginSwitchCount = 0
+        LoginFilledMethod = null
         RestoreSoftKeyboard()
         CancelErrorRetry()
         ErrorRetryCount = 0
@@ -1581,7 +1607,7 @@ class ScreenReaderService : AccessibilityService() {
         StopCustomerAutomation(ResetStateVal = false)
         CancelEventWindowCapture()
         HasExpandedCurrentPolicyScreen = false
-        MpinFillInFlight = false
+        LoginFillInFlight = false
         RestoreSoftKeyboard()
         StopParseThread()
         RemoveBubble()
@@ -1626,11 +1652,16 @@ class ScreenReaderService : AccessibilityService() {
         }
         NoteScreenWithoutError(NodeCount = VisibleNodes.size)
 
-        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE &&
-            IsMpinLoginScreen(VisibleNodes = VisibleNodes)
-        ) {
-            HandleMpinLoginScreen(RootNode = RootNode, VisibleNodes = VisibleNodes)
-            return
+        if (PackageNameVal == AppLauncherUtils.LIC_SUPER_APP_PACKAGE) {
+            val LoginPageVal = LoginPageOf(VisibleNodes = VisibleNodes)
+            if (LoginPageVal != null) {
+                HandleLoginScreen(
+                    RootNode = RootNode,
+                    VisibleNodes = VisibleNodes,
+                    PageVal = LoginPageVal
+                )
+                return
+            }
         }
 
         if (CurrentMode == CaptureMode.POLICY ||
@@ -1730,118 +1761,313 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun IsMpinLoginScreen(VisibleNodes: List<String>): Boolean {
-        val HasPrompt = VisibleNodes.any { NodeText ->
-            NodeText.contains(MPIN_PROMPT_MARKER, ignoreCase = true)
+    private enum class LoginPage { MPIN, PASSWORD }
+
+    private fun LoginPageOf(VisibleNodes: List<String>): LoginPage? {
+        val IsSetupScreen = VisibleNodes.any { NodeText ->
+            LOGIN_SETUP_MARKERS.any { MarkerText ->
+                NodeText.contains(MarkerText, ignoreCase = true)
+            }
         }
-        return HasPrompt && VisibleNodes.any { NodeText ->
+        if (IsSetupScreen) return null
+
+        val HasCompanion = VisibleNodes.any { NodeText ->
             NodeText.contains("Forgot mPIN", ignoreCase = true) ||
+                    NodeText.contains("Forgot Password", ignoreCase = true) ||
                     NodeText.contains("OTP To Login", ignoreCase = true) ||
-                    NodeText.contains("Try using Password", ignoreCase = true) ||
-                    NodeText.trim().equals(MPIN_LOGIN_LABEL, ignoreCase = true)
+                    NodeText.contains(LOGIN_MPIN_LINK, ignoreCase = true) ||
+                    NodeText.contains(LOGIN_PASSWORD_LINK, ignoreCase = true) ||
+                    NodeText.trim().equals(LOGIN_BUTTON_LABEL, ignoreCase = true)
         }
+        if (!HasCompanion) return null
+
+        val HasMpinPrompt = VisibleNodes.any { NodeText ->
+            NodeText.contains(LOGIN_MPIN_PROMPT, ignoreCase = true)
+        }
+        if (HasMpinPrompt) return LoginPage.MPIN
+
+        val HasPasswordPrompt = VisibleNodes.any { NodeText ->
+            NodeText.contains(LOGIN_PASSWORD_PROMPT, ignoreCase = true)
+        }
+        if (HasPasswordPrompt) return LoginPage.PASSWORD
+
+        return null
     }
 
-    private fun IsMpinRejectionNotice(VisibleNodes: List<String>): Boolean {
+    private fun PageForMethod(MethodVal: CredentialStore.Method): LoginPage =
+        if (MethodVal == CredentialStore.Method.MPIN) LoginPage.MPIN else LoginPage.PASSWORD
+
+    private fun MethodNameOf(MethodVal: CredentialStore.Method): String =
+        if (MethodVal == CredentialStore.Method.MPIN) "mpin" else "password"
+
+    private fun IsLoginRejectionNotice(
+        VisibleNodes: List<String>,
+        MethodVal: CredentialStore.Method
+    ): Boolean {
+        val MarkerList = if (MethodVal == CredentialStore.Method.MPIN) {
+            LOGIN_MPIN_REJECT_MARKERS
+        } else {
+            LOGIN_PASSWORD_REJECT_MARKERS
+        }
         return VisibleNodes.any { NodeText ->
-            MPIN_REJECT_MARKERS.any { MarkerText ->
+            MarkerList.any { MarkerText ->
                 NodeText.contains(MarkerText, ignoreCase = true)
             }
         }
     }
 
-    private fun HandleRejectedMpin() {
-        MpinRejectedHandled = true
-        MpinFillInFlight = false
-        MpinAttemptCount = MPIN_ATTEMPT_LIMIT
-        MpinSkipLogged = true
+    private fun HandleRejectedLogin(MethodVal: CredentialStore.Method) {
+        LoginRejectedHandled = true
+        LoginFillInFlight = false
+        LoginAttemptCount = LOGIN_ATTEMPT_LIMIT
+        LoginSkipLogged = true
         RestoreSoftKeyboard()
-        MpinStore.MarkRejected(ContextRef = this)
+        CredentialStore.MarkRejected(ContextRef = this, MethodVal = MethodVal)
         DiagnosticWarning(
-            EventName = "MPIN_REJECTED",
-            MessageText = "LIC rejected the saved mPIN; auto-entry switched off so repeated " +
-                    "attempts cannot lock the account, log in by hand and save the new mPIN"
+            EventName = "LOGIN_REJECTED",
+            MessageText = "method=${MethodNameOf(MethodVal = MethodVal)} the app rejected the " +
+                    "saved sign-in; automatic sign-in switched off so repeated attempts cannot " +
+                    "lock the account, sign in by hand and save the new one"
         )
-        HapticFeedback.Failure(ContextRef = this)
-        Toast.makeText(this, getString(R.string.mpin_rejected_toast), Toast.LENGTH_LONG).show()
+        ShowServiceToast(
+            MessageText = getString(
+                if (MethodVal == CredentialStore.Method.MPIN) {
+                    R.string.credentials_rejected_mpin_toast
+                } else {
+                    R.string.credentials_rejected_password_toast
+                }
+            ),
+            KindVal = AppToast.Kind.Error
+        )
     }
 
-    private fun HandleMpinLoginScreen(
+    private fun HandleLoginScreen(
         RootNode: AccessibilityNodeInfo,
-        VisibleNodes: List<String>
+        VisibleNodes: List<String>,
+        PageVal: LoginPage
     ) {
-        if (MpinLoginSubmitted &&
-            !MpinRejectedHandled &&
-            IsMpinRejectionNotice(VisibleNodes = VisibleNodes)
+        val FilledMethod = LoginFilledMethod
+        if (LoginSubmitted &&
+            !LoginRejectedHandled &&
+            FilledMethod != null &&
+            IsLoginRejectionNotice(VisibleNodes = VisibleNodes, MethodVal = FilledMethod)
         ) {
-            HandleRejectedMpin()
+            HandleRejectedLogin(MethodVal = FilledMethod)
             return
         }
-        if (MpinRejectedHandled) return
-        if (MpinFillInFlight) return
+        if (LoginRejectedHandled) return
+        if (LoginFillInFlight) return
 
-        val CodeText = MpinStore.MpinOrNull(ContextRef = this)
-        val AutoEnterOn = MpinStore.IsAutoEnterOn(ContextRef = this)
-        if (CodeText == null || !AutoEnterOn) {
-            if (!MpinSkipLogged) {
-                MpinSkipLogged = true
+        val MethodVal = CredentialStore.MethodOf(ContextRef = this)
+        val SecretText = CredentialStore.SecretFor(ContextRef = this, MethodVal = MethodVal)
+        val AutoEnterOn = CredentialStore.IsAutoEnterOn(ContextRef = this)
+        if (SecretText == null || !AutoEnterOn) {
+            if (!LoginSkipLogged) {
+                LoginSkipLogged = true
                 DiagnosticInfo(
-                    EventName = "MPIN_LOGIN_SCREEN",
-                    MessageText = if (CodeText == null) {
-                        "LIC login screen is up and no mPIN is saved; waiting for a manual login"
+                    EventName = "LOGIN_SCREEN",
+                    MessageText = if (SecretText == null) {
+                        "The login screen is up and no ${MethodNameOf(MethodVal = MethodVal)} " +
+                                "is saved; waiting for a manual sign-in"
                     } else {
-                        "LIC login screen is up and auto-entry is off; waiting for a manual login"
+                        "The login screen is up and automatic sign-in is off; waiting for a " +
+                                "manual sign-in"
                     }
                 )
             }
             return
         }
 
-        if (MpinAttemptCount >= MPIN_ATTEMPT_LIMIT) {
-            if (!MpinSkipLogged) {
-                MpinSkipLogged = true
+        if (LoginAttemptCount >= LOGIN_ATTEMPT_LIMIT) {
+            if (!LoginSkipLogged) {
+                LoginSkipLogged = true
                 DiagnosticWarning(
-                    EventName = "MPIN_NOT_ACCEPTED",
-                    MessageText = "Login screen is still up after the saved mPIN was entered; " +
-                            "not trying again this run, log in by hand"
+                    EventName = "LOGIN_NOT_ACCEPTED",
+                    MessageText = "The login screen is still up after the saved " +
+                            "${MethodNameOf(MethodVal = MethodVal)} was entered; not trying " +
+                            "again this run, sign in by hand"
                 )
             }
             return
         }
 
-        MpinFillInFlight = true
-        MpinAttemptCount++
-        MpinSkipLogged = false
-        MpinSubmitAttempts = 0
-        HideSoftKeyboardForMpin()
-
-        if (!FillMpinEntry(RootNode = RootNode, CodeText = CodeText)) {
-            MpinAttemptCount--
-            MpinFillFailureCount++
-            if (MpinFillFailureCount >= MPIN_FILL_FAILURE_LIMIT) {
-                MpinAttemptCount = MPIN_ATTEMPT_LIMIT
-                DiagnosticWarning(
-                    EventName = "MPIN_FILL_FAILED",
-                    MessageText = "Could not type the saved mPIN into the login boxes after " +
-                            "$MpinFillFailureCount tries; log in by hand"
-                )
-            }
-            ReleaseMpinFill(DelayMs = MPIN_FILL_RETRY_MS)
+        if (PageVal != PageForMethod(MethodVal = MethodVal)) {
+            SwitchLoginMethod(RootNode = RootNode, MethodVal = MethodVal)
             return
         }
 
-        MpinFillFailureCount = 0
+        LoginFillInFlight = true
+        LoginAttemptCount++
+        LoginSkipLogged = false
+        LoginSubmitAttempts = 0
+        HideSoftKeyboardForLogin()
+
+        val FilledOk = if (MethodVal == CredentialStore.Method.MPIN) {
+            FillMpinEntry(RootNode = RootNode, CodeText = SecretText)
+        } else {
+            FillPasswordEntry(RootNode = RootNode, PasswordText = SecretText)
+        }
+
+        if (!FilledOk) {
+            LoginAttemptCount--
+            LoginFillFailureCount++
+            if (LoginFillFailureCount >= LOGIN_FILL_FAILURE_LIMIT) {
+                LoginAttemptCount = LOGIN_ATTEMPT_LIMIT
+                DiagnosticWarning(
+                    EventName = "LOGIN_FILL_FAILED",
+                    MessageText = "Could not type the saved " +
+                            "${MethodNameOf(MethodVal = MethodVal)} after " +
+                            "$LoginFillFailureCount tries; sign in by hand"
+                )
+            }
+            ReleaseLoginFill(DelayMs = LOGIN_FILL_RETRY_MS)
+            return
+        }
+
+        LoginFillFailureCount = 0
+        LoginFilledMethod = MethodVal
         DiagnosticInfo(
-            EventName = "MPIN_FILLED",
-            MessageText = "Saved mPIN entered on the LIC login screen; tapping Login next"
+            EventName = "LOGIN_FILLED",
+            MessageText = "method=${MethodNameOf(MethodVal = MethodVal)} entered on the login " +
+                    "screen; tapping Login next"
         )
-        MainHandler.postDelayed({ SubmitMpinLogin() }, MPIN_SUBMIT_DELAY_MS)
+        MainHandler.postDelayed({ SubmitLogin() }, LOGIN_SUBMIT_DELAY_MS)
+    }
+
+    private fun SwitchLoginMethod(
+        RootNode: AccessibilityNodeInfo,
+        MethodVal: CredentialStore.Method
+    ) {
+        if (LoginSwitchCount >= LOGIN_SWITCH_LIMIT) {
+            if (!LoginSkipLogged) {
+                LoginSkipLogged = true
+                DiagnosticWarning(
+                    EventName = "LOGIN_SWITCH_GAVE_UP",
+                    MessageText = "The login screen did not swap to " +
+                            "${MethodNameOf(MethodVal = MethodVal)} after $LoginSwitchCount " +
+                            "taps; sign in by hand"
+                )
+            }
+            return
+        }
+
+        val LabelText = if (MethodVal == CredentialStore.Method.MPIN) {
+            LOGIN_MPIN_LINK
+        } else {
+            LOGIN_PASSWORD_LINK
+        }
+        LoginFillInFlight = true
+        LoginSwitchCount++
+        LoginSkipLogged = false
+
+        if (TapLoginLink(RootNode = RootNode, LabelText = LabelText)) {
+            DiagnosticInfo(
+                EventName = "LOGIN_SWITCH",
+                MessageText = "tapped '$LabelText' (attempt $LoginSwitchCount); no sign-in " +
+                        "attempt spent"
+            )
+        } else {
+            DiagnosticWarning(
+                EventName = "LOGIN_SWITCH_NOT_TAPPED",
+                MessageText = "label='$LabelText' attempt=$LoginSwitchCount"
+            )
+        }
+        ReleaseLoginFill(DelayMs = LOGIN_SWITCH_SETTLE_MS)
+    }
+
+    private fun TapLoginLink(RootNode: AccessibilityNodeInfo, LabelText: String): Boolean {
+        val LinkNodes = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            CollectNodesContaining(
+                TargetNode = RootNode,
+                NeedleText = LabelText,
+                ResultList = LinkNodes
+            )
+            val TargetNode = LinkNodes.firstOrNull()
+            if (TargetNode == null) {
+                DiagnosticWarning(
+                    EventName = "LOGIN_SWITCH_NOT_FOUND",
+                    MessageText = "No '$LabelText' node on the login screen"
+                )
+                return false
+            }
+
+            val BoundsObj = NodeBoundsOf(NodeRef = TargetNode)
+            DiagnosticInfo(
+                EventName = "LOGIN_SWITCH_TARGET",
+                MessageText = "label='$LabelText' bounds=$BoundsObj " +
+                        "clickable=${TargetNode.isClickable}"
+            )
+
+            if (ClickNodeOrParent(StartNode = TargetNode)) return true
+            if (!IsBoundsOnScreen(BoundsObj = BoundsObj)) return false
+            return PerformTapGesture(
+                XPos = BoundsObj.exactCenterX(),
+                YPos = BoundsObj.exactCenterY()
+            )
+        } finally {
+            for (NodeRef in LinkNodes) RecycleNode(NodeRef = NodeRef)
+        }
+    }
+
+    private fun CollectNodesContaining(
+        TargetNode: AccessibilityNodeInfo,
+        NeedleText: String,
+        ResultList: MutableList<AccessibilityNodeInfo>
+    ) {
+        try {
+            for (ChildIdx in 0 until TargetNode.childCount) {
+                val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
+                val MatchesNeedle = NodeTextValue(NodeRef = ChildNode)
+                    .contains(NeedleText, ignoreCase = true)
+                if (MatchesNeedle &&
+                    IsBoundsOnScreen(BoundsObj = NodeBoundsOf(NodeRef = ChildNode))
+                ) {
+                    ResultList.add(ChildNode)
+                    continue
+                }
+                try {
+                    CollectNodesContaining(
+                        TargetNode = ChildNode,
+                        NeedleText = NeedleText,
+                        ResultList = ResultList
+                    )
+                } finally {
+                    RecycleNode(NodeRef = ChildNode)
+                }
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while looking for a login link", ExceptionObj)
+        }
+    }
+
+    private fun FillPasswordEntry(
+        RootNode: AccessibilityNodeInfo,
+        PasswordText: String
+    ): Boolean {
+        val EntryNodes = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            CollectLoginEntryNodes(TargetNode = RootNode, ResultList = EntryNodes)
+            val TargetNode = EntryNodes.minByOrNull { NodeRef ->
+                NodeBoundsOf(NodeRef = NodeRef).top
+            }
+            if (TargetNode == null) {
+                DiagnosticWarning(
+                    EventName = "LOGIN_FIELD_NOT_FOUND",
+                    MessageText = "The password screen exposed no editable field"
+                )
+                return false
+            }
+            return SetNodeText(NodeRef = TargetNode, TextValue = PasswordText)
+        } finally {
+            for (NodeRef in EntryNodes) RecycleNode(NodeRef = NodeRef)
+        }
     }
 
     private fun FillMpinEntry(RootNode: AccessibilityNodeInfo, CodeText: String): Boolean {
         val EntryNodes = mutableListOf<AccessibilityNodeInfo>()
         try {
-            CollectMpinEntryNodes(TargetNode = RootNode, ResultList = EntryNodes)
+            CollectLoginEntryNodes(TargetNode = RootNode, ResultList = EntryNodes)
             if (EntryNodes.isEmpty()) return false
             if (EntryNodes.size == 1) {
                 return SetNodeText(NodeRef = EntryNodes.first(), TextValue = CodeText)
@@ -1850,7 +2076,7 @@ class ScreenReaderService : AccessibilityService() {
             val BoxNodes = MpinBoxRow(EntryNodes = EntryNodes)
             if (BoxNodes.size != CodeText.length) {
                 DiagnosticWarning(
-                    EventName = "MPIN_BOXES_NOT_FOUND",
+                    EventName = "LOGIN_BOXES_NOT_FOUND",
                     MessageText = "Login screen exposed ${EntryNodes.size} entry field(s) and no " +
                             "row of ${CodeText.length} boxes"
                 )
@@ -1881,7 +2107,7 @@ class ScreenReaderService : AccessibilityService() {
             .sortedBy { NodeRef -> NodeBoundsOf(NodeRef = NodeRef).left }
     }
 
-    private fun CollectMpinEntryNodes(
+    private fun CollectLoginEntryNodes(
         TargetNode: AccessibilityNodeInfo,
         ResultList: MutableList<AccessibilityNodeInfo>
     ) {
@@ -1896,7 +2122,7 @@ class ScreenReaderService : AccessibilityService() {
                     continue
                 }
                 try {
-                    CollectMpinEntryNodes(TargetNode = ChildNode, ResultList = ResultList)
+                    CollectLoginEntryNodes(TargetNode = ChildNode, ResultList = ResultList)
                 } finally {
                     RecycleNode(NodeRef = ChildNode)
                 }
@@ -1927,71 +2153,71 @@ class ScreenReaderService : AccessibilityService() {
             NodeRef.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, ArgsBundle)
         } catch (ExceptionObj: Exception) {
             DiagnosticWarning(
-                EventName = "MPIN_SET_TEXT_ERROR",
+                EventName = "LOGIN_SET_TEXT_ERROR",
                 MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
             )
             false
         }
     }
 
-    private fun SubmitMpinLogin() {
+    private fun SubmitLogin() {
         if (!IsCapturing) {
-            MpinFillInFlight = false
+            LoginFillInFlight = false
             RestoreSoftKeyboard()
             return
         }
 
         if (IsKeyboardWindowVisible()) {
             DiagnosticInfo(
-                EventName = "MPIN_KEYBOARD_DISMISS",
+                EventName = "LOGIN_KEYBOARD_DISMISS",
                 MessageText = "Keyboard is covering the Login button; dismissing it first"
             )
             performGlobalAction(GLOBAL_ACTION_BACK)
-            RetryMpinSubmit(ReasonText = "keyboard was still up")
+            RetryLoginSubmit(ReasonText = "keyboard was still up")
             return
         }
 
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         if (RootNode == null) {
-            RetryMpinSubmit(ReasonText = "no readable root")
+            RetryLoginSubmit(ReasonText = "no readable root")
             return
         }
 
         val ClickedOk = try {
-            ClickMpinLoginButton(RootNode = RootNode)
+            ClickLoginButton(RootNode = RootNode)
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
 
         if (ClickedOk) {
-            MpinLoginSubmitted = true
+            LoginSubmitted = true
             DiagnosticInfo(
-                EventName = "MPIN_LOGIN_TAPPED",
+                EventName = "LOGIN_TAPPED",
                 MessageText = "Login tapped after entering the saved mPIN"
             )
-            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            ReleaseLoginFill(DelayMs = LOGIN_RELEASE_DELAY_MS)
             return
         }
 
-        RetryMpinSubmit(ReasonText = "Login button had no usable bounds")
+        RetryLoginSubmit(ReasonText = "Login button had no usable bounds")
     }
 
-    private fun RetryMpinSubmit(ReasonText: String) {
-        MpinSubmitAttempts++
-        if (MpinSubmitAttempts >= MPIN_SUBMIT_RETRY_LIMIT) {
+    private fun RetryLoginSubmit(ReasonText: String) {
+        LoginSubmitAttempts++
+        if (LoginSubmitAttempts >= LOGIN_SUBMIT_RETRY_LIMIT) {
             DiagnosticWarning(
-                EventName = "MPIN_LOGIN_NOT_TAPPED",
+                EventName = "LOGIN_NOT_TAPPED",
                 MessageText = "mPIN is filled in but Login could not be tapped after " +
-                        "$MpinSubmitAttempts tries ($ReasonText); tap it yourself"
+                        "$LoginSubmitAttempts tries ($ReasonText); tap it yourself"
             )
-            ReleaseMpinFill(DelayMs = MPIN_RELEASE_DELAY_MS)
+            ReleaseLoginFill(DelayMs = LOGIN_RELEASE_DELAY_MS)
             return
         }
         DiagnosticInfo(
-            EventName = "MPIN_LOGIN_RETRY",
-            MessageText = "attempt=$MpinSubmitAttempts reason=$ReasonText"
+            EventName = "LOGIN_RETRY",
+            MessageText = "attempt=$LoginSubmitAttempts reason=$ReasonText"
         )
-        MainHandler.postDelayed({ SubmitMpinLogin() }, MPIN_SUBMIT_RETRY_MS)
+        MainHandler.postDelayed({ SubmitLogin() }, LOGIN_SUBMIT_RETRY_MS)
     }
 
     private fun IsKeyboardWindowVisible(): Boolean {
@@ -2005,28 +2231,28 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun HideSoftKeyboardForMpin() {
-        if (MpinKeyboardHidden) return
-        MpinKeyboardHidden = try {
+    private fun HideSoftKeyboardForLogin() {
+        if (LoginKeyboardHidden) return
+        LoginKeyboardHidden = try {
             softKeyboardController.setShowMode(SHOW_MODE_HIDDEN)
         } catch (ExceptionObj: Exception) {
             DiagnosticWarning(
-                EventName = "MPIN_KEYBOARD_HIDE_FAILED",
+                EventName = "LOGIN_KEYBOARD_HIDE_FAILED",
                 MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
             )
             false
         }
-        if (!MpinKeyboardHidden) {
+        if (!LoginKeyboardHidden) {
             DiagnosticWarning(
-                EventName = "MPIN_KEYBOARD_HIDE_FAILED",
+                EventName = "LOGIN_KEYBOARD_HIDE_FAILED",
                 MessageText = "Keyboard suppression was refused; Login may stay covered"
             )
         }
     }
 
     private fun RestoreSoftKeyboard() {
-        if (!MpinKeyboardHidden) return
-        MpinKeyboardHidden = false
+        if (!LoginKeyboardHidden) return
+        LoginKeyboardHidden = false
         try {
             softKeyboardController.setShowMode(SHOW_MODE_AUTO)
         } catch (ExceptionObj: Exception) {
@@ -2034,16 +2260,16 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun ClickMpinLoginButton(RootNode: AccessibilityNodeInfo): Boolean {
+    private fun ClickLoginButton(RootNode: AccessibilityNodeInfo): Boolean {
         val LabelNodes = mutableListOf<AccessibilityNodeInfo>()
         try {
-            CollectMpinLoginNodes(TargetNode = RootNode, ResultList = LabelNodes)
+            CollectLoginButtonNodes(TargetNode = RootNode, ResultList = LabelNodes)
             val TargetNode = LabelNodes.maxByOrNull { NodeRef ->
                 NodeBoundsOf(NodeRef = NodeRef).centerY()
             }
             if (TargetNode == null) {
                 DiagnosticWarning(
-                    EventName = "MPIN_LOGIN_NOT_FOUND",
+                    EventName = "LOGIN_NOT_FOUND",
                     MessageText = "No Login node on the login screen"
                 )
                 return false
@@ -2051,7 +2277,7 @@ class ScreenReaderService : AccessibilityService() {
 
             val BoundsObj = NodeBoundsOf(NodeRef = TargetNode)
             DiagnosticInfo(
-                EventName = "MPIN_LOGIN_TARGET",
+                EventName = "LOGIN_TARGET",
                 MessageText = "bounds=$BoundsObj clickable=${TargetNode.isClickable} " +
                         "keyboard=${IsKeyboardWindowVisible()}"
             )
@@ -2067,7 +2293,7 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun CollectMpinLoginNodes(
+    private fun CollectLoginButtonNodes(
         TargetNode: AccessibilityNodeInfo,
         ResultList: MutableList<AccessibilityNodeInfo>
     ) {
@@ -2076,13 +2302,13 @@ class ScreenReaderService : AccessibilityService() {
                 val ChildNode = TargetNode.getChild(ChildIdx) ?: continue
                 val IsLoginLabel = NodeTextValue(NodeRef = ChildNode)
                     .trim()
-                    .equals(MPIN_LOGIN_LABEL, ignoreCase = true)
+                    .equals(LOGIN_BUTTON_LABEL, ignoreCase = true)
                 if (IsLoginLabel && IsBoundsOnScreen(BoundsObj = NodeBoundsOf(NodeRef = ChildNode))) {
                     ResultList.add(ChildNode)
                     continue
                 }
                 try {
-                    CollectMpinLoginNodes(TargetNode = ChildNode, ResultList = ResultList)
+                    CollectLoginButtonNodes(TargetNode = ChildNode, ResultList = ResultList)
                 } finally {
                     RecycleNode(NodeRef = ChildNode)
                 }
@@ -2092,9 +2318,9 @@ class ScreenReaderService : AccessibilityService() {
         }
     }
 
-    private fun ReleaseMpinFill(DelayMs: Long) {
+    private fun ReleaseLoginFill(DelayMs: Long) {
         MainHandler.postDelayed({
-            MpinFillInFlight = false
+            LoginFillInFlight = false
             RestoreSoftKeyboard()
         }, DelayMs)
     }
@@ -3720,12 +3946,10 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "captured=${CapturedPolicyMap.size} page=$PolicyCurrentPage/$PolicyTotalPages"
         )
 
-        HapticFeedback.Success(ContextRef = this)
-        Toast.makeText(
-            this,
-            "Captured ${CapturedPolicyMap.size} policies",
-            Toast.LENGTH_LONG
-        ).show()
+        ShowServiceToast(
+            MessageText = "Captured ${CapturedPolicyMap.size} policies",
+            KindVal = AppToast.Kind.Success
+        )
 
         MainHandler.postDelayed({
             if (IsCapturing && CurrentMode == CaptureMode.POLICY && IsPolicyDashboardComplete) {
@@ -3772,16 +3996,14 @@ class ScreenReaderService : AccessibilityService() {
                     "expected=$PolicyExpectedPage total=$PolicyTotalPages " +
                     "selectorVisible=$IsPolicyPageSelectorVisible captured=${CapturedPolicyMap.size}"
         )
-        HapticFeedback.Failure(ContextRef = this)
-        Toast.makeText(
-            this,
-            if (CanRetryAutomatically) {
+        ShowServiceToast(
+            MessageText = if (CanRetryAutomatically) {
                 "Policy automation paused: $ReasonText. Retrying automatically."
             } else {
                 "Policy automation stopped after repeated failures. Captured data is preserved."
             },
-            Toast.LENGTH_LONG
-        ).show()
+            KindVal = if (CanRetryAutomatically) AppToast.Kind.Warning else AppToast.Kind.Error
+        )
         RefreshBubble()
     }
 
@@ -5049,12 +5271,10 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "records=$RecordCount nodes=${CapturedNodes.size} " +
                     "page=$RenewalCurrentPage/$RenewalTotalPages"
         )
-        HapticFeedback.Success(ContextRef = this)
-        Toast.makeText(
-            this,
-            "Captured $RecordCount renewal records",
-            Toast.LENGTH_LONG
-        ).show()
+        ShowServiceToast(
+            MessageText = "Captured $RecordCount renewal records",
+            KindVal = AppToast.Kind.Success
+        )
 
         MainHandler.postDelayed({
             if (IsCapturing && CurrentMode == CaptureMode.FUP && IsRenewalAutomationComplete) {
@@ -5089,16 +5309,14 @@ class ScreenReaderService : AccessibilityService() {
                     "expected=$RenewalExpectedPage total=$RenewalTotalPages " +
                     "nodes=${CapturedNodes.size}"
         )
-        HapticFeedback.Failure(ContextRef = this)
-        Toast.makeText(
-            this,
-            if (CanRetryAutomatically) {
+        ShowServiceToast(
+            MessageText = if (CanRetryAutomatically) {
                 "Renewal automation paused: $ReasonText. Retrying automatically."
             } else {
                 "Renewal automation stopped after repeated failures. Captured data is preserved."
             },
-            Toast.LENGTH_LONG
-        ).show()
+            KindVal = if (CanRetryAutomatically) AppToast.Kind.Warning else AppToast.Kind.Error
+        )
         RefreshBubble()
     }
 
@@ -5928,8 +6146,10 @@ class ScreenReaderService : AccessibilityService() {
                 LogFiles = LogFiles
             )
             if (ShareIntent == null) {
-                Toast.makeText(this, "No diagnostic log is available yet", Toast.LENGTH_SHORT)
-                    .show()
+                ShowServiceToast(
+                    MessageText = "No diagnostic log is available yet",
+                    KindVal = AppToast.Kind.Warning
+                )
                 return
             }
             val ChooserIntent = Intent.createChooser(
@@ -5945,7 +6165,10 @@ class ScreenReaderService : AccessibilityService() {
                 EventName = "LOG_SHARE_FAILED",
                 MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
             )
-            Toast.makeText(this, "Unable to share the diagnostic log", Toast.LENGTH_LONG).show()
+            ShowServiceToast(
+                MessageText = "Unable to share the diagnostic log",
+                KindVal = AppToast.Kind.Error
+            )
         }
     }
 
@@ -6022,6 +6245,15 @@ class ScreenReaderService : AccessibilityService() {
             RecordCountVal = RecordCount,
             NodeCountVal = NodeCount,
             ElapsedMsVal = ElapsedValue
+        )
+    }
+
+    private fun ShowServiceToast(MessageText: CharSequence, KindVal: AppToast.Kind) {
+        AppToast.ShowOverlay(
+            ContextRef = this,
+            WindowMgrRef = WindowMgr,
+            MessageText = MessageText,
+            KindVal = KindVal
         )
     }
 
@@ -6467,11 +6699,10 @@ class ScreenReaderService : AccessibilityService() {
                     "mode=${CurrentMode.name} records=${CurrentRecordCount()} " +
                     "nodes=${CapturedNodes.size}"
         )
-        Toast.makeText(
-            this,
-            getString(R.string.capture_stopped_no_network),
-            Toast.LENGTH_LONG
-        ).show()
+        ShowServiceToast(
+            MessageText = getString(R.string.capture_stopped_no_network),
+            KindVal = AppToast.Kind.Warning
+        )
         FinishCaptureSession()
     }
 
@@ -6747,11 +6978,10 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "consecutive=$ConsecutiveErrorGiveUps mode=${CurrentMode.name} " +
                     "records=${CurrentRecordCount()} nodes=${CapturedNodes.size}"
         )
-        Toast.makeText(
-            this,
-            getString(R.string.capture_stopped_app_errors),
-            Toast.LENGTH_LONG
-        ).show()
+        ShowServiceToast(
+            MessageText = getString(R.string.capture_stopped_app_errors),
+            KindVal = AppToast.Kind.Error
+        )
         FinishCaptureSession()
     }
 
@@ -8396,6 +8626,7 @@ class ScreenReaderService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         Instance = null
+        AppToast.RemoveOverlay()
         IsCapturing = false
         IsPaused = false
         MainHandler.removeCallbacks(TickRunnable)

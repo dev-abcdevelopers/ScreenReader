@@ -142,6 +142,10 @@
     <string name="export_agency_confirm">Export</string>
     <string name="export_agency_upload_body">This names the file on the server. The whole session is uploaded as agencycode.json and replaces whatever that agency sent before.</string>
     <string name="export_agency_upload_confirm">Upload</string>
+    <string name="export_agency_pick_title">Choose agency code</string>
+    <string name="export_agency_pick_add">Use a different code</string>
+    <string name="export_agency_upload_confirm_format">Upload %1$s</string>
+    <string name="export_agency_export_confirm_format">Export %1$s</string>
     <string name="policies_upload">Upload to server</string>
     <string name="upload_not_configured">Upload is not configured in this build</string>
     <string name="upload_sheet_title">Uploading</string>
@@ -161,6 +165,7 @@
     <string name="upload_phase_send">Sending</string>
     <string name="upload_phase_send_format">Sending %1$s of %2$s</string>
     <string name="upload_phase_wait">Waiting for server</string>
+    <string name="upload_phase_done">Saved on the server</string>
     <string name="upload_action_cancel">Cancel</string>
     <string name="upload_action_done">Done</string>
     <string name="upload_action_retry">Retry</string>

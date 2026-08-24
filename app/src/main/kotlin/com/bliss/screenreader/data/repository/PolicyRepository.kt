@@ -3,6 +3,7 @@
 package com.bliss.screenreader.data.repository
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
@@ -36,6 +37,7 @@ object PolicyRepository {
     private const val VISITED_KEY_PREFIX = "capture_visited_customers"
     private const val RESUME_KEY_PREFIX = "capture_resume"
     private const val KEY_LAST_AGENCY_CODE = "last_agency_code"
+    private const val KEY_AGENCY_CODES = "agency_code_list"
 
     private const val MAX_CHANGE_ENTRIES = 500
     private const val MAX_GAP_ENTRIES = 500
@@ -535,16 +537,6 @@ object PolicyRepository {
         return "${VISITED_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
     }
 
-    fun SaveAgencyCode(ContextRef: Context, SessionId: String, AgencyCode: String) {
-        val TrimmedCode = AgencyCode.trim()
-        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
-            putString(KEY_LAST_AGENCY_CODE, TrimmedCode)
-            if (SessionId.isNotBlank()) {
-                putString(AgencyStorageKey(SessionId = SessionId), TrimmedCode)
-            }
-        }
-    }
-
     fun GetAgencyCode(ContextRef: Context, SessionId: String): String {
         val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
         if (SessionId.isNotBlank()) {
@@ -561,11 +553,203 @@ object PolicyRepository {
             .getString(KEY_LAST_AGENCY_CODE, "")
             .orEmpty()
 
-    fun SetDefaultAgencyCode(ContextRef: Context, AgencyCode: String) {
+    fun SetDefaultAgencyCode(ContextRef: Context, AgencyCodeText: String) {
+        val TrimmedCode = AgencyCodeText.trim()
         SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
-            putString(KEY_LAST_AGENCY_CODE, AgencyCode.trim())
+            putString(KEY_LAST_AGENCY_CODE, TrimmedCode)
+        }
+        if (TrimmedCode.isEmpty()) return
+
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        val StoredList = ReadAgencyCodes(PrefsObj = PrefsObj)
+        val AlreadySaved = StoredList.any { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = TrimmedCode)
+        }
+        if (!AlreadySaved) {
+            WriteAgencyCodes(
+                ContextRef = ContextRef,
+                Codes = StoredList + NewAgencyEntry(CodeText = TrimmedCode, LabelText = "")
+            )
         }
     }
+
+    data class AgencyCode(
+        val Code: String? = null,
+        val Label: String? = null,
+        val SavedAt: Long? = null,
+        val LastUsedAt: Long? = null
+    ) {
+        val CodeText: String get() = Code.orEmpty().trim()
+        val LabelText: String get() = Label.orEmpty().trim()
+    }
+
+    fun ListAgencyCodes(ContextRef: Context): List<AgencyCode> {
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        val DefaultCode = PrefsObj.getString(KEY_LAST_AGENCY_CODE, "").orEmpty().trim()
+        var WorkingList = ReadAgencyCodes(PrefsObj = PrefsObj)
+
+        val DefaultMissing = DefaultCode.isNotEmpty() && WorkingList.none { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = DefaultCode)
+        }
+        if (DefaultMissing) {
+            WorkingList = WorkingList + NewAgencyEntry(CodeText = DefaultCode, LabelText = "")
+            WriteAgencyCodes(ContextRef = ContextRef, Codes = WorkingList)
+        }
+        return OrderedAgencyCodes(Codes = WorkingList, DefaultCode = DefaultCode)
+    }
+
+    fun AddAgencyCode(
+        ContextRef: Context,
+        AgencyCodeText: String,
+        LabelText: String = "",
+        MakeDefault: Boolean = false
+    ): Boolean {
+        val TrimmedCode = AgencyCodeText.trim()
+        if (TrimmedCode.isEmpty()) return false
+
+        val ExistingList = ListAgencyCodes(ContextRef = ContextRef)
+        val AlreadySaved = ExistingList.any { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = TrimmedCode)
+        }
+        if (!AlreadySaved) {
+            WriteAgencyCodes(
+                ContextRef = ContextRef,
+                Codes = ExistingList + NewAgencyEntry(
+                    CodeText = TrimmedCode,
+                    LabelText = LabelText
+                )
+            )
+        }
+        if (MakeDefault || ExistingList.isEmpty()) {
+            SetDefaultAgencyCode(ContextRef = ContextRef, AgencyCodeText = TrimmedCode)
+        }
+        return !AlreadySaved
+    }
+
+    fun UpdateAgencyCode(
+        ContextRef: Context,
+        OriginalCode: String,
+        AgencyCodeText: String,
+        LabelText: String
+    ): Boolean {
+        val TrimmedCode = AgencyCodeText.trim()
+        if (TrimmedCode.isEmpty()) return false
+
+        val ExistingList = ListAgencyCodes(ContextRef = ContextRef)
+        val ClashFound = ExistingList.any { Entry ->
+            !SameAgencyCode(LeftCode = Entry.CodeText, RightCode = OriginalCode) &&
+                SameAgencyCode(LeftCode = Entry.CodeText, RightCode = TrimmedCode)
+        }
+        if (ClashFound) return false
+
+        WriteAgencyCodes(
+            ContextRef = ContextRef,
+            Codes = ExistingList.map { Entry ->
+                if (SameAgencyCode(LeftCode = Entry.CodeText, RightCode = OriginalCode)) {
+                    Entry.copy(
+                        Code = TrimmedCode,
+                        Label = LabelText.trim().ifEmpty { null }
+                    )
+                } else {
+                    Entry
+                }
+            }
+        )
+
+        val DefaultCode = GetDefaultAgencyCode(ContextRef = ContextRef)
+        if (SameAgencyCode(LeftCode = DefaultCode, RightCode = OriginalCode)) {
+            SetDefaultAgencyCode(ContextRef = ContextRef, AgencyCodeText = TrimmedCode)
+        }
+        return true
+    }
+
+    fun DeleteAgencyCode(ContextRef: Context, AgencyCodeText: String): String {
+        val RemainingList = ListAgencyCodes(ContextRef = ContextRef).filterNot { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = AgencyCodeText)
+        }
+        WriteAgencyCodes(ContextRef = ContextRef, Codes = RemainingList)
+
+        val DefaultCode = GetDefaultAgencyCode(ContextRef = ContextRef)
+        if (!SameAgencyCode(LeftCode = DefaultCode, RightCode = AgencyCodeText)) return DefaultCode
+
+        val PromotedCode = RemainingList.firstOrNull()?.CodeText.orEmpty()
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(KEY_LAST_AGENCY_CODE, PromotedCode)
+        }
+        return PromotedCode
+    }
+
+    fun MarkAgencyCodeUsed(ContextRef: Context, AgencyCodeText: String) {
+        val TrimmedCode = AgencyCodeText.trim()
+        if (TrimmedCode.isEmpty()) return
+
+        val ExistingList = ListAgencyCodes(ContextRef = ContextRef)
+        val KnownCode = ExistingList.any { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = TrimmedCode)
+        }
+        if (!KnownCode) return
+
+        WriteAgencyCodes(
+            ContextRef = ContextRef,
+            Codes = ExistingList.map { Entry ->
+                if (SameAgencyCode(LeftCode = Entry.CodeText, RightCode = TrimmedCode)) {
+                    Entry.copy(LastUsedAt = System.currentTimeMillis())
+                } else {
+                    Entry
+                }
+            }
+        )
+    }
+
+    fun StampSessionAgencyCode(ContextRef: Context, SessionId: String, AgencyCodeText: String) {
+        val TrimmedCode = AgencyCodeText.trim()
+        if (TrimmedCode.isEmpty()) return
+        if (SessionId.isNotBlank()) {
+            SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+                putString(AgencyStorageKey(SessionId = SessionId), TrimmedCode)
+            }
+        }
+        MarkAgencyCodeUsed(ContextRef = ContextRef, AgencyCodeText = TrimmedCode)
+    }
+
+    private fun NewAgencyEntry(CodeText: String, LabelText: String): AgencyCode = AgencyCode(
+        Code = CodeText.trim(),
+        Label = LabelText.trim().ifEmpty { null },
+        SavedAt = System.currentTimeMillis()
+    )
+
+    private fun ReadAgencyCodes(PrefsObj: SharedPreferences): List<AgencyCode> {
+        val JsonText = PrefsObj.getString(KEY_AGENCY_CODES, null) ?: return emptyList()
+        val ListType = object : TypeToken<List<AgencyCode>>() {}.type
+        return try {
+            (GsonInstance.fromJson<List<AgencyCode>>(JsonText, ListType) ?: emptyList())
+                .filter { Entry -> Entry.CodeText.isNotEmpty() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun WriteAgencyCodes(ContextRef: Context, Codes: List<AgencyCode>) {
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(KEY_AGENCY_CODES, GsonInstance.toJson(Codes))
+        }
+    }
+
+    private fun OrderedAgencyCodes(
+        Codes: List<AgencyCode>,
+        DefaultCode: String
+    ): List<AgencyCode> {
+        if (DefaultCode.isEmpty()) return Codes
+        val DefaultEntry = Codes.firstOrNull { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = DefaultCode)
+        } ?: return Codes
+        return listOf(DefaultEntry) + Codes.filterNot { Entry ->
+            SameAgencyCode(LeftCode = Entry.CodeText, RightCode = DefaultCode)
+        }
+    }
+
+    private fun SameAgencyCode(LeftCode: String, RightCode: String): Boolean =
+        LeftCode.trim().equals(RightCode.trim(), ignoreCase = true)
 
     data class StorageSummary(val SessionCount: Int, val RecordCount: Int)
 

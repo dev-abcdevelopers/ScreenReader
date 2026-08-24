@@ -10,7 +10,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
@@ -26,6 +25,7 @@ import com.bliss.screenreader.security.BlissLicenceStore
 import com.bliss.screenreader.security.DeviceIdentity
 import com.bliss.screenreader.security.IntegrityGuard
 import com.bliss.screenreader.ui.main.MainActivity
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.HapticFeedback
 import java.util.concurrent.Executors
 
@@ -267,7 +267,10 @@ class LicenceActivity : AppCompatActivity() {
                 DeviceIdentity.RegistrationId(ContextRef = this)
             )
         )
-        Toast.makeText(this, R.string.licence_device_id_copied, Toast.LENGTH_SHORT).show()
+        AppToast.Success(
+            ContextRef = this,
+            MessageText = getString(R.string.licence_device_id_copied)
+        )
     }
 
     private fun Clipboard(): ClipboardManager =

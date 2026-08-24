@@ -25,12 +25,13 @@ import com.bliss.screenreader.databinding.PartialFieldGroupBinding
 import com.bliss.screenreader.databinding.PartialFieldRowBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.ExportFormat
+import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.ui.SetupEdgeToEdge
 import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.main.MainActivity
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.chip.Chip
-import com.google.android.material.snackbar.Snackbar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,6 +75,22 @@ class PolicyDetailActivity : AppCompatActivity() {
         BindGroups(SummaryVal = SummaryVal)
         BindRenewalHistory(PolicyRef = ResolvedPolicy)
         BindProvenance(PolicyRef = ResolvedPolicy)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        RenderAdvancedVisibility()
+    }
+
+    private fun RenderAdvancedVisibility() {
+        ViewBindingObj.btnExportPolicy.visibility =
+            if (SettingsStore.IsSessionExportVisible(ContextRef = this)) View.VISIBLE else View.GONE
+        ViewBindingObj.rowRenewalHistory.visibility =
+            if (SettingsStore.IsRenewalHistoryVisible(ContextRef = this)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
     }
 
 
@@ -154,7 +171,10 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.btnCallCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             if (!HasMobile) {
-                ShowMessage(MessageVal = getString(R.string.detail_no_mobile))
+                ShowMessage(
+                    MessageVal = getString(R.string.detail_no_mobile),
+                    KindVal = AppToast.Kind.Warning
+                )
                 return@setOnClickListener
             }
             LaunchIntentSafely(
@@ -165,7 +185,10 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.btnMessageCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             if (!HasMobile) {
-                ShowMessage(MessageVal = getString(R.string.detail_no_mobile))
+                ShowMessage(
+                    MessageVal = getString(R.string.detail_no_mobile),
+                    KindVal = AppToast.Kind.Warning
+                )
                 return@setOnClickListener
             }
             LaunchIntentSafely(
@@ -402,23 +425,28 @@ class PolicyDetailActivity : AppCompatActivity() {
         if (ValueText.isEmpty()) return
         val ClipboardRef = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         ClipboardRef.setPrimaryClip(ClipData.newPlainText(LabelText, ValueText))
-        ShowMessage(MessageVal = getString(R.string.detail_copied_format, LabelText))
+        ShowMessage(
+            MessageVal = getString(R.string.detail_copied_format, LabelText),
+            KindVal = AppToast.Kind.Success
+        )
     }
 
     private fun LaunchIntentSafely(IntentObj: Intent) {
         try {
             startActivity(IntentObj)
         } catch (_: Exception) {
-            ShowMessage(MessageVal = getString(R.string.detail_missing))
+            ShowMessage(
+                MessageVal = getString(R.string.detail_missing),
+                KindVal = AppToast.Kind.Error
+            )
         }
     }
 
-    private fun ShowMessage(MessageVal: String) {
-        Snackbar.make(
-            findViewById(android.R.id.content),
-            MessageVal,
-            Snackbar.LENGTH_SHORT
-        ).show()
+    private fun ShowMessage(
+        MessageVal: String,
+        KindVal: AppToast.Kind = AppToast.Kind.Info
+    ) {
+        AppToast.Show(ContextRef = this, MessageText = MessageVal, KindVal = KindVal)
     }
 
     private fun ExportSingle(PolicyRef: CustomerPolicy) {

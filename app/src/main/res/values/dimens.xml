@@ -32,4 +32,10 @@
     <!-- Content inset that clears the bottom navigation bar. -->
     <dimen name="list_bottom_inset">88dp</dimen>
 
+    <!-- Fly-in toast. toast_max_width caps the card on tablets. -->
+    <dimen name="toast_margin">16dp</dimen>
+    <dimen name="toast_top_inset">12dp</dimen>
+    <dimen name="toast_elevation">8dp</dimen>
+    <dimen name="toast_max_width">380dp</dimen>
+
 </resources>

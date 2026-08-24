@@ -40,9 +40,14 @@
             android:launchMode="singleTask" />
 
         <activity
-            android:name=".ui.mpin.MpinActivity"
+            android:name=".ui.credentials.CredentialsActivity"
             android:exported="false"
-            android:parentActivityName=".ui.main.MainActivity"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <activity
+            android:name=".ui.credentials.CredentialDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.credentials.CredentialsActivity"
             android:windowSoftInputMode="adjustResize" />
 
         <activity

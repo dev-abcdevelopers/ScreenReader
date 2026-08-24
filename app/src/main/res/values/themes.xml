@@ -135,6 +135,14 @@
         <item name="chipMinHeight">36dp</item>
     </style>
 
+    <style name="Widget.App.RuleLine" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_sm</item>
+        <item name="android:lineSpacingMultiplier">1.25</item>
+        <item name="android:textAppearance">@style/TextAppearance.App.Label</item>
+    </style>
+
     <style name="Widget.App.MpinBox" parent="">
         <item name="android:background">@drawable/bg_mpin_box</item>
         <item name="android:gravity">center</item>
@@ -154,6 +162,15 @@
     <style name="Widget.App.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
         <item name="android:minHeight">@dimen/touch_min</item>
         <item name="cornerRadius">@dimen/radius_sm</item>
+    </style>
+
+    <style name="Widget.App.Button.Danger" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">@dimen/touch_min</item>
+        <item name="cornerRadius">@dimen/radius_sm</item>
+        <item name="android:textColor">@color/status_red_text</item>
+        <item name="strokeColor">@color/status_red_text</item>
+        <item name="iconTint">@color/status_red_text</item>
+        <item name="rippleColor">@color/status_red_bg</item>
     </style>
 
     <style name="Widget.App.Button.Text" parent="Widget.Material3.Button.TextButton">

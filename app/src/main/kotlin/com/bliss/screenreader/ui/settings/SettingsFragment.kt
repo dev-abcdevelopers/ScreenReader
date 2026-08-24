@@ -32,6 +32,7 @@ import com.bliss.screenreader.BuildConfig
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentSettingsBinding
+import com.bliss.screenreader.databinding.ItemAgencyCodeBinding
 import com.bliss.screenreader.databinding.PartialFieldRowBinding
 import com.bliss.screenreader.databinding.PartialSettingsChoiceRowBinding
 import com.bliss.screenreader.databinding.PartialSettingsRowBinding
@@ -44,7 +45,7 @@ import com.bliss.screenreader.security.BlissLicenceClient
 import com.bliss.screenreader.security.BlissLicenceStore
 import com.bliss.screenreader.security.DeviceIdentity
 import com.bliss.screenreader.security.LicenceGate
-import com.bliss.screenreader.security.MpinStore
+import com.bliss.screenreader.security.CredentialStore
 import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CustomerSheetOcr
 import com.bliss.screenreader.service.ScreenReaderService
@@ -52,9 +53,9 @@ import com.bliss.screenreader.settings.PaceProfile
 import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.sync.SessionBundleStore
 import com.bliss.screenreader.sync.SessionUploader
-import com.bliss.screenreader.ui.capture.CaptureFlow
-import com.bliss.screenreader.ui.mpin.MpinActivity
+import com.bliss.screenreader.ui.credentials.CredentialsActivity
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.ui.update.UpdateSheet
 import com.bliss.screenreader.update.UpdateChecker
 import com.bliss.screenreader.update.UpdateInstaller
@@ -69,6 +70,8 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import androidx.core.view.isEmpty
 
+private const val ADVANCED_TAP_WINDOW_MS = 2500L
+
 class SettingsFragment : Fragment() {
 
     private var ViewBindingObj: FragmentSettingsBinding? = null
@@ -77,7 +80,11 @@ class SettingsFragment : Fragment() {
     private var PendingImportUri: Uri? = null
     private var LicenceBackCallback: OnBackPressedCallback? = null
     private var LicencePaneOpen = false
+    private var AgencyBackCallback: OnBackPressedCallback? = null
+    private var AgencyPaneOpen = false
     private var LicenceCheckRunning = false
+    private var AdvancedTapCount = 0
+    private var LastAdvancedTapAt = 0L
 
     private val MainHandler = Handler(Looper.getMainLooper())
     private val WorkerRef = Executors.newSingleThreadExecutor()
@@ -105,6 +112,11 @@ class SettingsFragment : Fragment() {
             HideLicencePane()
         }
 
+        BindingObj.btnAgencyBack.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            HideAgencyPane()
+        }
+
         requireActivity().onBackPressedDispatcher.addCallback(
             viewLifecycleOwner,
             object : OnBackPressedCallback(false) {
@@ -113,6 +125,17 @@ class SettingsFragment : Fragment() {
                 }
             }.also { CallbackRef ->
                 LicenceBackCallback = CallbackRef
+            }
+        )
+
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() {
+                    HideAgencyPane()
+                }
+            }.also { CallbackRef ->
+                AgencyBackCallback = CallbackRef
             }
         )
     }
@@ -129,6 +152,7 @@ class SettingsFragment : Fragment() {
         TransferDialogObj = null
         TransferBindingObj = null
         LicenceBackCallback = null
+        AgencyBackCallback = null
         ViewBindingObj = null
     }
 
@@ -141,10 +165,14 @@ class SettingsFragment : Fragment() {
     private fun RenderAll() {
         val BindingObj = ViewBindingObj ?: return
 
-        BindingObj.settingsPane.visibility = if (LicencePaneOpen) View.GONE else View.VISIBLE
+        val PaneOpen = LicencePaneOpen || AgencyPaneOpen
+        BindingObj.settingsPane.visibility = if (PaneOpen) View.GONE else View.VISIBLE
         BindingObj.licencePane.visibility = if (LicencePaneOpen) View.VISIBLE else View.GONE
+        BindingObj.agencyPane.visibility = if (AgencyPaneOpen) View.VISIBLE else View.GONE
         LicenceBackCallback?.isEnabled = LicencePaneOpen
+        AgencyBackCallback?.isEnabled = AgencyPaneOpen
         if (LicencePaneOpen) RenderLicencePane()
+        if (AgencyPaneOpen) RenderAgencyPane()
 
         BindingObj.settingsContainer.removeAllViews()
 
@@ -156,6 +184,9 @@ class SettingsFragment : Fragment() {
         RenderSecuritySection()
         RenderAppearanceSection()
         RenderSupportSection()
+        if (SettingsStore.IsAdvancedUnlocked(ContextRef = requireContext())) {
+            RenderAdvancedSection()
+        }
 
         BindingObj.tvSettingsFooter.text = getString(
             R.string.settings_version_format,
@@ -163,6 +194,85 @@ class SettingsFragment : Fragment() {
             BuildConfig.VERSION_CODE,
             BuildConfig.FLAVOR
         )
+        BindingObj.tvSettingsFooter.setOnClickListener { OnFooterTapped() }
+    }
+
+    private fun OnFooterTapped() {
+        val ContextRef = context ?: return
+        val NowMs = System.currentTimeMillis()
+        if (NowMs - LastAdvancedTapAt > ADVANCED_TAP_WINDOW_MS) AdvancedTapCount = 0
+        LastAdvancedTapAt = NowMs
+        AdvancedTapCount += 1
+
+        val WasUnlocked = SettingsStore.IsAdvancedUnlocked(ContextRef = ContextRef)
+        val Remaining = SettingsStore.ADVANCED_TAP_TARGET - AdvancedTapCount
+        if (Remaining > 0) {
+            if (!WasUnlocked && Remaining <= 2) {
+                ShowMessage(
+                    MessageText = getString(R.string.settings_advanced_steps_format, Remaining)
+                )
+            }
+            return
+        }
+
+        AdvancedTapCount = 0
+        SettingsStore.SetAdvancedUnlocked(ContextRef = ContextRef, EnabledVal = !WasUnlocked)
+        ShowMessage(
+            MessageText = getString(
+                if (WasUnlocked) R.string.settings_advanced_hidden
+                else R.string.settings_advanced_unlocked
+            ),
+            KindVal = if (WasUnlocked) AppToast.Kind.Info else AppToast.Kind.Success
+        )
+        RenderAll()
+    }
+
+    private fun RenderAdvancedSection() {
+        val ContextRef = requireContext()
+        val SectionRef = AddSection(
+            LabelRes = R.string.settings_section_advanced,
+            FooterText = getString(R.string.settings_advanced_footer)
+        )
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_advanced_exports_title),
+            DescText = getString(R.string.settings_advanced_exports_desc),
+            IconRes = R.drawable.ic_export,
+            SwitchState = SettingsStore.IsSessionExportVisible(ContextRef = ContextRef)
+        ) {
+            SettingsStore.SetSessionExportVisible(
+                ContextRef = ContextRef,
+                EnabledVal = !SettingsStore.IsSessionExportVisible(ContextRef = ContextRef)
+            )
+            RenderAll()
+        }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_advanced_renewals_title),
+            DescText = getString(R.string.settings_advanced_renewals_desc),
+            IconRes = R.drawable.ic_calendar_repeat,
+            SwitchState = SettingsStore.IsRenewalHistoryVisible(ContextRef = ContextRef)
+        ) {
+            SettingsStore.SetRenewalHistoryVisible(
+                ContextRef = ContextRef,
+                EnabledVal = !SettingsStore.IsRenewalHistoryVisible(ContextRef = ContextRef)
+            )
+            RenderAll()
+        }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_advanced_hide_title),
+            DescText = getString(R.string.settings_advanced_hide_desc),
+            IconRes = R.drawable.ic_lock
+        ) {
+            AdvancedTapCount = 0
+            SettingsStore.SetAdvancedUnlocked(ContextRef = ContextRef, EnabledVal = false)
+            ShowMessage(MessageText = getString(R.string.settings_advanced_hidden))
+            RenderAll()
+        }
     }
 
     private fun RenderIdentity() {
@@ -384,22 +494,33 @@ class SettingsFragment : Fragment() {
         val ContextRef = requireContext()
         val SectionRef = AddSection(LabelRes = R.string.settings_section_login)
 
-        val HasMpin = MpinStore.HasMpin(ContextRef = ContextRef)
-        val AutoOn = MpinStore.IsAutoEnterOn(ContextRef = ContextRef)
+        val MethodVal = CredentialStore.MethodOf(ContextRef = ContextRef)
+        val IsMpinMethod = MethodVal == CredentialStore.Method.MPIN
+        val HasSecret = CredentialStore.HasSecretFor(
+            ContextRef = ContextRef,
+            MethodVal = MethodVal
+        )
+        val AutoOn = CredentialStore.IsAutoEnterOn(ContextRef = ContextRef)
         AddRow(
             ContainerRef = SectionRef,
-            TitleText = getString(R.string.settings_mpin_title),
+            TitleText = getString(R.string.settings_credentials_title),
             DescText = when {
-                !HasMpin -> getString(R.string.settings_mpin_desc_none)
-                AutoOn -> getString(R.string.settings_mpin_desc_auto)
-                else -> getString(R.string.settings_mpin_desc_saved)
+                !HasSecret -> getString(R.string.settings_credentials_desc_none)
+                AutoOn && IsMpinMethod -> getString(R.string.settings_credentials_desc_mpin_auto)
+                AutoOn -> getString(R.string.settings_credentials_desc_password_auto)
+                IsMpinMethod -> getString(R.string.settings_credentials_desc_mpin_off)
+                else -> getString(R.string.settings_credentials_desc_password_off)
             },
-            BadgeText = if (HasMpin && AutoOn) getString(R.string.settings_mpin_badge) else "",
+            BadgeText = if (HasSecret && AutoOn) {
+                getString(R.string.settings_credentials_badge)
+            } else {
+                ""
+            },
             BadgeBackgroundRes = R.drawable.bg_badge_inforce,
             BadgeColorRes = R.color.status_green_text,
             IconRes = R.drawable.ic_lock,
             ShowChevron = true
-        ) { startActivity(Intent(ContextRef, MpinActivity::class.java)) }
+        ) { startActivity(Intent(ContextRef, CredentialsActivity::class.java)) }
 
         val TargetInstalled = AppLauncherUtils.IsInstalled(
             ContextRef = ContextRef,
@@ -563,15 +684,20 @@ class SettingsFragment : Fragment() {
             IconRes = R.drawable.ic_folder
         )
 
+        val AgencyList = PolicyRepository.ListAgencyCodes(ContextRef = ContextRef)
         val DefaultAgency = PolicyRepository.GetDefaultAgencyCode(ContextRef = ContextRef)
         AddRow(
             ContainerRef = SectionRef,
             TitleText = getString(R.string.settings_agency_title),
-            DescText = getString(R.string.settings_agency_desc),
+            DescText = if (AgencyList.isEmpty()) {
+                getString(R.string.settings_agency_desc_empty)
+            } else {
+                getString(R.string.settings_agency_desc_format, AgencyList.size)
+            },
             ValueText = DefaultAgency.ifEmpty { getString(R.string.settings_agency_none) },
             IconRes = R.drawable.ic_code,
             ShowChevron = true
-        ) { ShowAgencySheet(CurrentCode = DefaultAgency) }
+        ) { OpenAgencyCodes() }
 
         AddRow(
             ContainerRef = SectionRef,
@@ -771,14 +897,17 @@ class SettingsFragment : Fragment() {
                 )
 
                 is UpdateChecker.Outcome.Failed -> ShowMessage(
-                    MessageText = getString(R.string.update_check_failed, OutcomeRef.MessageText)
+                    MessageText = getString(R.string.update_check_failed, OutcomeRef.MessageText),
+                    KindVal = AppToast.Kind.Error
                 )
 
                 UpdateChecker.Outcome.NotConfigured -> ShowMessage(
-                    MessageText = getString(R.string.update_not_configured)
+                    MessageText = getString(R.string.update_not_configured),
+                    KindVal = AppToast.Kind.Warning
                 )
 
                 else -> ShowMessage(
+                    KindVal = AppToast.Kind.Success,
                     MessageText = getString(
                         R.string.update_up_to_date,
                         UpdateVersion.Describe(
@@ -791,9 +920,11 @@ class SettingsFragment : Fragment() {
         }
     }
 
-    private fun ShowMessage(MessageText: String) {
-        val ActivityRef = activity as? AppCompatActivity ?: return
-        CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = MessageText)
+    private fun ShowMessage(
+        MessageText: String,
+        KindVal: AppToast.Kind = AppToast.Kind.Info
+    ) {
+        AppToast.Show(ContextRef = context, MessageText = MessageText, KindVal = KindVal)
     }
 
     private fun DetailSheet(
@@ -1075,28 +1206,190 @@ class SettingsFragment : Fragment() {
     }
 
 
-    private fun ShowAgencySheet(CurrentCode: String) {
+    private fun OpenAgencyCodes() {
+        val ContextRef = requireContext()
+        if (PolicyRepository.ListAgencyCodes(ContextRef = ContextRef).isEmpty()) {
+            ShowAgencyEditor(ExistingEntry = null)
+            return
+        }
+        AgencyPaneOpen = true
+        RenderAll()
+    }
+
+    private fun HideAgencyPane() {
+        if (!AgencyPaneOpen) return
+        AgencyPaneOpen = false
+        RenderAll()
+    }
+
+    private fun RenderAgencyPane() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context
+
+        BindingObj.agencyList.removeAllViews()
+        val DefaultCode = PolicyRepository.GetDefaultAgencyCode(ContextRef = ContextRef)
+
+        for (Entry in PolicyRepository.ListAgencyCodes(ContextRef = ContextRef)) {
+            val RowBinding = ItemAgencyCodeBinding.inflate(
+                layoutInflater, BindingObj.agencyList, false
+            )
+            val IsDefault = Entry.CodeText.equals(DefaultCode, ignoreCase = true)
+
+            RowBinding.tvAgencyCode.text = Entry.CodeText
+            val MetaText = AgencyMetaText(Entry = Entry)
+            if (MetaText.isEmpty()) {
+                RowBinding.tvAgencyLabel.visibility = View.GONE
+            } else {
+                RowBinding.tvAgencyLabel.visibility = View.VISIBLE
+                RowBinding.tvAgencyLabel.text = MetaText
+            }
+
+            RowBinding.tvAgencyDefaultBadge.visibility =
+                if (IsDefault) View.VISIBLE else View.GONE
+            RowBinding.ivAgencyTick.setImageResource(
+                if (IsDefault) R.drawable.ic_check_circle else R.drawable.ic_phase_pending
+            )
+            RowBinding.ivAgencyTick.imageTintList = ContextCompat.getColorStateList(
+                ContextRef,
+                if (IsDefault) R.color.primary else R.color.text_faint
+            )
+            RowBinding.agencyCard.strokeColor = ContextCompat.getColor(
+                ContextRef,
+                if (IsDefault) R.color.primary else R.color.card_stroke
+            )
+
+            RowBinding.agencyCard.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                MakeAgencyDefault(CodeText = Entry.CodeText)
+            }
+            RowBinding.agencyCard.setOnLongClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                ShowAgencyActions(Entry = Entry, IsDefault = IsDefault)
+                true
+            }
+            RowBinding.btnAgencyMenu.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                ShowAgencyActions(Entry = Entry, IsDefault = IsDefault)
+            }
+
+            BindingObj.agencyList.addView(RowBinding.root)
+        }
+
+        BindingObj.btnAgencyAdd.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            ShowAgencyEditor(ExistingEntry = null)
+        }
+    }
+
+    private fun AgencyMetaText(Entry: PolicyRepository.AgencyCode): String {
+        if (Entry.LabelText.isNotEmpty()) return Entry.LabelText
+        val UsedAtMs = Entry.LastUsedAt ?: 0L
+        if (UsedAtMs <= 0L) return getString(R.string.settings_agency_never_used)
+        val DateText = SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(UsedAtMs))
+        return getString(R.string.settings_agency_last_used_format, DateText)
+    }
+
+    private fun MakeAgencyDefault(CodeText: String) {
+        val ContextRef = requireContext()
+        val DefaultCode = PolicyRepository.GetDefaultAgencyCode(ContextRef = ContextRef)
+        if (DefaultCode.equals(CodeText, ignoreCase = true)) return
+
+        PolicyRepository.SetDefaultAgencyCode(
+            ContextRef = ContextRef,
+            AgencyCodeText = CodeText
+        )
+        ShowMessage(
+            MessageText = getString(R.string.settings_agency_default_format, CodeText),
+            KindVal = AppToast.Kind.Success
+        )
+        RenderAll()
+    }
+
+    private fun ShowAgencyEditor(ExistingEntry: PolicyRepository.AgencyCode?) {
         val ActivityRef = activity as? AppCompatActivity ?: return
         val ContextRef = requireContext()
         val SheetBinding = SheetAgencyCodeBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
 
+        val KnownList = PolicyRepository.ListAgencyCodes(ContextRef = ContextRef)
+        val DefaultCode = PolicyRepository.GetDefaultAgencyCode(ContextRef = ContextRef)
+        val OriginalCode = ExistingEntry?.CodeText.orEmpty()
+        val AlreadyDefault =
+            OriginalCode.isNotEmpty() && OriginalCode.equals(DefaultCode, ignoreCase = true)
+
+        SheetBinding.tvAgencyTitle.setText(
+            if (ExistingEntry == null) {
+                R.string.settings_agency_add_title
+            } else {
+                R.string.settings_agency_edit_title
+            }
+        )
         SheetBinding.tvAgencyBody.setText(R.string.settings_agency_body)
         SheetBinding.btnAgencyExport.setText(R.string.settings_agency_save)
         SheetBinding.btnAgencyExport.icon = null
-        SheetBinding.etAgencyCode.setText(CurrentCode)
-        SheetBinding.etAgencyCode.setSelection(CurrentCode.length)
+        SheetBinding.btnAgencyExport.isEnabled = OriginalCode.isNotEmpty()
+
+        SheetBinding.etAgencyCode.setText(OriginalCode)
+        SheetBinding.etAgencyCode.setSelection(OriginalCode.length)
+
+        SheetBinding.tilAgencyLabel.visibility = View.VISIBLE
+        SheetBinding.etAgencyLabel.setText(ExistingEntry?.LabelText.orEmpty())
+
+        SheetBinding.cbAgencyDefault.visibility =
+            if (KnownList.isEmpty() || AlreadyDefault) View.GONE else View.VISIBLE
+        SheetBinding.cbAgencyDefault.isChecked = false
+
+        SheetBinding.etAgencyCode.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                SheetBinding.tilAgencyCode.error = null
+                SheetBinding.btnAgencyExport.isEnabled = !s?.toString().isNullOrBlank()
+            }
+        })
 
         SheetBinding.btnAgencyExport.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             val EnteredCode = SheetBinding.etAgencyCode.text?.toString()?.trim().orEmpty()
-            PolicyRepository.SetDefaultAgencyCode(
-                ContextRef = ContextRef,
-                AgencyCode = EnteredCode
-            )
+            if (EnteredCode.isEmpty()) return@setOnClickListener
+            val EnteredLabel = SheetBinding.etAgencyLabel.text?.toString()?.trim().orEmpty()
+            val MakeDefault = SheetBinding.cbAgencyDefault.isChecked
+
+            val SaveOk = if (ExistingEntry == null) {
+                PolicyRepository.AddAgencyCode(
+                    ContextRef = ContextRef,
+                    AgencyCodeText = EnteredCode,
+                    LabelText = EnteredLabel,
+                    MakeDefault = MakeDefault
+                )
+            } else {
+                val UpdateOk = PolicyRepository.UpdateAgencyCode(
+                    ContextRef = ContextRef,
+                    OriginalCode = OriginalCode,
+                    AgencyCodeText = EnteredCode,
+                    LabelText = EnteredLabel
+                )
+                if (UpdateOk && MakeDefault) {
+                    PolicyRepository.SetDefaultAgencyCode(
+                        ContextRef = ContextRef,
+                        AgencyCodeText = EnteredCode
+                    )
+                }
+                UpdateOk
+            }
+
+            if (!SaveOk) {
+                SheetBinding.tilAgencyCode.error =
+                    getString(R.string.settings_agency_duplicate)
+                return@setOnClickListener
+            }
+
             SheetDialog.dismiss()
-            ShowMessage(MessageText = getString(R.string.settings_agency_saved))
+            ShowMessage(
+                MessageText = getString(R.string.settings_agency_saved),
+                KindVal = AppToast.Kind.Success
+            )
             RenderAll()
         }
         SheetBinding.btnAgencyCancel.setOnClickListener { ViewRef ->
@@ -1106,10 +1399,118 @@ class SettingsFragment : Fragment() {
         SheetDialog.show()
     }
 
+    private fun ShowAgencyActions(Entry: PolicyRepository.AgencyCode, IsDefault: Boolean) {
+        val SheetPair = DetailSheet(
+            TitleText = Entry.CodeText,
+            BodyText = AgencyMetaText(Entry = Entry)
+        ) ?: return
+        val SheetDialog = SheetPair.first
+        val SheetBinding = SheetPair.second
+
+        if (!IsDefault) {
+            AddRow(
+                ContainerRef = SheetBinding.detailContainer,
+                TitleText = getString(R.string.settings_agency_make_default_action),
+                IconRes = R.drawable.ic_check_circle
+            ) {
+                SheetDialog.dismiss()
+                MakeAgencyDefault(CodeText = Entry.CodeText)
+            }
+        }
+
+        AddRow(
+            ContainerRef = SheetBinding.detailContainer,
+            TitleText = getString(R.string.settings_agency_edit_action),
+            IconRes = R.drawable.ic_edit
+        ) {
+            SheetDialog.dismiss()
+            ShowAgencyEditor(ExistingEntry = Entry)
+        }
+
+        AddRow(
+            ContainerRef = SheetBinding.detailContainer,
+            TitleText = getString(R.string.settings_agency_copy_action),
+            IconRes = R.drawable.ic_copy
+        ) {
+            SheetDialog.dismiss()
+            CopyAgencyCode(CodeText = Entry.CodeText)
+        }
+
+        AddRow(
+            ContainerRef = SheetBinding.detailContainer,
+            TitleText = getString(R.string.settings_agency_delete_action),
+            IconRes = R.drawable.ic_delete,
+            IconTintRes = R.color.status_red_text,
+            TitleColorRes = R.color.status_red_text
+        ) {
+            SheetDialog.dismiss()
+            ConfirmAgencyDelete(Entry = Entry)
+        }
+
+        SheetBinding.btnDetailClose.setText(R.string.action_cancel)
+        SheetDialog.show()
+    }
+
+    private fun CopyAgencyCode(CodeText: String) {
+        val ContextRef = requireContext()
+        val ClipboardRef = ContextRef.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return
+        ClipboardRef.setPrimaryClip(ClipData.newPlainText("agency code", CodeText))
+        ShowMessage(
+            MessageText = getString(R.string.settings_agency_copied),
+            KindVal = AppToast.Kind.Success
+        )
+    }
+
+    private fun ConfirmAgencyDelete(Entry: PolicyRepository.AgencyCode) {
+        val ContextRef = requireContext()
+        val SheetPair = DetailSheet(
+            TitleText = getString(R.string.settings_agency_delete_title_format, Entry.CodeText),
+            BodyText = getString(R.string.settings_agency_delete_body)
+        ) ?: return
+        val SheetDialog = SheetPair.first
+        val SheetBinding = SheetPair.second
+
+        val WasDefault = PolicyRepository
+            .GetDefaultAgencyCode(ContextRef = ContextRef)
+            .equals(Entry.CodeText, ignoreCase = true)
+
+        SheetBinding.btnDetailPrimary.visibility = View.VISIBLE
+        SheetBinding.btnDetailPrimary.setText(R.string.settings_agency_delete_confirm)
+        SheetBinding.btnDetailPrimary.setBackgroundColor(
+            ContextCompat.getColor(ContextRef, R.color.status_red_text)
+        )
+        SheetBinding.btnDetailClose.setText(R.string.settings_agency_delete_keep)
+
+        SheetBinding.btnDetailPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Reject(ViewRef = ViewRef)
+            val PromotedCode = PolicyRepository.DeleteAgencyCode(
+                ContextRef = ContextRef,
+                AgencyCodeText = Entry.CodeText
+            )
+            SheetDialog.dismiss()
+
+            val MessageText = if (WasDefault && PromotedCode.isNotEmpty()) {
+                getString(R.string.settings_agency_default_format, PromotedCode)
+            } else {
+                getString(R.string.settings_agency_deleted_format, Entry.CodeText)
+            }
+            ShowMessage(MessageText = MessageText, KindVal = AppToast.Kind.Success)
+
+            if (PolicyRepository.ListAgencyCodes(ContextRef = ContextRef).isEmpty()) {
+                AgencyPaneOpen = false
+            }
+            RenderAll()
+        }
+        SheetDialog.show()
+    }
 
     private fun ShowDeleteSheet(SummaryObj: PolicyRepository.StorageSummary) {
         if (SummaryObj.SessionCount == 0) {
-            ShowMessage(MessageText = getString(R.string.settings_delete_nothing))
+            ShowMessage(
+                MessageText = getString(R.string.settings_delete_nothing),
+                KindVal = AppToast.Kind.Warning
+            )
             return
         }
 
@@ -1151,7 +1552,8 @@ class SettingsFragment : Fragment() {
             val DeletedCount = PolicyRepository.DeleteAllSessions(ContextRef = ContextRef)
             SheetDialog.dismiss()
             ShowMessage(
-                MessageText = getString(R.string.settings_delete_done_format, DeletedCount)
+                MessageText = getString(R.string.settings_delete_done_format, DeletedCount),
+                KindVal = AppToast.Kind.Success
             )
             RenderAll()
         }
@@ -1321,6 +1723,11 @@ class SettingsFragment : Fragment() {
                 LicenceCheckRunning = false
                 if (!isAdded) return@post
 
+                val KindVal = when (VerdictRef) {
+                    BlissLicenceClient.Verdict.Valid -> AppToast.Kind.Success
+                    BlissLicenceClient.Verdict.NotLicensed -> AppToast.Kind.Error
+                    else -> AppToast.Kind.Warning
+                }
                 val MessageText = when (VerdictRef) {
                     BlissLicenceClient.Verdict.Valid -> {
                         BlissLicenceStore.RecordSuccess(ContextRef = AppContext)
@@ -1340,7 +1747,7 @@ class SettingsFragment : Fragment() {
                 }
 
                 RenderAll()
-                ShowMessage(MessageText = MessageText)
+                ShowMessage(MessageText = MessageText, KindVal = KindVal)
             }
         }
     }
@@ -1355,7 +1762,10 @@ class SettingsFragment : Fragment() {
                 DeviceIdentity.GroupForDisplay(IdText = DeviceIdText)
             )
         )
-        ShowMessage(MessageText = getString(R.string.licence_device_id_copied))
+        ShowMessage(
+            MessageText = getString(R.string.licence_device_id_copied),
+            KindVal = AppToast.Kind.Success
+        )
     }
 
     private fun AddFieldRow(
@@ -1374,7 +1784,10 @@ class SettingsFragment : Fragment() {
         val ContextRef = requireContext()
         val LogFiles = CaptureDiagnostics.AllLogFiles(ContextObj = ContextRef)
         if (LogFiles.isEmpty()) {
-            ShowMessage(MessageText = getString(R.string.settings_logs_empty))
+            ShowMessage(
+                MessageText = getString(R.string.settings_logs_empty),
+                KindVal = AppToast.Kind.Warning
+            )
             return
         }
 
@@ -1420,7 +1833,10 @@ class SettingsFragment : Fragment() {
             HapticFeedback.Reject(ViewRef = ViewRef)
             CaptureDiagnostics.DeleteAllLogs(ContextObj = ContextRef)
             SheetDialog.dismiss()
-            ShowMessage(MessageText = getString(R.string.settings_logs_cleared))
+            ShowMessage(
+                MessageText = getString(R.string.settings_logs_cleared),
+                KindVal = AppToast.Kind.Success
+            )
             RenderAll()
         }
         SheetDialog.show()
@@ -1601,7 +2017,12 @@ class SettingsFragment : Fragment() {
                 SessionBundleStore.ExportOutcome.NothingToExport ->
                     getString(R.string.exports_backup_empty)
             }
-            ShowMessage(MessageText = MessageText)
+            val KindVal = when (OutcomeVal) {
+                is SessionBundleStore.ExportOutcome.Failed -> AppToast.Kind.Error
+                SessionBundleStore.ExportOutcome.NothingToExport -> AppToast.Kind.Warning
+                else -> AppToast.Kind.Success
+            }
+            ShowMessage(MessageText = MessageText, KindVal = KindVal)
         }
     }
 
@@ -1627,7 +2048,8 @@ class SettingsFragment : Fragment() {
                     ShowMessage(
                         MessageText = getString(
                             R.string.transfer_preview_failed_format, OutcomeVal.Message
-                        )
+                        ),
+                        KindVal = AppToast.Kind.Error
                     )
                 }
             }
@@ -1683,12 +2105,14 @@ class SettingsFragment : Fragment() {
                     )
                 }
 
-                is SessionBundleStore.ImportOutcome.Failed -> {
-                    HapticFeedback.Reject(ViewRef = TransferBindingObj?.root)
+                is SessionBundleStore.ImportOutcome.Failed ->
                     getString(R.string.exports_restore_failed_format, OutcomeVal.Message)
-                }
             }
-            ShowMessage(MessageText = MessageText)
+            val KindVal = when (OutcomeVal) {
+                is SessionBundleStore.ImportOutcome.Failed -> AppToast.Kind.Error
+                else -> AppToast.Kind.Success
+            }
+            ShowMessage(MessageText = MessageText, KindVal = KindVal)
             RenderAll()
         }
     }

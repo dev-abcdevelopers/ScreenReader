@@ -39,6 +39,7 @@ import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
 import com.bliss.screenreader.databinding.PartialChangeSectionBinding
+import com.bliss.screenreader.databinding.PartialSettingsChoiceRowBinding
 import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
 import com.bliss.screenreader.databinding.PartialDueDateRowBinding
 import com.bliss.screenreader.databinding.PartialDueReasonGroupBinding
@@ -46,17 +47,20 @@ import com.bliss.screenreader.databinding.PartialDueStatBinding
 import com.bliss.screenreader.databinding.SheetDuePreviewBinding
 import com.bliss.screenreader.databinding.SheetSessionActionsBinding
 import com.bliss.screenreader.databinding.SheetSessionPickerBinding
+import com.bliss.screenreader.databinding.SheetSettingsDetailBinding
 import com.bliss.screenreader.databinding.SheetUploadProgressBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.PdfExporter
 import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
+import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
 import com.bliss.screenreader.ui.adapter.SessionSwipeCallback
 import com.bliss.screenreader.ui.capture.CaptureFlow
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.ui.changes.ChangesActivity
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
@@ -87,6 +91,7 @@ class PoliciesFragment : Fragment() {
     private var AllRenewals: List<FupPolicy> = emptyList()
     private var SessionList: List<PolicyRepository.CaptureSessionReference> = emptyList()
     private var UploadSheetBinding: SheetUploadProgressBinding? = null
+    private var UploadPhaseIndex = 0
     private var UploadDialogObj: BottomSheetDialog? = null
     private var UploadAgencyCode: String = ""
     private var UploadRunning: Boolean = false
@@ -278,7 +283,10 @@ class PoliciesFragment : Fragment() {
             .sortedByDescending { SessionRef -> SessionRef.SavedAt }
 
         if (RenewalSessions.isEmpty()) {
-            ShowSnack(MessageVal = getString(R.string.due_no_sessions))
+            ShowSnack(
+                MessageVal = getString(R.string.due_no_sessions),
+                KindVal = AppToast.Kind.Warning
+            )
             return
         }
 
@@ -329,7 +337,10 @@ class PoliciesFragment : Fragment() {
             SessionId = RenewalSessionId
         )
         if (RenewalList.isEmpty()) {
-            ShowSnack(MessageVal = getString(R.string.due_no_sessions))
+            ShowSnack(
+                MessageVal = getString(R.string.due_no_sessions),
+                KindVal = AppToast.Kind.Warning
+            )
             return
         }
 
@@ -339,7 +350,10 @@ class PoliciesFragment : Fragment() {
         )
 
         if (OutcomeObj.MatchedCount == 0) {
-            ShowSnack(MessageVal = getString(R.string.due_no_matches))
+            ShowSnack(
+                MessageVal = getString(R.string.due_no_matches),
+                KindVal = AppToast.Kind.Warning
+            )
             return
         }
 
@@ -732,7 +746,8 @@ class PoliciesFragment : Fragment() {
                 OutcomeObj.UpdatedCount,
                 OutcomeObj.UnchangedCount,
                 OutcomeObj.SkippedCount
-            )
+            ),
+            KindVal = AppToast.Kind.Success
         )
     }
 
@@ -792,9 +807,20 @@ class PoliciesFragment : Fragment() {
         startActivity(IntentObj)
     }
 
-    private fun ShowSnack(MessageVal: String) {
-        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
-        CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = MessageVal)
+    private fun ShowSnack(
+        MessageVal: String,
+        KindVal: AppToast.Kind = AppToast.Kind.Info
+    ) {
+        AppToast.Show(ContextRef = context, MessageText = MessageVal, KindVal = KindVal)
+    }
+
+    private fun HasAnySessionAction(): Boolean {
+        val ContextRef = context ?: return false
+        val IsPolicySession = SelectedSessionId.isNotEmpty() &&
+                SelectedSessionMode == CaptureMode.POLICY
+        if (IsPolicySession) return true
+        if (SessionUploader.IsEnabled() && IsUploadableSession()) return true
+        return SettingsStore.IsSessionExportVisible(ContextRef = ContextRef)
     }
 
     private fun RenderList(ResetScroll: Boolean = false) {
@@ -847,8 +873,9 @@ class PoliciesFragment : Fragment() {
         val HasVisible = VisibleList.isNotEmpty()
         BindingObj.emptyState.emptyStateRoot.visibility =
             if (HasVisible) View.GONE else View.VISIBLE
-        BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
         ShowPdfAction = false
+        BindingObj.exportBar.visibility =
+            if (HasVisible && HasAnySessionAction()) View.VISIBLE else View.GONE
         if (HasVisible) return
 
         if (AllRenewals.isNotEmpty()) {
@@ -915,7 +942,8 @@ class PoliciesFragment : Fragment() {
 
         BindingObj.emptyState.emptyStateRoot.visibility =
             if (HasVisible) View.GONE else View.VISIBLE
-        BindingObj.exportBar.visibility = if (HasVisible) View.VISIBLE else View.GONE
+        BindingObj.exportBar.visibility =
+            if (HasVisible && HasAnySessionAction()) View.VISIBLE else View.GONE
 
         if (HasVisible) return
 
@@ -936,9 +964,11 @@ class PoliciesFragment : Fragment() {
 
 
     private fun LoadSessions() {
+        val ShowRenewals = SettingsStore.IsRenewalHistoryVisible(ContextRef = requireContext())
         SessionList = PolicyRepository.GetSessionHistory(ContextRef = requireContext())
             .filter { SessionRef ->
-                SessionRef.Mode == CaptureMode.POLICY || SessionRef.Mode == CaptureMode.FUP
+                SessionRef.Mode == CaptureMode.POLICY ||
+                        (SessionRef.Mode == CaptureMode.FUP && ShowRenewals)
             }
             .sortedByDescending { SessionRef -> SessionRef.SavedAt }
     }
@@ -1184,12 +1214,10 @@ class PoliciesFragment : Fragment() {
         LoadSessions()
         RenderList()
 
-        (activity as? androidx.appcompat.app.AppCompatActivity)?.let { ActivityRef ->
-            CaptureFlow.ShowMessage(
-                ActivityRef = ActivityRef,
-                MessageVal = getString(R.string.sessions_deleted)
-            )
-        }
+        ShowSnack(
+            MessageVal = getString(R.string.sessions_deleted),
+            KindVal = AppToast.Kind.Success
+        )
     }
 
     private fun ShowSessions() {
@@ -1219,7 +1247,10 @@ class PoliciesFragment : Fragment() {
         SheetBinding.rowActionUpload.visibility = if (ShowUpload) View.VISIBLE else View.GONE
         SheetBinding.rowActionChanges.visibility =
             if (IsPolicySession && HasRecordedChanges()) View.VISIBLE else View.GONE
-        SheetBinding.rowActionPdf.visibility = if (ShowPdfAction) View.VISIBLE else View.GONE
+        val ShowExports = SettingsStore.IsSessionExportVisible(ContextRef = requireContext())
+        SheetBinding.rowActionExcel.visibility = if (ShowExports) View.VISIBLE else View.GONE
+        SheetBinding.rowActionPdf.visibility =
+            if (ShowExports && ShowPdfAction) View.VISIBLE else View.GONE
         SheetBinding.tvActionPersonalDesc.text = getString(
             R.string.action_personal_desc,
             AllPolicies.size
@@ -1274,16 +1305,17 @@ class PoliciesFragment : Fragment() {
             ContextRef = AppContext,
             SessionId = SelectedSessionId
         )
-        ShowAgencyCodeSheet(
+        PromptAgencyCode(
             ActivityRef = ActivityRef,
             SavedCode = SavedCode,
             BodyText = getString(R.string.export_agency_upload_body),
-            ConfirmText = getString(R.string.export_agency_upload_confirm)
+            ConfirmText = getString(R.string.export_agency_upload_confirm),
+            ConfirmFormatRes = R.string.export_agency_upload_confirm_format
         ) { EnteredCode ->
-            PolicyRepository.SaveAgencyCode(
+            PolicyRepository.StampSessionAgencyCode(
                 ContextRef = AppContext,
                 SessionId = SelectedSessionId,
-                AgencyCode = EnteredCode
+                AgencyCodeText = EnteredCode
             )
             RunUpload(ActivityRef = ActivityRef, AgencyCodeVal = EnteredCode)
         }
@@ -1426,7 +1458,7 @@ class PoliciesFragment : Fragment() {
                     IconRes = R.drawable.ic_check_circle,
                     ColorRes = R.color.status_green_text
                 )
-                SetPhase(PhaseIndex = 3)
+                SetPhase(PhaseIndex = 4)
                 SheetBinding.tvUploadTitle.setText(R.string.upload_sheet_title_done)
                 SheetBinding.tvUploadMeta.text = getString(
                     R.string.upload_meta_done_format,
@@ -1478,6 +1510,7 @@ class PoliciesFragment : Fragment() {
     ) {
         val SheetBinding = UploadSheetBinding ?: return
         HapticFeedback.Reject(ViewRef = SheetBinding.root)
+        SetPhase(PhaseIndex = UploadPhaseIndex, ActiveVal = false)
         SetResultIcon(IconRes = R.drawable.ic_alert, ColorRes = ColorRes)
         SheetBinding.tvUploadTitle.setText(TitleRes)
         SheetBinding.tvUploadMeta.text = MetaText
@@ -1500,29 +1533,40 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    private fun SetPhase(PhaseIndex: Int) {
+    private fun SetPhase(PhaseIndex: Int, ActiveVal: Boolean = true) {
         val SheetBinding = UploadSheetBinding ?: return
+        UploadPhaseIndex = PhaseIndex
         PaintPhase(
             IconRef = SheetBinding.ivPhasePack,
             LabelRef = SheetBinding.tvPhasePack,
-            StateVal = PhaseIndex - 0
+            StateVal = PhaseIndex - 0,
+            ActiveVal = ActiveVal
         )
         PaintPhase(
             IconRef = SheetBinding.ivPhaseSend,
             LabelRef = SheetBinding.tvPhaseSend,
-            StateVal = PhaseIndex - 1
+            StateVal = PhaseIndex - 1,
+            ActiveVal = ActiveVal
         )
         PaintPhase(
             IconRef = SheetBinding.ivPhaseWait,
             LabelRef = SheetBinding.tvPhaseWait,
-            StateVal = PhaseIndex - 2
+            StateVal = PhaseIndex - 2,
+            ActiveVal = ActiveVal
+        )
+        PaintPhase(
+            IconRef = SheetBinding.ivPhaseDone,
+            LabelRef = SheetBinding.tvPhaseDone,
+            StateVal = PhaseIndex - 3,
+            ActiveVal = ActiveVal
         )
     }
 
     private fun PaintPhase(
         IconRef: android.widget.ImageView,
         LabelRef: android.widget.TextView,
-        StateVal: Int
+        StateVal: Int,
+        ActiveVal: Boolean
     ) {
         val ContextRef = context ?: return
         when {
@@ -1534,7 +1578,7 @@ class PoliciesFragment : Fragment() {
                 LabelRef.setTextColor(ContextCompat.getColor(ContextRef, R.color.text_secondary))
             }
 
-            StateVal == 0 -> {
+            StateVal == 0 && ActiveVal -> {
                 IconRef.setImageResource(R.drawable.ic_record)
                 IconRef.setColorFilter(ContextCompat.getColor(ContextRef, R.color.primary))
                 LabelRef.setTextColor(ContextCompat.getColor(ContextRef, R.color.text_primary))
@@ -1581,14 +1625,157 @@ class PoliciesFragment : Fragment() {
             ContextRef = AppContext,
             SessionId = SelectedSessionId
         )
-        ShowAgencyCodeSheet(ActivityRef = ActivityRef, SavedCode = SavedCode) { EnteredCode ->
-            PolicyRepository.SaveAgencyCode(
+        PromptAgencyCode(
+            ActivityRef = ActivityRef,
+            SavedCode = SavedCode,
+            BodyText = getString(R.string.export_agency_body),
+            ConfirmText = getString(R.string.export_agency_confirm),
+            ConfirmFormatRes = R.string.export_agency_export_confirm_format
+        ) { EnteredCode ->
+            PolicyRepository.StampSessionAgencyCode(
                 ContextRef = AppContext,
                 SessionId = SelectedSessionId,
-                AgencyCode = EnteredCode
+                AgencyCodeText = EnteredCode
             )
             RunExcelExport(AgencyCodeVal = EnteredCode)
         }
+    }
+
+    private fun PromptAgencyCode(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        SavedCode: String,
+        BodyText: String,
+        ConfirmText: String,
+        ConfirmFormatRes: Int,
+        OnConfirm: (String) -> Unit
+    ) {
+        val AppContext = requireContext().applicationContext
+        val CodeList = PolicyRepository.ListAgencyCodes(ContextRef = AppContext)
+        if (CodeList.isEmpty()) {
+            ShowAgencyCodeSheet(
+                ActivityRef = ActivityRef,
+                SavedCode = SavedCode,
+                BodyText = BodyText,
+                ConfirmText = ConfirmText
+            ) { EnteredCode ->
+                PolicyRepository.AddAgencyCode(
+                    ContextRef = AppContext,
+                    AgencyCodeText = EnteredCode,
+                    MakeDefault = true
+                )
+                OnConfirm(EnteredCode)
+            }
+            return
+        }
+        ShowAgencyPickerSheet(
+            ActivityRef = ActivityRef,
+            CodeList = CodeList,
+            SavedCode = SavedCode,
+            BodyText = BodyText,
+            ConfirmText = ConfirmText,
+            ConfirmFormatRes = ConfirmFormatRes,
+            OnConfirm = OnConfirm
+        )
+    }
+
+    private fun ShowAgencyPickerSheet(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        CodeList: List<PolicyRepository.AgencyCode>,
+        SavedCode: String,
+        BodyText: String,
+        ConfirmText: String,
+        ConfirmFormatRes: Int,
+        OnConfirm: (String) -> Unit
+    ) {
+        val AppContext = requireContext().applicationContext
+        val SheetBinding = SheetSettingsDetailBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.tvDetailTitle.setText(R.string.export_agency_pick_title)
+        SheetBinding.tvDetailBody.visibility = View.VISIBLE
+        SheetBinding.tvDetailBody.text = BodyText
+
+        val DefaultCode = PolicyRepository.GetDefaultAgencyCode(ContextRef = AppContext)
+        var SelectedCode = CodeList
+            .firstOrNull { Entry -> Entry.CodeText.equals(SavedCode, ignoreCase = true) }
+            ?.CodeText
+            ?: CodeList.first().CodeText
+
+        val RowBindings = mutableListOf<Pair<String, PartialSettingsChoiceRowBinding>>()
+
+        fun PaintSelection() {
+            for (RowPair in RowBindings) {
+                RowPair.second.rbChoice.isChecked =
+                    RowPair.first.equals(SelectedCode, ignoreCase = true)
+            }
+            SheetBinding.btnDetailPrimary.text = getString(ConfirmFormatRes, SelectedCode)
+        }
+
+        for (Entry in CodeList) {
+            val ChoiceBinding = PartialSettingsChoiceRowBinding.inflate(
+                layoutInflater, SheetBinding.detailContainer, false
+            )
+            ChoiceBinding.tvChoiceTitle.text = Entry.CodeText
+
+            val MetaParts = mutableListOf<String>()
+            if (Entry.CodeText.equals(DefaultCode, ignoreCase = true)) {
+                MetaParts.add(getString(R.string.settings_agency_default_badge))
+            }
+            if (Entry.LabelText.isNotEmpty()) MetaParts.add(Entry.LabelText)
+            val MetaText = MetaParts.joinToString(separator = " · ")
+
+            if (MetaText.isEmpty()) {
+                ChoiceBinding.tvChoiceDesc.visibility = View.GONE
+            } else {
+                ChoiceBinding.tvChoiceDesc.visibility = View.VISIBLE
+                ChoiceBinding.tvChoiceDesc.text = MetaText
+            }
+
+            ChoiceBinding.choiceRow.setOnClickListener { ViewRef ->
+                HapticFeedback.Tap(ViewRef = ViewRef)
+                SelectedCode = Entry.CodeText
+                PaintSelection()
+            }
+
+            RowBindings.add(Entry.CodeText to ChoiceBinding)
+            SheetBinding.detailContainer.addView(ChoiceBinding.root)
+        }
+
+        SheetBinding.btnDetailPrimary.visibility = View.VISIBLE
+        SheetBinding.btnDetailPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            OnConfirm(SelectedCode)
+        }
+
+        SheetBinding.btnDetailSecondary.visibility = View.VISIBLE
+        SheetBinding.btnDetailSecondary.setText(R.string.export_agency_pick_add)
+        SheetBinding.btnDetailSecondary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ShowAgencyCodeSheet(
+                ActivityRef = ActivityRef,
+                SavedCode = "",
+                BodyText = BodyText,
+                ConfirmText = ConfirmText
+            ) { EnteredCode ->
+                PolicyRepository.AddAgencyCode(
+                    ContextRef = AppContext,
+                    AgencyCodeText = EnteredCode
+                )
+                OnConfirm(EnteredCode)
+            }
+        }
+
+        SheetBinding.btnDetailClose.setText(R.string.action_cancel)
+        SheetBinding.btnDetailClose.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+
+        PaintSelection()
+        SheetDialog.show()
     }
 
     private fun ShowAgencyCodeSheet(
@@ -1658,9 +1845,9 @@ class PoliciesFragment : Fragment() {
     private fun CapturePersonalDetails() {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         if (SelectedSessionId.isEmpty() || SelectedSessionMode != CaptureMode.POLICY) {
-            CaptureFlow.ShowMessage(
-                ActivityRef = ActivityRef,
-                MessageVal = getString(R.string.capture_customer_no_sessions)
+            ShowSnack(
+                MessageVal = getString(R.string.capture_customer_no_sessions),
+                KindVal = AppToast.Kind.Warning
             )
             return
         }
@@ -1672,7 +1859,6 @@ class PoliciesFragment : Fragment() {
 
     private fun ShareSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
         SessionAdapterObj.CloseOpenRow()
-        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val ContextRef = requireContext().applicationContext
         val ShareIntent = CaptureDiagnostics.BuildShareIntent(
             ContextObj = ContextRef,
@@ -1682,9 +1868,9 @@ class PoliciesFragment : Fragment() {
             )
         )
         if (ShareIntent == null) {
-            CaptureFlow.ShowMessage(
-                ActivityRef = ActivityRef,
-                MessageVal = getString(R.string.sessions_share_log_missing)
+            ShowSnack(
+                MessageVal = getString(R.string.sessions_share_log_missing),
+                KindVal = AppToast.Kind.Warning
             )
             return
         }
@@ -1694,7 +1880,6 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun ShareFile(FileRef: File, MimeType: String) {
-        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val FileUri = FileProvider.getUriForFile(
             requireContext(), "${requireContext().packageName}.fileprovider", FileRef
         )
@@ -1704,7 +1889,7 @@ class PoliciesFragment : Fragment() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(ShareIntent, getString(R.string.exports_share)))
-        CaptureFlow.ShowMessage(ActivityRef = ActivityRef, MessageVal = FileRef.name)
+        ShowSnack(MessageVal = FileRef.name, KindVal = AppToast.Kind.Success)
     }
 
     override fun onDestroyView() {

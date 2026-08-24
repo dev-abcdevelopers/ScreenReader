@@ -25,11 +25,15 @@ object SettingsStore {
     private const val KEY_HAPTICS = "haptics"
     private const val KEY_SECURE_WINDOW = "secure_window"
     private const val KEY_IDLE_LOCK_MS = "idle_lock_ms"
+    private const val KEY_ADVANCED_UNLOCKED = "advanced_unlocked"
+    private const val KEY_SESSION_EXPORT = "session_export_visible"
+    private const val KEY_RENEWAL_HISTORY = "renewal_history_visible"
 
     const val DEFAULT_OFFLINE_WAIT_MS = 120_000L
     const val DEFAULT_ERROR_RETRY_LIMIT = 3
     const val DEFAULT_ERROR_GIVEUP_LIMIT = 3
     const val DEFAULT_IDLE_LOCK_MS = 300_000L
+    const val ADVANCED_TAP_TARGET = 5
 
     val OFFLINE_WAIT_CHOICES = listOf(0L, 60_000L, 120_000L, 300_000L, 600_000L)
     val RETRY_CHOICES = listOf(1, 2, 3, 4, 5)
@@ -159,6 +163,27 @@ object SettingsStore {
     fun SetIdleLockMs(ContextRef: Context, ValueMs: Long) {
         Prefs(ContextRef = ContextRef).edit { putLong(KEY_IDLE_LOCK_MS, ValueMs) }
         AuthManager.SetIdleLockMs(ValueMs = ValueMs)
+    }
+
+    fun IsAdvancedUnlocked(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_ADVANCED_UNLOCKED, false)
+
+    fun SetAdvancedUnlocked(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_ADVANCED_UNLOCKED, EnabledVal) }
+    }
+
+    fun IsSessionExportVisible(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_SESSION_EXPORT, false)
+
+    fun SetSessionExportVisible(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_SESSION_EXPORT, EnabledVal) }
+    }
+
+    fun IsRenewalHistoryVisible(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_RENEWAL_HISTORY, false)
+
+    fun SetRenewalHistoryVisible(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_RENEWAL_HISTORY, EnabledVal) }
     }
 
     fun ApplyGlobals(ContextRef: Context) {

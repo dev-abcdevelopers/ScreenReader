@@ -8,8 +8,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.widget.Toast
 import androidx.core.net.toUri
+import com.bliss.screenreader.ui.toast.AppToast
 
 object AppLauncherUtils {
 
@@ -57,11 +57,10 @@ object AppLauncherUtils {
                 true
             }
         } catch (_: Exception) {
-            Toast.makeText(
-                ContextRef,
-                "Target App ($PackageNameVal) is not installed on this device.",
-                Toast.LENGTH_LONG
-            ).show()
+            AppToast.Error(
+                ContextRef = ContextRef,
+                MessageText = "Target App ($PackageNameVal) is not installed on this device."
+            )
             false
         }
     }
@@ -87,7 +86,10 @@ object AppLauncherUtils {
                     }
                     ContextRef.startActivity(RequestIntent)
                 } catch (_: Exception) {
-                    Toast.makeText(ContextRef, "Unable to open battery optimization settings", Toast.LENGTH_SHORT).show()
+                    AppToast.Warning(
+                        ContextRef = ContextRef,
+                        MessageText = "Unable to open battery optimization settings"
+                    )
                 }
             }
         }
