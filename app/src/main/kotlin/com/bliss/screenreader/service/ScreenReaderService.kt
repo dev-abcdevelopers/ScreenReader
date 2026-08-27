@@ -52,6 +52,7 @@ import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
+import com.bliss.screenreader.data.parser.PolicySearchParser
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.security.CredentialStore
@@ -68,7 +69,7 @@ import kotlin.math.abs
 import java.util.concurrent.Executors
 
 @SuppressLint("AccessibilityPolicy")
-class ScreenReaderService : AccessibilityService() {
+class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSearchHost {
 
     companion object {
         private const val LOG_TAG = "ScreenReaderService"
@@ -434,6 +435,12 @@ class ScreenReaderService : AccessibilityService() {
     private var PolicySectionRetryRounds = 0
     private var PolicyDetailSweepCount = 0
     private var LastPolicyDetailSweepSignature = 0
+    private val TargetScope = PolicyTargetScope()
+    private val SearchRoute = PolicySearchRoute(HostRef = this)
+    private val CustomerNameScope = PolicyTargetScope()
+    private val CustomerRoute = CustomerSearchRoute(HostRef = this)
+    private var ChainCustomerName = ""
+    private var IsChainedCustomerLegStarted = false
 
     private val IsRestoringPolicyPageAfterDetail: Boolean
         get() = PolicyJumpTarget > 0 && PolicyJumpReason == POLICY_JUMP_DETAIL_RESTORE
@@ -796,6 +803,11 @@ class ScreenReaderService : AccessibilityService() {
                 PackageNameVal = PackageNameVal,
                 VisibleNodes = NodeList
             )
+            return
+        }
+        if ((CurrentMode == CaptureMode.POLICY || CurrentMode == CaptureMode.CUSTOMER) &&
+            PolicySearchParser.IsSearchScreen(Nodes = NodeList)
+        ) {
             return
         }
         val IsDashboardSnapshot = CurrentMode == CaptureMode.POLICY &&
@@ -1245,7 +1257,11 @@ class ScreenReaderService : AccessibilityService() {
         OriginActivityVal: String = "",
         ResumeSessionIdVal: String = "",
         RevisitFilledVal: Boolean = false,
-        ResumeFromPageVal: Int = 0
+        ResumeFromPageVal: Int = 0,
+        TargetPolicyNumbersVal: List<String> = emptyList(),
+        TargetNameHintsVal: Map<String, String> = emptyMap(),
+        TargetCustomerNamesVal: List<String> = emptyList(),
+        ChainCustomerNameVal: String = ""
     ) {
         CurrentMode = ModeVal
         LoadRunSettings()
@@ -1378,7 +1394,37 @@ class ScreenReaderService : AccessibilityService() {
         }
 
 
+        TargetScope.Reset()
+        SearchRoute.Reset()
+        CustomerNameScope.Reset()
+        CustomerRoute.Reset()
+        ChainCustomerName = ChainCustomerNameVal
+        IsChainedCustomerLegStarted = false
+        if (ModeVal == CaptureMode.CUSTOMER && TargetCustomerNamesVal.isNotEmpty()) {
+            CustomerNameScope.Arm(
+                NumbersVal = TargetCustomerNamesVal.map { NameText ->
+                    NormalisedName(NameText = NameText)
+                },
+                NameHintsVal = emptyMap()
+            )
+            CustomerRoute.Arm(TargetsVal = TargetCustomerNamesVal)
+        }
+        if (ModeVal == CaptureMode.POLICY && CapturePolicyDetailsEnabled) {
+            TargetScope.Arm(
+                NumbersVal = TargetPolicyNumbersVal,
+                NameHintsVal = TargetNameHintsVal
+            )
+            SearchRoute.Arm(
+                TargetsVal = TargetScope.Numbers,
+                NameHintsVal = TargetScope.NameHints
+            )
+        }
+
         if (IsResumedSession) SeedFromStoredSession()
+
+        if (CustomerNameScope.IsActive) {
+            VisitedCustomerNames.removeAll(CustomerNameScope.Numbers.toSet())
+        }
 
         if (ModeVal == CaptureMode.POLICY && ResumeFromPageVal > 1) {
             PolicyResumeTargetPage = ResumeFromPageVal
@@ -1570,9 +1616,18 @@ class ScreenReaderService : AccessibilityService() {
                 },
                 FupRecords = CapturedFupMap.values.toList(),
                 GapRecords = SessionGapMap.values.toList(),
-                CapturePolicyDetails = CapturePolicyDetailsEnabled,
+                CapturePolicyDetails = if (TargetScope.IsActive) {
+                    PolicyRepository.GetSessionReference(
+                        ContextRef = this,
+                        SessionId = CurrentSessionId
+                    )?.CapturePolicyDetails == true
+                } else {
+                    CapturePolicyDetailsEnabled
+                },
                 TargetPackage = LastPackageName,
-                OriginActivity = OriginActivityName
+                OriginActivity = OriginActivityName,
+                TargetedPolicyNumbers = TargetScope.Numbers,
+                ChainCustomerName = ChainCustomerName
             )
         )
 
@@ -1670,6 +1725,24 @@ class ScreenReaderService : AccessibilityService() {
         ) {
             if (PackageNameVal != AppLauncherUtils.LIC_SUPER_APP_PACKAGE) return
 
+            if (CurrentMode == CaptureMode.CUSTOMER &&
+                (CustomerRoute.IsArmed || CustomerRoute.IsBackingOut)
+            ) {
+                val IsBusyCustomerScreen = VisibleSheetKind(VisibleNodes = VisibleNodes) != null ||
+                        IsCustomerDetailScreen(VisibleNodes = VisibleNodes)
+                val IsEntryCustomerScreen = IsAgentHomeScreen(VisibleNodes = VisibleNodes) ||
+                        IsCustomerPortfolioScreen(VisibleNodes = VisibleNodes) ||
+                        IsCustomerDashboardScreen(VisibleNodes = VisibleNodes)
+                if (CustomerRoute.HandleScreen(
+                        VisibleNodes = VisibleNodes,
+                        IsEntryVisible = IsEntryCustomerScreen,
+                        IsBusyScreen = IsBusyCustomerScreen
+                    )
+                ) {
+                    return
+                }
+            }
+
             if (IsAgentHomeScreen(VisibleNodes = VisibleNodes)) {
                 HandleAgentHomeScreen(RootNode = RootNode)
                 return
@@ -1732,6 +1805,16 @@ class ScreenReaderService : AccessibilityService() {
                 IsPolicyDetailScreenActive = true
                 IsPolicyDashboardScreenVisible = false
                 TryAutoExpandPolicySections(VisibleNodes = VisibleNodes)
+                return
+            }
+
+            if (SearchRoute.IsArmed &&
+                SearchRoute.HandleScreen(
+                    VisibleNodes = VisibleNodes,
+                    IsDashboardVisible = IsPolicyDashboardActive ||
+                            IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)
+                )
+            ) {
                 return
             }
 
@@ -2966,9 +3049,11 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun PreparePolicyDetailsForCurrentPage() {
-        PolicyDetailQueue = LatestPolicyPageNumbers
-            .distinct()
-            .filter { PolicyNumber -> !ProcessedPolicyDetailNumbers.contains(PolicyNumber) }
+        PolicyDetailQueue = TargetScope.Filter(
+            PolicyNumbers = LatestPolicyPageNumbers
+                .distinct()
+                .filter { PolicyNumber -> !ProcessedPolicyDetailNumbers.contains(PolicyNumber) }
+        )
         PolicyDetailQueueIndex = 0
         PolicyDetailScrollAttempts = 0
         PolicyDetailOpenAttempts = 0
@@ -3084,6 +3169,17 @@ class ScreenReaderService : AccessibilityService() {
     private fun WaitForPolicyDetailScreen() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
         if (!IsPolicyDetailScreenActive) {
+            if (SearchRoute.IsDriving) {
+                if (PolicyDetailOpenAttempts < POLICY_PAGE_RETRY_LIMIT) {
+                    PolicyDetailOpenAttempts++
+                    SchedulePolicyAction(DelayMs = POLICY_DETAIL_OPEN_DELAY_MS) {
+                        WaitForPolicyDetailScreen()
+                    }
+                    return
+                }
+                SearchRoute.OnDetailOpenFailed()
+                return
+            }
             if (PolicyDetailOpenAttempts >= POLICY_PAGE_RETRY_LIMIT) {
                 SkipCurrentPolicyDetail(ReasonText = "Detailed Policy View did not open")
             } else {
@@ -3232,6 +3328,10 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun WaitForPolicyDashboardReturn() {
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (SearchRoute.IsDriving) {
+            SearchRoute.OnDetailReturn()
+            return
+        }
         if (IsPolicyDashboardScreenVisible &&
             !IsPolicyDetailScreenActive &&
             IsPolicyPageSelectorVisible
@@ -3283,6 +3383,12 @@ class ScreenReaderService : AccessibilityService() {
             MessageText = "policy=$PolicyDetailCurrentPolicyNumber page=$PolicyCurrentPage " +
                     "reason=[$ReasonText]"
         )
+        if (SearchRoute.IsDriving) {
+            PolicyDetailScrollAttempts = 0
+            PolicyDetailOpenAttempts = 0
+            SearchRoute.OnDetailOpenFailed()
+            return
+        }
         ProcessedPolicyDetailNumbers.add(PolicyDetailCurrentPolicyNumber)
         PolicyDetailQueueIndex++
         PolicyDetailScrollAttempts = 0
@@ -3326,7 +3432,8 @@ class ScreenReaderService : AccessibilityService() {
             )
             val NewlyVisiblePolicyDetails = CapturePolicyDetailsEnabled &&
                     LatestPolicyPageNumbers.any { PolicyNumber ->
-                        !ProcessedPolicyDetailNumbers.contains(PolicyNumber)
+                        !ProcessedPolicyDetailNumbers.contains(PolicyNumber) &&
+                                TargetScope.Allows(PolicyNumber = PolicyNumber)
                     }
             if (NewlyVisiblePolicyDetails) {
                 DiagnosticInfo(
@@ -3353,6 +3460,19 @@ class ScreenReaderService : AccessibilityService() {
                     "selectorVisible=$IsPolicyPageSelectorVisible captured=${CapturedPolicyMap.size}"
         )
         SavePolicyResumeProgress(IsCompleteVal = false)
+        if (TargetScope.IsActive &&
+            TargetScope.Numbers.all { PolicyNumber ->
+                ProcessedPolicyDetailNumbers.contains(PolicyNumber)
+            }
+        ) {
+            DiagnosticInfo(
+                EventName = "POLICY_TARGET_COMPLETE",
+                MessageText = "route=page-walk targets=${TargetScope.Describe()} " +
+                        "page=$PolicyCurrentPage/$PolicyTotalPages"
+            )
+            CompletePolicyDashboardAutomation()
+            return
+        }
         if (PolicyCurrentPage > 0 &&
             PolicyTotalPages > 0 &&
             PolicyCurrentPage >= PolicyTotalPages
@@ -3589,6 +3709,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun SavePolicyResumeProgress(IsCompleteVal: Boolean) {
         if (CurrentMode != CaptureMode.POLICY) return
+        if (TargetScope.IsActive) return
         if (CurrentSessionId.isBlank()) return
         if (PolicyCurrentPage <= 0 || PolicyTotalPages <= 0) return
         val TrackVal = CurrentResumeTrack()
@@ -3626,6 +3747,7 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun SaveCustomerResumeProgress(IsCompleteVal: Boolean) {
         if (CurrentMode != CaptureMode.CUSTOMER) return
+        if (CustomerNameScope.IsActive) return
         if (CurrentSessionId.isBlank()) return
         if (TargetCustomerPage <= 0 || CustomerTotalPages <= 0) return
         val OutstandingCount = OutstandingCustomerCount()
@@ -3951,6 +4073,8 @@ class ScreenReaderService : AccessibilityService() {
             KindVal = AppToast.Kind.Success
         )
 
+        if (BeginChainedCustomerLeg()) return
+
         MainHandler.postDelayed({
             if (IsCapturing && CurrentMode == CaptureMode.POLICY && IsPolicyDashboardComplete) {
                 FinishCaptureSession()
@@ -4005,6 +4129,208 @@ class ScreenReaderService : AccessibilityService() {
             KindVal = if (CanRetryAutomatically) AppToast.Kind.Warning else AppToast.Kind.Error
         )
         RefreshBubble()
+    }
+
+    override fun SearchRootNode(): AccessibilityNodeInfo? {
+        return FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+    }
+
+    override fun SearchRecycleNode(NodeRef: AccessibilityNodeInfo?) {
+        RecycleNode(NodeRef = NodeRef)
+    }
+
+    override fun SearchTap(XPos: Float, YPos: Float): Boolean {
+        return PerformTapGesture(XPos = XPos, YPos = YPos)
+    }
+
+    override fun SearchSetText(NodeRef: AccessibilityNodeInfo, TextValue: String): Boolean {
+        return SetNodeText(NodeRef = NodeRef, TextValue = TextValue)
+    }
+
+    override fun SearchSchedule(DelayMs: Long, ActionRef: () -> Unit) {
+        SchedulePolicyAction(DelayMs = DelayMs, ActionRef = ActionRef)
+    }
+
+    override fun SearchRefreshScreen() {
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+    }
+
+    override fun SearchInfo(EventName: String, MessageText: String) {
+        DiagnosticInfo(EventName = EventName, MessageText = MessageText)
+    }
+
+    override fun SearchWarn(EventName: String, MessageText: String) {
+        DiagnosticWarning(EventName = EventName, MessageText = MessageText)
+    }
+
+    override fun SearchScreenWidth(): Int {
+        return resources.displayMetrics.widthPixels
+    }
+
+    override fun SearchScreenHeight(): Int {
+        return resources.displayMetrics.heightPixels
+    }
+
+    override fun SearchBeginRun() {
+        IsPolicyDashboardActive = true
+        IsPolicyDashboardAutomationRunning = true
+        HasClickedPortfolioPolicies = true
+        PolicyAutomationRetryAfter = 0L
+        PolicyPageRetryCount = 0
+    }
+
+    override fun SearchOpenDetail(PolicyNumberVal: String) {
+        PolicyDetailCurrentPolicyNumber = PolicyNumberVal
+        PolicyDetailOriginPage = 0
+        PolicyDetailScrollAttempts = 0
+        PolicyDetailOpenAttempts = 1
+        PolicyDetailReturnAttempts = 0
+        IsPolicyDetailScreenActive = false
+        IsPolicyDashboardScreenVisible = false
+        LatestPolicyDetailNodes = emptyList()
+        PolicySectionRetryRounds = 0
+        PolicyDetailSweepCount = 0
+        LastPolicyDetailSweepSignature = 0
+        HasExpandedCurrentPolicyScreen = false
+        SchedulePolicyAction(DelayMs = POLICY_DETAIL_OPEN_DELAY_MS) {
+            WaitForPolicyDetailScreen()
+        }
+    }
+
+    override fun SearchPressBack(): Boolean {
+        return performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    override fun SearchHandOffToPageWalk() {
+        IsPolicyDashboardAutomationRunning = false
+        IsPolicyDashboardComplete = false
+        PolicyAutomationRetryAfter = 0L
+        PolicyPageRetryCount = 0
+        PolicyReturnToTopCount = 0
+        PolicyScrollStallCount = 0
+        StartPolicyDashboardAutomation()
+    }
+
+    override fun SearchNoteRowContact(
+        PolicyNumberVal: String,
+        MobileText: String,
+        AgeText: String
+    ) {
+        if (PolicyNumberVal.isEmpty()) return
+        if (MobileText.isEmpty() && AgeText.isEmpty()) return
+        val ExistingPolicy = CapturedPolicyMap[PolicyNumberVal] ?: return
+        val WantsMobile = MobileText.isNotEmpty() && ExistingPolicy.MobileNumber.isEmpty()
+        val WantsAge = AgeText.isNotEmpty() && ExistingPolicy.Age.isEmpty()
+        if (!WantsMobile && !WantsAge) return
+
+        val UpdatedPolicy = ExistingPolicy.copy(
+            Age = if (WantsAge) AgeText else ExistingPolicy.Age
+        )
+        if (WantsMobile) UpdatedPolicy.MobileNumber = MobileText
+        CapturedPolicyMap[PolicyNumberVal] = UpdatedPolicy
+        RebuildCapturedPolicyNodes()
+        LastParsedNodeCount = -1
+        DiagnosticInfo(
+            EventName = "POLICY_SEARCH_ROW_CONTACT",
+            MessageText = "policy=$PolicyNumberVal mobile=${if (WantsMobile) "saved" else "kept"} " +
+                    "age=${if (WantsAge) AgeText else "kept"}"
+        )
+    }
+
+    private fun BeginChainedCustomerLeg(): Boolean {
+        if (ChainCustomerName.isBlank()) return false
+        if (CurrentMode != CaptureMode.POLICY) return false
+        if (!TargetScope.IsActive) return false
+        if (IsChainedCustomerLegStarted) return false
+        IsChainedCustomerLegStarted = true
+
+        IsPolicyDashboardComplete = true
+        IsPolicyDashboardAutomationRunning = false
+        PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        PolicyAutomationRunnable = null
+        SearchRoute.Reset()
+
+        for (PolicyNumber in TargetScope.Numbers) {
+            val PolicyItem = CapturedPolicyMap[PolicyNumber] ?: continue
+            ProfilePatchMap[PolicyNumber] = PolicyItem
+            ProfilePatchNames[PolicyNumber] = PolicyItem.HolderName.ifEmpty { ChainCustomerName }
+        }
+
+        CurrentMode = CaptureMode.CUSTOMER
+        RevisitFilledEnabled = false
+        SessionPolicyNumbers.clear()
+        SessionPolicyNumbers.addAll(CapturedPolicyMap.keys)
+        FilledPolicyNumbers.clear()
+        for (PolicyItem in CapturedPolicyMap.values) {
+            if (RecordMerge.HasPersonalDetails(PolicyItem = PolicyItem)) {
+                FilledPolicyNumbers.add(PolicyItem.PolicyNumber)
+            }
+        }
+        VisitedCustomerNames.clear()
+        VisitedCustomerNames.addAll(
+            PolicyRepository.GetVisitedCustomers(
+                ContextRef = this,
+                SessionId = CurrentSessionId
+            )
+        )
+        ProcessedCustomerKeys.clear()
+        CustomerNameScope.Arm(
+            NumbersVal = listOf(NormalisedName(NameText = ChainCustomerName)),
+            NameHintsVal = emptyMap()
+        )
+        VisitedCustomerNames.removeAll(CustomerNameScope.Numbers.toSet())
+        CustomerRoute.Arm(TargetsVal = listOf(ChainCustomerName))
+
+        IsCustomerAutomationComplete = false
+        IsCustomerAutomationRunning = true
+        IsCustomerDashboardActive = false
+        HasClickedPortfolioCustomers = true
+        HasClickedHomeNavTab = true
+        CustomerAutomationRetryAfter = 0L
+        CustomerStageValue = CustomerStage.DASHBOARD
+        ActiveCustomerName = ""
+        ActiveProfile = null
+        ProfilePaneNodes.clear()
+        PendingSheetKinds.clear()
+        RefreshBubble()
+
+        DiagnosticInfo(
+            EventName = "CUSTOMER_CHAIN_START",
+            MessageText = "customer=$ChainCustomerName policies=${TargetScope.Describe()} " +
+                    "patches=${ProfilePatchMap.size}"
+        )
+        ShowServiceToast(
+            MessageText = "Now filling personal details",
+            KindVal = AppToast.Kind.Info
+        )
+        MainHandler.postDelayed({
+            if (IsCapturing && CurrentMode == CaptureMode.CUSTOMER) {
+                CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            }
+        }, POLICY_NAVIGATION_DELAY_MS)
+        return true
+    }
+
+    override fun SearchFinishRun() {
+        if (BeginChainedCustomerLeg()) return
+        IsPolicyDashboardComplete = true
+        IsPolicyDashboardAutomationRunning = false
+        PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        PolicyAutomationRunnable = null
+        DiagnosticInfo(
+            EventName = "POLICY_AUTOMATION_COMPLETE",
+            MessageText = "route=search targets=${TargetScope.Describe()} " +
+                    "captured=${CapturedPolicyMap.size}"
+        )
+        ShowServiceToast(
+            MessageText = "Captured the missing policy details",
+            KindVal = AppToast.Kind.Success
+        )
+        MainHandler.postDelayed({
+            if (IsCapturing && CurrentMode == CaptureMode.POLICY) {
+                FinishCaptureSession()
+            }
+        }, POLICY_PAGE_LOAD_DELAY_MS)
     }
 
     private fun StopPolicyDashboardAutomation(ResetStateVal: Boolean) {
@@ -7212,6 +7538,14 @@ class ScreenReaderService : AccessibilityService() {
     private fun RunCustomerDashboardStep() {
         if (!IsCustomerAutomationRunning) return
         CustomerStageValue = CustomerStage.DASHBOARD
+        if (CustomerNameScope.IsActive &&
+            CustomerNameScope.Numbers.all { NameText ->
+                VisitedCustomerNames.contains(NameText)
+            }
+        ) {
+            CompleteCustomerAutomation(ReasonText = "targeted customers filled")
+            return
+        }
         CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
 
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
@@ -7237,7 +7571,10 @@ class ScreenReaderService : AccessibilityService() {
             val RowList = CollectCustomerRows(TextNodes = TextNodes)
             val NextRow = RowList.firstOrNull { RowItem ->
                 !ProcessedCustomerKeys.contains(CustomerKey(NameText = RowItem.NameText)) &&
-                        !VisitedCustomerNames.contains(NormalisedName(NameText = RowItem.NameText))
+                        !VisitedCustomerNames.contains(NormalisedName(NameText = RowItem.NameText)) &&
+                        CustomerNameScope.Allows(
+                            PolicyNumber = NormalisedName(NameText = RowItem.NameText)
+                        )
             }
             if (NextRow != null) {
                 CustomerStepAttempts = 0
@@ -7706,6 +8043,18 @@ class ScreenReaderService : AccessibilityService() {
             ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
                 ReadCustomerPolicies(SweepCount = 0, CollectedNumbers = emptySet())
             }
+            return
+        }
+        if (CustomerRoute.IsDriving) {
+            if (CustomerOpenAttempts < CUSTOMER_OPEN_RETRY_LIMIT) {
+                CustomerOpenAttempts++
+                ScheduleCustomerAction(DelayMs = CUSTOMER_DETAIL_OPEN_DELAY_MS) {
+                    WaitForCustomerDetailScreen()
+                }
+                return
+            }
+            CustomerOpenAttempts = 0
+            CustomerRoute.OnDetailOpenFailed()
             return
         }
         if (CustomerOpenAttempts >= CUSTOMER_OPEN_RETRY_LIMIT) {
@@ -8422,6 +8771,10 @@ class ScreenReaderService : AccessibilityService() {
         )
         ConsecutiveErrorGiveUps = 0
         RefreshBubble()
+        if (CustomerRoute.IsDriving) {
+            CustomerRoute.OnCustomerFinished()
+            return
+        }
         CustomerStageValue = CustomerStage.RETURNING
         ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
             ReturnToCustomerDashboard(AttemptCount = 0)
@@ -8429,6 +8782,10 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     private fun ReturnToCustomerDashboard(AttemptCount: Int, BackCount: Int = 0) {
+        if (CustomerRoute.IsDriving) {
+            CustomerRoute.OnCustomerFinished()
+            return
+        }
         val VisibleNodes = CurrentScreenNodes()
 
         if (IsCustomerDashboardScreen(VisibleNodes = VisibleNodes)) {
@@ -8553,6 +8910,95 @@ class ScreenReaderService : AccessibilityService() {
         CustomerPageRetryCount = 0
         CustomerStepAttempts = 0
         LatestCustomerVisibleSignature = 0
+    }
+
+    override fun CustomerSearchRootNode(): AccessibilityNodeInfo? {
+        return FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+    }
+
+    override fun CustomerSearchRecycleNode(NodeRef: AccessibilityNodeInfo?) {
+        RecycleNode(NodeRef = NodeRef)
+    }
+
+    override fun CustomerSearchTap(XPos: Float, YPos: Float): Boolean {
+        return PerformTapGesture(XPos = XPos, YPos = YPos)
+    }
+
+    override fun CustomerSearchSetText(NodeRef: AccessibilityNodeInfo, TextValue: String): Boolean {
+        return SetNodeText(NodeRef = NodeRef, TextValue = TextValue)
+    }
+
+    override fun CustomerSearchSchedule(DelayMs: Long, ActionRef: () -> Unit) {
+        ScheduleCustomerAction(DelayMs = DelayMs, ActionRef = ActionRef)
+    }
+
+    override fun CustomerSearchRefreshScreen() {
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+    }
+
+    override fun CustomerSearchInfo(EventName: String, MessageText: String) {
+        DiagnosticInfo(EventName = EventName, MessageText = MessageText)
+    }
+
+    override fun CustomerSearchWarn(EventName: String, MessageText: String) {
+        DiagnosticWarning(EventName = EventName, MessageText = MessageText)
+    }
+
+    override fun CustomerSearchScreenWidth(): Int {
+        return resources.displayMetrics.widthPixels
+    }
+
+    override fun CustomerSearchScreenHeight(): Int {
+        return resources.displayMetrics.heightPixels
+    }
+
+    override fun CustomerSearchBeginRun() {
+        IsCustomerAutomationRunning = true
+        IsCustomerDashboardActive = false
+        HasClickedPortfolioCustomers = true
+        HasClickedHomeNavTab = true
+        CustomerAutomationRetryAfter = 0L
+        CustomerStageValue = CustomerStage.DASHBOARD
+    }
+
+    override fun CustomerSearchOpenDetail(NameTextVal: String) {
+        ActiveCustomerName = NameTextVal
+        ActiveProfile = null
+        ProfilePaneNodes.clear()
+        PendingSheetKinds.clear()
+        OcrAttemptedKinds.clear()
+        PendingOcrLines = null
+        OcrInFlight = false
+        ProfileSweepCount = 0
+        LastProfileSweepSignature = 0
+        ProcessedCustomerKeys.add(CustomerKey(NameText = NameTextVal))
+        CustomerOpenAttempts = 1
+        CustomerStepAttempts = 0
+        CustomerStageValue = CustomerStage.OPENING_CUSTOMER
+        RefreshBubble()
+        ScheduleCustomerAction(DelayMs = CUSTOMER_DETAIL_OPEN_DELAY_MS) {
+            WaitForCustomerDetailScreen()
+        }
+    }
+
+    override fun CustomerSearchPressBack(): Boolean {
+        return performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    override fun CustomerSearchHandOffToDashboard() {
+        IsCustomerAutomationRunning = false
+        IsCustomerDashboardActive = false
+        HasClickedPortfolioCustomers = false
+        PortfolioCustomersClickAttempts = 0
+        PortfolioCustomersLastAttemptAt = 0L
+        CustomerAutomationRetryAfter = 0L
+        CustomerStageValue = CustomerStage.IDLE
+        CustomerAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        CustomerAutomationRunnable = null
+    }
+
+    override fun CustomerSearchFinishRun() {
+        CompleteCustomerAutomation(ReasonText = "targeted customer search complete")
     }
 
     private fun StopCustomerAutomation(ResetStateVal: Boolean) {

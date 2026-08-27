@@ -41,6 +41,7 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityPolicyDetailBinding
     private var SessionIdVal: String = ""
+    private var ActivePolicyObj: CustomerPolicy? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +64,7 @@ class PolicyDetailActivity : AppCompatActivity() {
             return
         }
 
+        ActivePolicyObj = ResolvedPolicy
         BindHeader(PolicyRef = ResolvedPolicy)
         BindActions(PolicyRef = ResolvedPolicy)
         BindRevival(PolicyRef = ResolvedPolicy)
@@ -393,13 +395,30 @@ class PolicyDetailActivity : AppCompatActivity() {
 
 
     private fun ResumeCaptureForPolicy() {
+        val PolicyRef = ActivePolicyObj
+        val TargetNumber = PolicyRef?.PolicyNumber.orEmpty()
         val StartedOk = CaptureFlow.Start(
             ActivityRef = this,
             ModeVal = CaptureMode.POLICY,
             LaunchTarget = true,
             CapturePolicyDetails = true,
             OriginOverride = MainActivity::class.java.name,
-            ResumeSessionId = ResolveSessionId()
+            ResumeSessionId = ResolveSessionId(),
+            TargetPolicyNumbers = if (TargetNumber.isEmpty()) {
+                emptyList()
+            } else {
+                listOf(TargetNumber)
+            },
+            TargetNameHints = if (TargetNumber.isEmpty()) {
+                emptyMap()
+            } else {
+                mapOf(TargetNumber to PolicyRef?.HolderName.orEmpty())
+            },
+            ChainCustomerName = if (TargetNumber.isEmpty()) {
+                ""
+            } else {
+                PolicyRef?.HolderName.orEmpty()
+            }
         )
         if (StartedOk) finish()
     }

@@ -58,6 +58,22 @@ object PolicyResumeTarget {
         return MarkObj?.LastCompletedPage ?: 0
     }
 
+    fun IsTrackComplete(
+        TrackVal: String,
+        FastMark: PolicyResumeMark?,
+        FullMark: PolicyResumeMark?,
+        CustomerMark: PolicyResumeMark?
+    ): Boolean {
+        return when (TrackVal) {
+            PolicyResumeTrack.POLICY_FULL -> FullMark?.IsComplete == true
+            PolicyResumeTrack.POLICY_FAST ->
+                FastMark?.IsComplete == true || FullMark?.IsComplete == true
+
+            PolicyResumeTrack.CUSTOMER -> CustomerMark?.IsComplete == true
+            else -> false
+        }
+    }
+
     fun ChooseMark(
         TrackVal: String,
         FastMark: PolicyResumeMark?,
@@ -75,12 +91,16 @@ object PolicyResumeTarget {
             }
 
             PolicyResumeTrack.POLICY_FAST -> {
-                val FastPage = Resolve(MarkObj = FastMark, StoredRecordCount = StoredRecordCount)
-                val FullPage = Resolve(MarkObj = FullMark, StoredRecordCount = StoredRecordCount)
-                when {
-                    FullPage > FastPage -> FullMark
-                    FastPage > 0 -> FastMark
-                    else -> null
+                if (FastMark?.IsComplete == true || FullMark?.IsComplete == true) {
+                    null
+                } else {
+                    val FastPage = Resolve(MarkObj = FastMark, StoredRecordCount = StoredRecordCount)
+                    val FullPage = Resolve(MarkObj = FullMark, StoredRecordCount = StoredRecordCount)
+                    when {
+                        FullPage > FastPage -> FullMark
+                        FastPage > 0 -> FastMark
+                        else -> null
+                    }
                 }
             }
 

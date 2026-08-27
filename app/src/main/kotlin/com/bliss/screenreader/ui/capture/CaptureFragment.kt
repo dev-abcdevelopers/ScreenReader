@@ -421,6 +421,19 @@ class CaptureFragment : Fragment() {
                     )
                 )
             }
+            val ChainName = SessionObj.ChainCustomerName
+            if (SavedCount > 0 &&
+                SessionObj.Mode == CaptureMode.POLICY &&
+                ChainName.isNotEmpty()
+            ) {
+                CaptureFlow.Start(
+                    ActivityRef = ActivityRef,
+                    ModeVal = CaptureMode.CUSTOMER,
+                    LaunchTarget = true,
+                    ResumeSessionId = SessionObj.SessionId,
+                    TargetCustomerNames = listOf(ChainName)
+                )
+            }
         }
     }
 

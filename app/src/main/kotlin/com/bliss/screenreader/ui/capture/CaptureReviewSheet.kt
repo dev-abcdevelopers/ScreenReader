@@ -69,14 +69,16 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
 
         BindingObj.btnReviewDiscard.setOnClickListener { ViewRef ->
             HapticFeedback.Reject(ViewRef = ViewRef)
-            PolicyRepository.ClearPolicyResumeMark(
-                ContextRef = requireContext().applicationContext,
-                SessionId = SessionObj.SessionId,
-                TrackVal = PolicyResumeTrack.OfMode(
-                    ModeVal = SessionObj.Mode,
-                    CapturePolicyDetails = SessionObj.CapturePolicyDetails
+            if (SessionObj.TargetedPolicyNumbers.isEmpty()) {
+                PolicyRepository.ClearPolicyResumeMark(
+                    ContextRef = requireContext().applicationContext,
+                    SessionId = SessionObj.SessionId,
+                    TrackVal = PolicyResumeTrack.OfMode(
+                        ModeVal = SessionObj.Mode,
+                        CapturePolicyDetails = SessionObj.CapturePolicyDetails
+                    )
                 )
-            )
+            }
             CaptureSessionState.ConsumePending()
             ResultListener?.invoke(0)
             dismissAllowingStateLoss()

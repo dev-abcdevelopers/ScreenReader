@@ -174,7 +174,11 @@ object CaptureFlow {
         OriginOverride: String = "",
         ResumeSessionId: String = "",
         RevisitFilled: Boolean = false,
-        ResumeFromPage: Int = 0
+        ResumeFromPage: Int = 0,
+        TargetPolicyNumbers: List<String> = emptyList(),
+        TargetNameHints: Map<String, String> = emptyMap(),
+        TargetCustomerNames: List<String> = emptyList(),
+        ChainCustomerName: String = ""
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -216,7 +220,11 @@ object CaptureFlow {
             OriginActivityVal = OriginOverride.ifEmpty { ActivityRef.javaClass.name },
             ResumeSessionIdVal = ResumeSessionId,
             RevisitFilledVal = RevisitFilled,
-            ResumeFromPageVal = ResumeFromPage
+            ResumeFromPageVal = ResumeFromPage,
+            TargetPolicyNumbersVal = TargetPolicyNumbers,
+            TargetNameHintsVal = TargetNameHints,
+            TargetCustomerNamesVal = TargetCustomerNames,
+            ChainCustomerNameVal = ChainCustomerName
         )
 
         if (LaunchTarget) {

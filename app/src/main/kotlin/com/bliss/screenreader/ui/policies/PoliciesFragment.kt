@@ -1114,19 +1114,29 @@ class PoliciesFragment : Fragment() {
         BindResumeCardNote(
             NoteView = SheetBinding.tvFastResumeNote,
             ChosenMark = if (ShowResumePage) FastChoice else null,
-            OwnMark = FastMark
+            TrackCompleteVal = PolicyResumeTarget.IsTrackComplete(
+                TrackVal = PolicyResumeTrack.POLICY_FAST,
+                FastMark = FastMark,
+                FullMark = FullMark,
+                CustomerMark = null
+            )
         )
         BindResumeCardNote(
             NoteView = SheetBinding.tvFullResumeNote,
             ChosenMark = if (ShowResumePage) FullChoice else null,
-            OwnMark = FullMark
+            TrackCompleteVal = PolicyResumeTarget.IsTrackComplete(
+                TrackVal = PolicyResumeTrack.POLICY_FULL,
+                FastMark = FastMark,
+                FullMark = FullMark,
+                CustomerMark = null
+            )
         )
     }
 
     private fun BindResumeCardNote(
         NoteView: android.widget.TextView,
         ChosenMark: PolicyResumeMark?,
-        OwnMark: PolicyResumeMark?
+        TrackCompleteVal: Boolean
     ) {
         when {
             ChosenMark != null -> {
@@ -1138,7 +1148,7 @@ class PoliciesFragment : Fragment() {
                 NoteView.visibility = View.VISIBLE
             }
 
-            OwnMark?.IsComplete == true -> {
+            TrackCompleteVal -> {
                 NoteView.setText(R.string.policy_resume_card_complete)
                 NoteView.visibility = View.VISIBLE
             }
