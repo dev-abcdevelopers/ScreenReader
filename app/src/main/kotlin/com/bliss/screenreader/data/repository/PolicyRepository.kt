@@ -36,6 +36,7 @@ object PolicyRepository {
     private const val AGENCY_KEY_PREFIX = "capture_agency"
     private const val VISITED_KEY_PREFIX = "capture_visited_customers"
     private const val RESUME_KEY_PREFIX = "capture_resume"
+    private const val RENEWAL_SKIP_KEY_PREFIX = "capture_renewal_skips"
     private const val KEY_LAST_AGENCY_CODE = "last_agency_code"
     private const val KEY_AGENCY_CODES = "agency_code_list"
 
@@ -501,6 +502,47 @@ object PolicyRepository {
         SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
             remove(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal))
         }
+    }
+
+    data class RenewalSkipRecord(
+        val SpanDays: Int? = null,
+        val TotalPages: Int? = null,
+        val Pages: List<Int>? = null,
+        val SavedAt: Long? = null
+    ) {
+        val PageList: List<Int> get() = Pages.orEmpty()
+    }
+
+    fun SaveRenewalSkips(ContextRef: Context, SessionId: String, RecordObj: RenewalSkipRecord) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(
+                RenewalSkipStorageKey(SessionId = SessionId),
+                GsonInstance.toJson(RecordObj)
+            )
+        }
+    }
+
+    fun GetRenewalSkips(ContextRef: Context, SessionId: String): RenewalSkipRecord? {
+        if (SessionId.isBlank()) return null
+        val JsonText = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(RenewalSkipStorageKey(SessionId = SessionId), null) ?: return null
+        return try {
+            GsonInstance.fromJson(JsonText, RenewalSkipRecord::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun ClearRenewalSkips(ContextRef: Context, SessionId: String) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            remove(RenewalSkipStorageKey(SessionId = SessionId))
+        }
+    }
+
+    private fun RenewalSkipStorageKey(SessionId: String): String {
+        return "${RENEWAL_SKIP_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
     }
 
     private fun ResumeStorageKey(SessionId: String, TrackVal: String): String {

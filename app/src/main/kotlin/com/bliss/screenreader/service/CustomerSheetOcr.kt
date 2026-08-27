@@ -4,6 +4,7 @@ package com.bliss.screenreader.service
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.view.Display
 import androidx.annotation.RequiresApi
@@ -24,6 +25,13 @@ object CustomerSheetOcr {
     sealed class Outcome {
         data class Lines(val TextLines: List<String>) : Outcome()
         data class Failed(val Reason: String) : Outcome()
+    }
+
+    data class TextBox(val TextValue: String, val Bounds: Rect)
+
+    sealed class BoxOutcome {
+        data class Boxes(val Items: List<TextBox>) : BoxOutcome()
+        data class Failed(val Reason: String) : BoxOutcome()
     }
 
     fun IsSupported(): Boolean = Build.VERSION.SDK_INT >= MIN_SUPPORTED_SDK
@@ -66,6 +74,89 @@ object CustomerSheetOcr {
                 }
             }
         )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    fun ReadSheetBoxes(
+        ServiceRef: AccessibilityService,
+        ExecutorRef: Executor,
+        TopFraction: Float,
+        OnResult: (BoxOutcome) -> Unit
+    ) {
+        ServiceRef.takeScreenshot(
+            Display.DEFAULT_DISPLAY,
+            ExecutorRef,
+            object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(ScreenshotResult: AccessibilityService.ScreenshotResult) {
+                    val BufferRef = ScreenshotResult.hardwareBuffer
+                    val BitmapObj = try {
+                        Bitmap.wrapHardwareBuffer(BufferRef, ScreenshotResult.colorSpace)
+                            ?.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (ErrorRef: Exception) {
+                        OnResult(BoxOutcome.Failed(Reason = "bitmap: ${ErrorRef.message.orEmpty()}"))
+                        return
+                    } finally {
+                        try {
+                            BufferRef.close()
+                        } catch (_: Exception) {
+                        }
+                    }
+
+                    if (BitmapObj == null) {
+                        OnResult(BoxOutcome.Failed(Reason = "screenshot produced no bitmap"))
+                        return
+                    }
+                    RecogniseBoxes(
+                        BitmapObj = BitmapObj,
+                        TopFraction = TopFraction,
+                        OnResult = OnResult
+                    )
+                }
+
+                override fun onFailure(ErrorCode: Int) {
+                    OnResult(BoxOutcome.Failed(Reason = "takeScreenshot error=$ErrorCode"))
+                }
+            }
+        )
+    }
+
+    private fun RecogniseBoxes(
+        BitmapObj: Bitmap,
+        TopFraction: Float,
+        OnResult: (BoxOutcome) -> Unit
+    ) {
+        val TopPixel = (BitmapObj.height * TopFraction)
+            .toInt()
+            .coerceIn(0, BitmapObj.height - 1)
+        val CroppedBitmap = CropToSheet(BitmapObj = BitmapObj, TopFraction = TopFraction)
+        val ImageObj = InputImage.fromBitmap(CroppedBitmap, 0)
+
+        Recogniser.process(ImageObj)
+            .addOnSuccessListener { VisionText ->
+                val BoxList = VisionText.textBlocks
+                    .flatMap { BlockRef -> BlockRef.lines }
+                    .mapNotNull { LineRef ->
+                        val BoxRef = LineRef.boundingBox ?: return@mapNotNull null
+                        val LineText = LineRef.text.trim()
+                        if (LineText.isEmpty()) return@mapNotNull null
+                        TextBox(
+                            TextValue = LineText,
+                            Bounds = Rect(
+                                BoxRef.left,
+                                BoxRef.top + TopPixel,
+                                BoxRef.right,
+                                BoxRef.bottom + TopPixel
+                            )
+                        )
+                    }
+                    .sortedBy { BoxItem -> BoxItem.Bounds.top }
+                OnResult(BoxOutcome.Boxes(Items = BoxList))
+                Release(BitmapObj = BitmapObj, CroppedBitmap = CroppedBitmap)
+            }
+            .addOnFailureListener { ErrorRef ->
+                OnResult(BoxOutcome.Failed(Reason = "ocr: ${ErrorRef.message.orEmpty()}"))
+                Release(BitmapObj = BitmapObj, CroppedBitmap = CroppedBitmap)
+            }
     }
 
     private fun Recognise(

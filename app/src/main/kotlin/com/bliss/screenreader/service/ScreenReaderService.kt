@@ -139,7 +139,13 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val RENEWAL_SCROLL_STALL_LIMIT = 2
         private const val RENEWAL_RETURN_TO_TOP_LIMIT = 20
         private const val RENEWAL_PAGE_RETRY_LIMIT = 3
+        private const val RENEWAL_RELIST_LIMIT = 4
+        private const val RENEWAL_RELIST_STALL_LIMIT = 2
+        private const val RENEWAL_SKIP_WAIT_LIMIT = 6
         private const val RENEWAL_DROPDOWN_RETRY_LIMIT = 3
+        private const val RENEWAL_RANGE_OCR_TOP_FRACTION = 0.55f
+        private const val RENEWAL_RANGE_OCR_LIMIT = 2
+        private const val RENEWAL_MANUAL_RANGE_WAIT_LIMIT = 45
         private const val RENEWAL_AUTOMATION_RECOVERY_LIMIT = 3
         private const val RENEWAL_FAILURE_RETRY_MS = 5000L
         private const val RENEWAL_SECTION_ROW_TOLERANCE_RATIO = 0.06f
@@ -474,6 +480,21 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var RenewalCurrentPage = 0
     private var RenewalTotalPages = 0
     private var RenewalExpectedPage = 0
+    private var RenewalSkipTargetPage = 0
+    private var RenewalSkipWaitCount = 0
+    private var RenewalRangeOcrCount = 0
+    private var RenewalKnownTotalPages = 0
+    private var RenewalPickedRangeLabel = ""
+    private var RenewalLastRelistTarget = 0
+    private var RenewalRelistStalls = 0
+    private val RenewalKnownBadPages = linkedSetOf<Int>()
+    private var RenewalKnownBadSpanDays = 0
+    private var IsRenewalRangeSheetHidden = false
+    private var RenewalManualWaitCount = 0
+    private var RenewalRangeBaselineLabel = ""
+
+    private var RenewalRelistCount = 0
+    private val RenewalSkippedPages = linkedSetOf<Int>()
     private var RenewalPageRetryCount = 0
     private var RenewalReturnToTopCount = 0
     private var RenewalScrollStallCount = 0
@@ -805,7 +826,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             )
             return
         }
-        if ((CurrentMode == CaptureMode.POLICY || CurrentMode == CaptureMode.CUSTOMER) &&
+        if ((SearchRoute.IsDriving || CustomerRoute.IsDriving) &&
             PolicySearchParser.IsSearchScreen(Nodes = NodeList)
         ) {
             return
@@ -1497,10 +1518,23 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     CapturedFupMap[RenewalRecordKey(RecordItem = RenewalItem)] = RenewalItem
                 }
                 RebuildCapturedRenewalNodes()
+                val SkipRecord = PolicyRepository.GetRenewalSkips(
+                    ContextRef = this,
+                    SessionId = CurrentSessionId
+                )
+                if (SkipRecord != null) {
+                    RenewalKnownBadPages.addAll(SkipRecord.PageList)
+                    RenewalKnownBadSpanDays = SkipRecord.SpanDays ?: 0
+                    RenewalKnownTotalPages = SkipRecord.TotalPages ?: 0
+                }
+                val KnownBadText = RenewalKnownBadPages
+                    .joinToString(separator = ",")
+                    .ifEmpty { "none" }
                 DiagnosticInfo(
                     EventName = "SESSION_RESUME",
                     MessageText = "session=$CurrentSessionId mode=FUP " +
-                            "seeded=${CapturedFupMap.size} nodes=${CapturedNodes.size}"
+                            "seeded=${CapturedFupMap.size} nodes=${CapturedNodes.size} " +
+                            "knownBadPages=$KnownBadText skipSpanDays=$RenewalKnownBadSpanDays"
                 )
             }
 
@@ -1743,6 +1777,17 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 }
             }
 
+            if (CurrentMode == CaptureMode.POLICY &&
+                SearchRoute.IsArmed &&
+                !IsPolicyDetailScreen(VisibleNodes = VisibleNodes) &&
+                SearchRoute.HandleScreen(
+                    VisibleNodes = VisibleNodes,
+                    IsEntryVisible = IsAgentHomeScreen(VisibleNodes = VisibleNodes)
+                )
+            ) {
+                return
+            }
+
             if (IsAgentHomeScreen(VisibleNodes = VisibleNodes)) {
                 HandleAgentHomeScreen(RootNode = RootNode)
                 return
@@ -1811,7 +1856,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             if (SearchRoute.IsArmed &&
                 SearchRoute.HandleScreen(
                     VisibleNodes = VisibleNodes,
-                    IsDashboardVisible = IsPolicyDashboardActive ||
+                    IsEntryVisible = IsPolicyDashboardActive ||
                             IsPolicyDashboardScreen(VisibleNodes = VisibleNodes)
                 )
             ) {
@@ -3002,6 +3047,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun StartPolicyDashboardAutomation() {
+        if (SearchRoute.IsArmed) return
         if (IsPolicyDashboardAutomationRunning || IsPolicyDashboardComplete) return
         val CurrentTime = System.currentTimeMillis()
         if (CurrentTime < PolicyAutomationRetryAfter) return
@@ -4172,9 +4218,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     override fun SearchBeginRun() {
-        IsPolicyDashboardActive = true
         IsPolicyDashboardAutomationRunning = true
-        HasClickedPortfolioPolicies = true
         PolicyAutomationRetryAfter = 0L
         PolicyPageRetryCount = 0
     }
@@ -4208,7 +4252,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         PolicyPageRetryCount = 0
         PolicyReturnToTopCount = 0
         PolicyScrollStallCount = 0
-        StartPolicyDashboardAutomation()
+        PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        PolicyAutomationRunnable = null
+        if (IsPolicyDashboardActive) StartPolicyDashboardAutomation()
     }
 
     override fun SearchNoteRowContact(
@@ -4892,6 +4938,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             val PreviousPage = RenewalCurrentPage
             RenewalCurrentPage = PageInfo.first
             RenewalTotalPages = PageInfo.second
+            if (RenewalTotalPages > RenewalKnownTotalPages) {
+                RenewalKnownTotalPages = RenewalTotalPages
+            }
             if (PreviousPage != RenewalCurrentPage) {
                 DiagnosticInfo(
                     EventName = "RENEWAL_PAGE_DETECTED",
@@ -4951,9 +5000,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             HasOpenedRenewalHistoryList = true
             if (!HasSelectedRenewalDateRange) {
                 OpenRenewalDateRangeDropdown()
-            } else {
-                ScrollRenewalHistoryPage()
+                return
             }
+            if (MaybeReselectRenewalRange()) return
+            if (MaybeJumpToRenewalSkipTarget()) return
+            ScrollRenewalHistoryPage()
             return
         }
 
@@ -5196,18 +5247,19 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "scrollPasses=$RenewalDropdownScrollPasses"
         )
 
-        if (RangeOptions.isEmpty() && OptionEntries.isEmpty()) {
+        if (RangeOptions.isEmpty()) {
+            val SheetMarkerVisible = VisibleEntries.any { NodeEntry ->
+                NodeEntry.first.contains("timeline", ignoreCase = true)
+            }
             RenewalDropdownAttempts++
-            if (RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
+            if (SheetMarkerVisible || RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
+                IsRenewalRangeSheetHidden = true
                 DiagnosticWarning(
-                    EventName = "RENEWAL_DATE_RANGE_SKIPPED",
-                    MessageText = "Dropdown options never appeared; continuing with the default filter"
+                    EventName = "RENEWAL_DATE_RANGE_HIDDEN",
+                    MessageText = "the Timeline sheet exposes no options; sheetMarker=$SheetMarkerVisible " +
+                            "ocrAttempts=$RenewalRangeOcrCount visibleTexts=${OptionEntries.size}"
                 )
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                HasSelectedRenewalDateRange = true
-                ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
-                    RunRenewalAutomationStep()
-                }
+                StartRenewalRangeOcr()
                 return
             }
             ScheduleRenewalAction(DelayMs = RENEWAL_DROPDOWN_OPEN_DELAY_MS) {
@@ -5223,7 +5275,6 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         val BottomOption = RangeOptions
             .map { Entry -> Entry.TextValue to Entry.BoundsObj }
-            .ifEmpty { OptionEntries }
             .maxByOrNull { NodeEntry -> NodeEntry.second.centerY() }
             ?: return
 
@@ -5256,6 +5307,16 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         val ChosenOption = WidestOption
             ?.let { Entry -> Entry.TextValue to Entry.BoundsObj }
             ?: BottomOption
+        if (RenewalDateRange.SpanDays(TextValue = ChosenOption.first) == null) {
+            IsRenewalRangeSheetHidden = true
+            DiagnosticWarning(
+                EventName = "RENEWAL_DATE_RANGE_HIDDEN",
+                MessageText = "no node parsed as a date range; refusing to tap " +
+                        "[${ChosenOption.first}] at ${ChosenOption.second}"
+            )
+            StartRenewalRangeOcr()
+            return
+        }
 
         val TapAccepted = PerformTapGesture(
             XPos = ChosenOption.second.centerX().toFloat(),
@@ -5442,7 +5503,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         RenewalReturnToTopCount++
         if (RenewalReturnToTopCount > RENEWAL_RETURN_TO_TOP_LIMIT) {
-            FailRenewalAutomation("Could not return to the renewal page selector")
+            RelistRenewalHistory(
+                TargetPage = if (RenewalCurrentPage > 0) RenewalCurrentPage + 1 else 2,
+                ReasonText = "Could not return to the renewal page selector"
+            )
             return
         }
 
@@ -5466,7 +5530,21 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun OpenRenewalPageSelector() {
-        RenewalExpectedPage = if (RenewalCurrentPage > 0) RenewalCurrentPage + 1 else 2
+        val TargetPage = if (RenewalSkipTargetPage > RenewalCurrentPage) {
+            RenewalSkipTargetPage
+        } else {
+            NextRenewalPageAfter(CurrentPage = RenewalCurrentPage)
+        }
+        if (EffectiveRenewalTotalPages() in 1..<TargetPage) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_PAGE_PRESKIPPED",
+                MessageText = "no page left after $RenewalCurrentPage " +
+                        "(total=${EffectiveRenewalTotalPages()}); finishing"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+        RenewalExpectedPage = TargetPage
 
         val RootNode = FindReadableRoot(
             ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
@@ -5534,6 +5612,18 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
 
             if (!IsRenewalPageSelectorVisible || RenewalCurrentPage != RenewalExpectedPage) {
+                if (RenewalExpectedPage > 1 &&
+                    RenewalKnownTotalPages > 0 &&
+                    IsRenewalHistoryEmpty(VisibleNodes = LatestRenewalVisibleNodes)
+                ) {
+                    DiagnosticWarning(
+                        EventName = "RENEWAL_PAGE_EMPTIED",
+                        MessageText = "page=$RenewalExpectedPage emptied the list " +
+                                "(00 Policies); not retrying"
+                    )
+                    SkipStuckRenewalPage(StuckPage = RenewalExpectedPage)
+                    return@ScheduleRenewalAction
+                }
                 RenewalPageRetryCount++
                 DiagnosticWarning(
                     EventName = "RENEWAL_PAGE_WAIT",
@@ -5541,7 +5631,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                             "selectorVisible=$IsRenewalPageSelectorVisible attempt=$RenewalPageRetryCount"
                 )
                 if (RenewalPageRetryCount >= RENEWAL_PAGE_RETRY_LIMIT) {
-                    FailRenewalAutomation("Renewal page $RenewalExpectedPage did not finish loading")
+                    SkipStuckRenewalPage(StuckPage = RenewalExpectedPage)
                 } else {
                     WaitForRenewalPageLoad()
                 }
@@ -5556,6 +5646,14 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             RenewalPageRetryCount = 0
             RenewalScrollStallCount = 0
             RenewalAutomationFailureCount = 0
+            if (RenewalSkipTargetPage in 1..RenewalCurrentPage) RenewalSkipTargetPage = 0
+            if (RenewalKnownBadPages.remove(RenewalCurrentPage)) {
+                DiagnosticInfo(
+                    EventName = "RENEWAL_PAGE_RECOVERED",
+                    MessageText = "page=$RenewalCurrentPage loaded fine; dropping it from the skip list"
+                )
+                SaveRenewalSkipRecord()
+            }
             DiagnosticInfo(
                 EventName = "RENEWAL_PAGE_LOADED",
                 MessageText = "page=$RenewalCurrentPage total=$RenewalTotalPages " +
@@ -5584,6 +5682,383 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
     }
 
+    private fun StartRenewalRangeOcr() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            RenewalRangeOcrCount >= RENEWAL_RANGE_OCR_LIMIT
+        ) {
+            HoldForManualRenewalRange(ReasonText = "no OCR available for the Timeline sheet")
+            return
+        }
+        RenewalRangeOcrCount++
+        DiagnosticInfo(
+            EventName = "RENEWAL_DATE_RANGE_OCR_START",
+            MessageText = "attempt=$RenewalRangeOcrCount"
+        )
+        try {
+            CustomerSheetOcr.ReadSheetBoxes(
+                ServiceRef = this,
+                ExecutorRef = OcrExecutor,
+                TopFraction = RENEWAL_RANGE_OCR_TOP_FRACTION
+            ) { OutcomeVal ->
+                MainHandler.post { FinishRenewalRangeOcr(OutcomeVal = OutcomeVal) }
+            }
+        } catch (ExceptionObj: Exception) {
+            HoldForManualRenewalRange(
+                ReasonText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun FinishRenewalRangeOcr(OutcomeVal: CustomerSheetOcr.BoxOutcome) {
+        if (!IsCapturing || CurrentMode != CaptureMode.FUP) return
+        if (OutcomeVal is CustomerSheetOcr.BoxOutcome.Failed) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DATE_RANGE_OCR_FAILED",
+                MessageText = "reason=[${OutcomeVal.Reason}]"
+            )
+            HoldForManualRenewalRange(ReasonText = OutcomeVal.Reason)
+            return
+        }
+
+        val BoxItems = (OutcomeVal as CustomerSheetOcr.BoxOutcome.Boxes).Items
+        val RangeBoxes = BoxItems.mapNotNull { BoxItem ->
+            val SpanDays = RenewalDateRange.SpanDays(TextValue = BoxItem.TextValue)
+            if (SpanDays == null) null else BoxItem to SpanDays
+        }
+        DiagnosticInfo(
+            EventName = "RENEWAL_DATE_RANGE_OCR_READ",
+            MessageText = "lines=${BoxItems.size} ranges=" +
+                    RangeBoxes.joinToString(separator = ",") { Entry -> Entry.first.TextValue }
+                        .ifEmpty { "none" }
+        )
+        if (RangeBoxes.isEmpty()) {
+            HoldForManualRenewalRange(ReasonText = "the Timeline sheet had no readable range labels")
+            return
+        }
+
+        val ChosenBox = RangeBoxes.maxByOrNull { Entry -> Entry.second } ?: return
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        val TapY = ChosenBox.first.Bounds.centerY().toFloat()
+        if (TapY <= ScreenHeight * RENEWAL_RANGE_OCR_TOP_FRACTION) {
+            HoldForManualRenewalRange(ReasonText = "the OCR match was outside the sheet area")
+            return
+        }
+        val TapAccepted = PerformTapGesture(
+            XPos = ChosenBox.first.Bounds.centerX().toFloat(),
+            YPos = TapY
+        )
+        DiagnosticInfo(
+            EventName = "RENEWAL_DATE_RANGE_OCR_PICK",
+            MessageText = "text=[${ChosenBox.first.TextValue}] spanDays=${ChosenBox.second} " +
+                    "bounds=${ChosenBox.first.Bounds} accepted=$TapAccepted"
+        )
+        if (!TapAccepted) {
+            HoldForManualRenewalRange(ReasonText = "the Timeline tap was refused")
+            return
+        }
+
+        RenewalPickedRangeLabel = ChosenBox.first.TextValue
+        HasSelectedRenewalDateRange = true
+        RenewalDropdownAttempts = 0
+        RenewalScrollStallCount = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalAutomationStep()
+        }
+    }
+
+    private fun MaybeReselectRenewalRange(): Boolean {
+        if (!HasSelectedRenewalDateRange) return false
+        if (RenewalPickedRangeLabel.isEmpty()) return false
+        if (RenewalCurrentPage > 0 || RenewalTotalPages > 0) return false
+        if (!IsRenewalHistoryEmpty(VisibleNodes = LatestRenewalVisibleNodes)) return false
+        if (RenewalRangeOcrCount >= RENEWAL_RANGE_OCR_LIMIT) return false
+
+        val CurrentLabel = CurrentRenewalRangeLabel()
+        val WantedSpan = RenewalDateRange.SpanDays(TextValue = RenewalPickedRangeLabel)
+        val ShowingSpan = RenewalDateRange.SpanDays(TextValue = CurrentLabel)
+        if (WantedSpan != null && WantedSpan == ShowingSpan) return false
+
+        DiagnosticWarning(
+            EventName = "RENEWAL_DATE_RANGE_LOST",
+            MessageText = "picked=[$RenewalPickedRangeLabel] showing=[" +
+                    CurrentLabel.ifEmpty { "unknown" } + "] and the list is empty; reopening Timeline"
+        )
+        HasSelectedRenewalDateRange = false
+        RenewalDropdownAttempts = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+            OpenRenewalDateRangeDropdown()
+        }
+        return true
+    }
+
+    private fun HoldForManualRenewalRange(ReasonText: String) {
+        IsRenewalRangeSheetHidden = true
+        RenewalManualWaitCount = 0
+        RenewalRangeBaselineLabel = CurrentRenewalRangeLabel()
+        DiagnosticWarning(
+            EventName = "RENEWAL_DATE_RANGE_MANUAL",
+            MessageText = "reason=[$ReasonText] currentRange=[" +
+                    RenewalRangeBaselineLabel.ifEmpty { "unknown" } + "]; waiting for you to pick one"
+        )
+        ShowServiceToast(
+            MessageText = "Pick a date range in the app; capture continues on its own",
+            KindVal = AppToast.Kind.Warning
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            WaitForManualRenewalRange()
+        }
+    }
+
+    private fun WaitForManualRenewalRange() {
+        CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        val CurrentLabel = CurrentRenewalRangeLabel()
+        val LabelChanged = CurrentLabel.isNotEmpty() &&
+                !CurrentLabel.equals(RenewalRangeBaselineLabel, ignoreCase = true)
+        val ListReady = RenewalTotalPages > 0 || RenewalCurrentPage > 0
+
+        if (LabelChanged || (ListReady && RenewalManualWaitCount >= 2)) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_DATE_RANGE_MANUAL_DONE",
+                MessageText = "range=[${CurrentLabel.ifEmpty { "unchanged" }}] " +
+                        "waits=$RenewalManualWaitCount"
+            )
+            HasSelectedRenewalDateRange = true
+            RenewalDropdownAttempts = 0
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalAutomationStep()
+            }
+            return
+        }
+
+        RenewalManualWaitCount++
+        if (RenewalManualWaitCount > RENEWAL_MANUAL_RANGE_WAIT_LIMIT) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DATE_RANGE_MANUAL_TIMEOUT",
+                MessageText = "no range was picked; continuing with [" +
+                        CurrentLabel.ifEmpty { "whatever is set" } + "]"
+            )
+            HasSelectedRenewalDateRange = true
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalAutomationStep()
+            }
+            return
+        }
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            WaitForManualRenewalRange()
+        }
+    }
+
+    private fun CurrentRenewalRangeLabel(): String {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return ""
+        val TextNodes = try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        return TextNodes
+            .filter { NodeEntry ->
+                NodeEntry.second.centerY() <= ScreenHeight * 0.35f &&
+                        RenewalDateRange.SpanDays(TextValue = NodeEntry.first) != null
+            }
+            .minByOrNull { NodeEntry -> NodeEntry.second.centerY() }
+            ?.first
+            .orEmpty()
+    }
+
+    private fun SkipStuckRenewalPage(StuckPage: Int) {
+        if (StuckPage <= 0) {
+            FailRenewalAutomation("Renewal page $StuckPage did not finish loading")
+            return
+        }
+        RenewalSkippedPages.add(StuckPage)
+        RenewalKnownBadPages.add(StuckPage)
+        SaveRenewalSkipRecord()
+        val TotalPagesKnown = EffectiveRenewalTotalPages()
+        if (TotalPagesKnown in 1..StuckPage) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_PAGE_SKIPPED",
+                MessageText = "page=$StuckPage total=$TotalPagesKnown was the last page; " +
+                        "finishing with what is captured"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+        DiagnosticWarning(
+            EventName = "RENEWAL_PAGE_SKIPPED",
+            MessageText = "page=$StuckPage total=$TotalPagesKnown never rendered; " +
+                    "reopening the list and jumping to ${StuckPage + 1}"
+        )
+        RelistRenewalHistory(
+            TargetPage = StuckPage + 1,
+            ReasonText = "Renewal page $StuckPage did not finish loading"
+        )
+    }
+
+    private fun RelistRenewalHistory(TargetPage: Int, ReasonText: String) {
+        RenewalRelistCount++
+        val RelistCeiling = if (EffectiveRenewalTotalPages() > 0) {
+            EffectiveRenewalTotalPages() + RENEWAL_RELIST_LIMIT
+        } else {
+            RENEWAL_RELIST_LIMIT
+        }
+        if (RenewalRelistCount > RelistCeiling) {
+            FailRenewalAutomation(ReasonText)
+            return
+        }
+        if (TargetPage <= RenewalLastRelistTarget) {
+            RenewalRelistStalls++
+            if (RenewalRelistStalls >= RENEWAL_RELIST_STALL_LIMIT) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_RELIST_STALLED",
+                    MessageText = "target=$TargetPage never moved past $RenewalLastRelistTarget"
+                )
+                FailRenewalAutomation(ReasonText)
+                return
+            }
+        } else {
+            RenewalRelistStalls = 0
+            RenewalLastRelistTarget = TargetPage
+        }
+        if (EffectiveRenewalTotalPages() in 1..<TargetPage) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_RELIST_COMPLETE",
+                MessageText = "target=$TargetPage is past total=${EffectiveRenewalTotalPages()}; " +
+                        "finishing"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+        RenewalSkipTargetPage = TargetPage
+        RenewalSkipWaitCount = 0
+        RenewalRangeOcrCount = 0
+        HasOpenedRenewalHistoryList = false
+        HasSelectedRenewalDateRange = false
+        RenewalCurrentPage = 0
+        RenewalExpectedPage = 0
+        RenewalPageRetryCount = 0
+        RenewalReturnToTopCount = 0
+        RenewalScrollStallCount = 0
+        RenewalDashboardScrollCount = 0
+        RenewalDropdownAttempts = 0
+        RenewalDropdownScrollPasses = 0
+        RenewalDropdownSeenOptions = emptySet()
+        RenewalChipBounds = null
+        RenewalUnknownScreenCount = 0
+        IsRenewalPageSelectorVisible = false
+        DiagnosticWarning(
+            EventName = "RENEWAL_RELIST",
+            MessageText = "reason=[$ReasonText] target=$TargetPage attempt=$RenewalRelistCount " +
+                    "skipped=${RenewalSkippedPages.joinToString(separator = ",").ifEmpty { "none" }}"
+        )
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalAutomationStep()
+        }
+    }
+
+    private fun EffectiveRenewalTotalPages(): Int {
+        if (RenewalTotalPages > 0) return RenewalTotalPages
+        return RenewalKnownTotalPages
+    }
+
+    private fun CurrentRenewalSpanDays(): Int {
+        val PickedSpan = RenewalDateRange.SpanDays(TextValue = RenewalPickedRangeLabel)
+        if (PickedSpan != null) return PickedSpan
+        return RenewalDateRange.SpanDays(TextValue = CurrentRenewalRangeLabel()) ?: 0
+    }
+
+    private fun SaveRenewalSkipRecord() {
+        if (CurrentSessionId.isBlank()) return
+        val SpanDays = if (RenewalKnownBadSpanDays > 0) {
+            RenewalKnownBadSpanDays
+        } else {
+            CurrentRenewalSpanDays()
+        }
+        RenewalKnownBadSpanDays = SpanDays
+        try {
+            PolicyRepository.SaveRenewalSkips(
+                ContextRef = this,
+                SessionId = CurrentSessionId,
+                RecordObj = PolicyRepository.RenewalSkipRecord(
+                    SpanDays = SpanDays,
+                    TotalPages = RenewalKnownTotalPages,
+                    Pages = RenewalKnownBadPages.toList().sorted(),
+                    SavedAt = System.currentTimeMillis()
+                )
+            )
+            DiagnosticInfo(
+                EventName = "RENEWAL_SKIPS_SAVED",
+                MessageText = "spanDays=$SpanDays total=$RenewalKnownTotalPages " +
+                        "pages=${RenewalKnownBadPages.joinToString(separator = ",")}"
+            )
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_SKIPS_SAVE_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun IsKnownBadRenewalPage(PageNumber: Int): Boolean {
+        if (RenewalKnownBadPages.isEmpty()) return false
+        if (!RenewalKnownBadPages.contains(PageNumber)) return false
+        if (RenewalKnownBadSpanDays <= 0) return true
+        val CurrentSpan = CurrentRenewalSpanDays()
+        if (CurrentSpan <= 0) return true
+        return CurrentSpan == RenewalKnownBadSpanDays
+    }
+
+    private fun NextRenewalPageAfter(CurrentPage: Int): Int {
+        var Candidate = if (CurrentPage > 0) CurrentPage + 1 else 2
+        val TotalPagesKnown = EffectiveRenewalTotalPages()
+        val Ceiling = if (TotalPagesKnown > 0) TotalPagesKnown else Int.MAX_VALUE
+        while (Candidate <= Ceiling && IsKnownBadRenewalPage(PageNumber = Candidate)) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_PAGE_PRESKIPPED",
+                MessageText = "page=$Candidate is known bad for this range; trying ${Candidate + 1}"
+            )
+            Candidate++
+        }
+        return Candidate
+    }
+
+    private fun MaybeJumpToRenewalSkipTarget(): Boolean {
+        val TargetPage = RenewalSkipTargetPage
+        if (TargetPage <= 1) return false
+        if (RenewalCurrentPage <= 0) {
+            RenewalSkipWaitCount++
+            if (RenewalSkipWaitCount > RENEWAL_SKIP_WAIT_LIMIT) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_SKIP_ABANDONED",
+                    MessageText = "target=$TargetPage never saw a page number after the relist; " +
+                            "walking from the top instead"
+                )
+                RenewalSkipTargetPage = 0
+                return false
+            }
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalAutomationStep()
+            }
+            return true
+        }
+        RenewalSkipWaitCount = 0
+        if (RenewalCurrentPage >= TargetPage) {
+            RenewalSkipTargetPage = 0
+            return false
+        }
+        DiagnosticInfo(
+            EventName = "RENEWAL_SKIP_JUMP",
+            MessageText = "from=$RenewalCurrentPage target=$TargetPage " +
+                    "total=$RenewalTotalPages"
+        )
+        RenewalReturnToTopCount = 0
+        OpenRenewalPageSelector()
+        return true
+    }
+
     private fun CompleteRenewalAutomation() {
         if (IsRenewalAutomationComplete) return
         IsRenewalAutomationComplete = true
@@ -5592,14 +6067,20 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         RenewalAutomationRunnable = null
 
         val RecordCount = CapturedFupMap.size
+        val SkippedText = RenewalSkippedPages.joinToString(separator = ", ")
         DiagnosticInfo(
             EventName = "RENEWAL_AUTOMATION_COMPLETE",
             MessageText = "records=$RecordCount nodes=${CapturedNodes.size} " +
-                    "page=$RenewalCurrentPage/$RenewalTotalPages"
+                    "page=$RenewalCurrentPage/$RenewalTotalPages " +
+                    "skippedPages=${SkippedText.ifEmpty { "none" }}"
         )
         ShowServiceToast(
-            MessageText = "Captured $RecordCount renewal records",
-            KindVal = AppToast.Kind.Success
+            MessageText = if (SkippedText.isEmpty()) {
+                "Captured $RecordCount renewal records"
+            } else {
+                "Captured $RecordCount renewal records; page $SkippedText would not load"
+            },
+            KindVal = if (SkippedText.isEmpty()) AppToast.Kind.Success else AppToast.Kind.Warning
         )
 
         MainHandler.postDelayed({
@@ -5665,6 +6146,20 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             RenewalCurrentPage = 0
             RenewalTotalPages = 0
             RenewalExpectedPage = 0
+            RenewalSkipTargetPage = 0
+            RenewalSkipWaitCount = 0
+            RenewalRangeOcrCount = 0
+            RenewalKnownTotalPages = 0
+            RenewalPickedRangeLabel = ""
+            RenewalLastRelistTarget = 0
+            RenewalRelistStalls = 0
+            RenewalKnownBadPages.clear()
+            RenewalKnownBadSpanDays = 0
+            IsRenewalRangeSheetHidden = false
+            RenewalManualWaitCount = 0
+            RenewalRangeBaselineLabel = ""
+            RenewalRelistCount = 0
+            RenewalSkippedPages.clear()
             RenewalPageRetryCount = 0
             RenewalReturnToTopCount = 0
             RenewalScrollStallCount = 0
@@ -6800,6 +7295,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun StartCustomerAutomation() {
+        if (CustomerRoute.IsArmed) return
         if (IsCustomerAutomationRunning || IsCustomerAutomationComplete) return
         if (CurrentMode != CaptureMode.CUSTOMER) return
         if (System.currentTimeMillis() < CustomerAutomationRetryAfter) return

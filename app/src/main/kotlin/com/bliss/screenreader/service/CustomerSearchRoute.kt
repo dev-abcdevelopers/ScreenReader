@@ -61,6 +61,7 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
         private const val CHIP_BAND_BOTTOM_RATIO = 0.34f
         private const val ICON_FALLBACK_X_RATIO = 0.92f
         private const val ROW_ARROW_X_RATIO = 0.94f
+        private const val SHEET_FIELD_BAND_RATIO = 0.5f
         private const val ROW_HEIGHT_RATIO = 0.12f
         private const val ROW_PAIR_RATIO = 0.06f
         private const val DANGER_CLEARANCE_RATIO = 0.035f
@@ -72,6 +73,8 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
 
         private val ROW_ARROW_LABELS = listOf("righticon", "rightarrowicon", "arrowright")
         private const val DASHBOARD_ARROW_LABEL = "cardrightarrow"
+
+        private val ROLE_MARKER_REGEX = Regex("\\(\\s*(a|p|la)\\s*\\)", RegexOption.IGNORE_CASE)
 
         private val DANGER_LABELS = listOf(
             "call customer", "call", "phone", "dial", "mail", "email", "message", "whatsapp",
@@ -233,7 +236,7 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
     private fun BeginRoute() {
         IsDriving = true
         HostRef.CustomerSearchBeginRun()
-        if (IsSearchScreenVisible) {
+        if (IsSheetReady()) {
             StageVal = Stage.FILTER_CHIP
             QueryAttempts = 0
             HostRef.CustomerSearchInfo(
@@ -255,7 +258,7 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
     }
 
     private fun TapSearchIcon() {
-        if (IsSearchScreenVisible) {
+        if (IsSheetReady()) {
             OnSearchScreenReady()
             return
         }
@@ -350,7 +353,7 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
     }
 
     private fun WaitForSearchScreen() {
-        if (IsSearchScreenVisible) {
+        if (IsSheetReady()) {
             OnSearchScreenReady()
             return
         }
@@ -604,13 +607,35 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
         val ScreenHeight = HostRef.CustomerSearchScreenHeight()
         val WantedName = NormalisedOf(TextValue = TargetName)
         val ResultsFloor = ResultsFloorOf(Snapshots = Snapshots)
-        val NameNodes = Snapshots.filter { SnapItem ->
+        val RowNodes = Snapshots.filter { SnapItem ->
             !SnapItem.IsEditable &&
+                    SnapItem.TextVal.isNotEmpty() &&
                     SnapItem.Bounds.top >= ResultsFloor &&
-                    SnapItem.Bounds.height() <= ScreenHeight * ROW_HEIGHT_RATIO &&
-                    NormalisedOf(TextValue = SnapItem.TextVal) == WantedName
+                    SnapItem.Bounds.height() <= ScreenHeight * ROW_HEIGHT_RATIO
+        }
+        val ExactNodes = RowNodes.filter { SnapItem ->
+            NormalisedOf(TextValue = SnapItem.TextVal) == WantedName
+        }
+        val StrippedNodes = RowNodes.filter { SnapItem ->
+            StrippedNameOf(TextValue = SnapItem.TextVal) == WantedName
+        }
+        val ContainingNodes = RowNodes.filter { SnapItem ->
+            ContainsWholeName(TextValue = SnapItem.TextVal, WantedName = WantedName)
+        }.sortedBy { SnapItem -> SnapItem.TextVal.length }
+        val NameNodes = when {
+            ExactNodes.isNotEmpty() -> ExactNodes
+            StrippedNodes.isNotEmpty() -> StrippedNodes
+            else -> ContainingNodes
         }
         if (NameNodes.isEmpty()) return Pair(null, null)
+        if (NameNodes.size > 1 || ContainingNodes.size > 1) {
+            HostRef.CustomerSearchInfo(
+                EventName = "CUSTOMER_SEARCH_ROW_MATCHES",
+                MessageText = "customer=$TargetName exact=${ExactNodes.size} " +
+                        "stripped=${StrippedNodes.size} containing=${ContainingNodes.size} " +
+                        "picked=[${NameNodes.first().TextVal}]"
+            )
+        }
 
         val ArrowNodes = Snapshots.filter { SnapItem ->
             IsResultArrowLabel(TextValue = SnapItem.TextVal)
@@ -631,6 +656,27 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
         }
         if (BestName != null) return Pair(BestName, BestArrow)
         return Pair(NameNodes.first().Bounds, null)
+    }
+
+    private fun IsSheetReady(): Boolean {
+        if (!IsSearchScreenVisible) return false
+        val Snapshots = ReadSnapshots() ?: return false
+        val ScreenHeight = HostRef.CustomerSearchScreenHeight()
+        val FieldNode = Snapshots.firstOrNull { SnapItem ->
+            SnapItem.IsEditable &&
+                    !SnapItem.Bounds.isEmpty &&
+                    SnapItem.Bounds.top >= 0 &&
+                    SnapItem.Bounds.centerY() <= ScreenHeight * SHEET_FIELD_BAND_RATIO
+        }
+        if (FieldNode == null) {
+            HostRef.CustomerSearchInfo(
+                EventName = "CUSTOMER_SEARCH_SHEET_STALE",
+                MessageText = "search markers are in the tree but no on-screen field; " +
+                        "treating the sheet as closed"
+            )
+            return false
+        }
+        return true
     }
 
     private fun ResultsFloorOf(Snapshots: List<NodeSnapshot>): Int {
@@ -672,8 +718,27 @@ class CustomerSearchRoute(private val HostRef: CustomerSearchHost) {
         if (NameText.isEmpty()) return false
         val WantedName = NormalisedOf(TextValue = NameText)
         return LatestNodes.any { NodeText ->
-            NormalisedOf(TextValue = NodeText) == WantedName
+            NormalisedOf(TextValue = NodeText) == WantedName ||
+                    StrippedNameOf(TextValue = NodeText) == WantedName ||
+                    ContainsWholeName(TextValue = NodeText, WantedName = WantedName)
         }
+    }
+
+    private fun StrippedNameOf(TextValue: String): String {
+        return NormalisedOf(TextValue = ROLE_MARKER_REGEX.replace(TextValue, " "))
+    }
+
+    private fun ContainsWholeName(TextValue: String, WantedName: String): Boolean {
+        if (WantedName.isEmpty()) return false
+        val Haystack = StrippedNameOf(TextValue = TextValue)
+        if (Haystack == WantedName) return true
+        val MatchIdx = Haystack.indexOf(WantedName)
+        if (MatchIdx < 0) return false
+        val BeforeChar = Haystack.getOrNull(MatchIdx - 1)
+        val AfterChar = Haystack.getOrNull(MatchIdx + WantedName.length)
+        val StartsClean = BeforeChar == null || !BeforeChar.isLetterOrDigit()
+        val EndsClean = AfterChar == null || !AfterChar.isLetterOrDigit()
+        return StartsClean && EndsClean
     }
 
     private fun NormalisedOf(TextValue: String): String {

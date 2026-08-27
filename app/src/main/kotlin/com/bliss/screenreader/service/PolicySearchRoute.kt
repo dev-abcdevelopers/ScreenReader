@@ -61,6 +61,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
         private const val CHIP_BAND_BOTTOM_RATIO = 0.34f
         private const val ICON_FALLBACK_X_RATIO = 0.92f
         private const val ROW_ARROW_X_RATIO = 0.94f
+        private const val SHEET_FIELD_BAND_RATIO = 0.5f
         private const val ROW_HEIGHT_RATIO = 0.12f
         private const val ROW_PAIR_RATIO = 0.06f
 
@@ -92,7 +93,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
     private var ReturnWaits = 0
     private var LastStepAt = 0L
     private var IsSearchScreenVisible = false
-    private var IsDashboardVisibleVal = false
+    private var IsEntryVisibleVal = false
     private var LatestNodes: List<String> = emptyList()
 
     fun Reset() {
@@ -112,7 +113,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
         ReturnWaits = 0
         LastStepAt = 0L
         IsSearchScreenVisible = false
-        IsDashboardVisibleVal = false
+        IsEntryVisibleVal = false
         LatestNodes = emptyList()
     }
 
@@ -136,14 +137,14 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
         )
     }
 
-    fun HandleScreen(VisibleNodes: List<String>, IsDashboardVisible: Boolean): Boolean {
+    fun HandleScreen(VisibleNodes: List<String>, IsEntryVisible: Boolean): Boolean {
         if (!IsArmed) return false
         LatestNodes = VisibleNodes
         IsSearchScreenVisible = PolicySearchParser.IsSearchScreen(Nodes = VisibleNodes)
-        IsDashboardVisibleVal = IsDashboardVisible && !IsSearchScreenVisible
+        IsEntryVisibleVal = IsEntryVisible && !IsSearchScreenVisible
 
         if (!IsDriving) {
-            if (!IsDashboardVisibleVal) return false
+            if (!IsEntryVisible) return false
             BeginRoute()
             return true
         }
@@ -167,7 +168,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
 
     fun OnDetailReturn() {
         if (!IsDriving) return
-        if (IsSearchScreenVisible || IsDashboardVisibleVal) {
+        if (IsSearchScreenVisible || IsEntryVisibleVal) {
             AdvanceTarget()
             return
         }
@@ -194,7 +195,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
     }
 
     private fun TapSearchIcon() {
-        if (IsSearchScreenVisible) {
+        if (IsSheetReady()) {
             OnSearchScreenReady()
             return
         }
@@ -290,7 +291,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
     }
 
     private fun WaitForSearchScreen() {
-        if (IsSearchScreenVisible) {
+        if (IsSheetReady()) {
             OnSearchScreenReady()
             return
         }
@@ -561,7 +562,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
         StageVal = Stage.DETAIL
         ReturnWaits = 0
         IsSearchScreenVisible = false
-        IsDashboardVisibleVal = false
+        IsEntryVisibleVal = false
         LastStepAt = System.currentTimeMillis()
         HostRef.SearchOpenDetail(PolicyNumberVal = TargetNumber)
     }
@@ -600,6 +601,27 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
         }
         if (BestNumber != null) return Pair(BestNumber, BestArrow)
         return Pair(NumberNodes.first().Bounds, null)
+    }
+
+    private fun IsSheetReady(): Boolean {
+        if (!IsSearchScreenVisible) return false
+        val Snapshots = ReadSnapshots() ?: return false
+        val ScreenHeight = HostRef.SearchScreenHeight()
+        val FieldNode = Snapshots.firstOrNull { SnapItem ->
+            SnapItem.IsEditable &&
+                    !SnapItem.Bounds.isEmpty &&
+                    SnapItem.Bounds.top >= 0 &&
+                    SnapItem.Bounds.centerY() <= ScreenHeight * SHEET_FIELD_BAND_RATIO
+        }
+        if (FieldNode == null) {
+            HostRef.SearchInfo(
+                EventName = "POLICY_SEARCH_SHEET_STALE",
+                MessageText = "search markers are in the tree but no on-screen field; " +
+                        "treating the sheet as closed"
+            )
+            return false
+        }
+        return true
     }
 
     private fun ResultsFloorOf(Snapshots: List<NodeSnapshot>): Int {
@@ -661,7 +683,7 @@ class PolicySearchRoute(private val HostRef: PolicySearchHost) {
             MessageText = "stage=${StageVal.name.lowercase()} target=${CurrentTarget()} " +
                     "reason=[$ReasonText]"
         )
-        val NeedsBackOut = !IsDashboardVisibleVal
+        val NeedsBackOut = !IsEntryVisibleVal
         IsArmed = false
         IsDriving = false
         StageVal = Stage.IDLE
