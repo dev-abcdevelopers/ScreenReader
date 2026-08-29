@@ -9246,7 +9246,15 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         if (ProfileObj != null) {
             for (PolicyNumber in ActiveCustomerRelevantNumbers) {
                 val PatchItem = ProfileObj.ToPolicyPatch(PolicyNumber = PolicyNumber)
-                ProfilePatchMap[PolicyNumber] = PatchItem
+                val ExistingPatch = ProfilePatchMap[PolicyNumber]
+                ProfilePatchMap[PolicyNumber] = if (ExistingPatch == null) {
+                    PatchItem
+                } else {
+                    RecordMerge.MergePolicy(
+                        ExistingItem = ExistingPatch,
+                        IncomingItem = PatchItem
+                    ).Record
+                }
                 ProfilePatchNames[PolicyNumber] = ActiveCustomerName
                 FilledCount++
             }
