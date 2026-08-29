@@ -45,17 +45,19 @@ class SessionStickyHeaderDecoration(
         val HeaderView = BindingRef.root
         if (HeaderView.height <= 0) return
 
-        var OffsetTop = 0f
+        val AnchorView = ParentRef.findViewHolderForAdapterPosition(HeaderPosition)?.itemView
+        var OffsetTop = if (AnchorView == null) 0f else AnchorView.top.toFloat().coerceAtLeast(0f)
+
         val NextChild = ParentRef.findChildViewUnder(
             ParentRef.width / 2f,
-            HeaderView.height + 1f
+            OffsetTop + HeaderView.height + 1f
         )
         if (NextChild != null) {
             val NextPosition = ParentRef.getChildAdapterPosition(NextChild)
             if (NextPosition != RecyclerView.NO_POSITION &&
                 NextPosition != HeaderPosition &&
                 AdapterRef.IsHeaderAt(PositionVal = NextPosition) &&
-                NextChild.top < HeaderView.height
+                NextChild.top < OffsetTop + HeaderView.height
             ) {
                 OffsetTop = (NextChild.top - HeaderView.height).toFloat()
             }
@@ -66,7 +68,7 @@ class SessionStickyHeaderDecoration(
         PinnedBottomPx = OffsetTop + HeaderView.height
 
         CanvasRef.save()
-        CanvasRef.translate(0f, OffsetTop)
+        CanvasRef.translate(ParentRef.paddingLeft.toFloat(), OffsetTop)
         HeaderView.draw(CanvasRef)
         CanvasRef.restore()
     }
@@ -87,9 +89,15 @@ class SessionStickyHeaderDecoration(
         val HeaderView = BindingRef.root
         val TargetWidth = ParentRef.width - ParentRef.paddingLeft - ParentRef.paddingRight
         if (HeaderView.width != TargetWidth || HeaderView.height <= 0) {
+            val DeclaredHeight = HeaderView.layoutParams?.height ?: 0
+            val HeightSpec = if (DeclaredHeight > 0) {
+                View.MeasureSpec.makeMeasureSpec(DeclaredHeight, View.MeasureSpec.EXACTLY)
+            } else {
+                View.MeasureSpec.makeMeasureSpec(ParentRef.height, View.MeasureSpec.AT_MOST)
+            }
             HeaderView.measure(
                 View.MeasureSpec.makeMeasureSpec(TargetWidth, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(ParentRef.height, View.MeasureSpec.AT_MOST)
+                HeightSpec
             )
             HeaderView.layout(0, 0, HeaderView.measuredWidth, HeaderView.measuredHeight)
         }

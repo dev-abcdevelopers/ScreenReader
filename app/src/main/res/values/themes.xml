@@ -58,20 +58,25 @@
     </style>
 
     <!--
-      The capture review sheet fills the screen, so it draws behind the status bar
-      and squares its corners. paddingTopSystemWindowInsets is off because the
-      sheet pads its own hero band with the status bar inset.
+      The capture review sheet fills the screen and draws behind the status bar.
+      The transparent bar colours are what make Material treat it as edge to edge
+      below API 35; paddingTopSystemWindowInsets must stay on (it is what keeps
+      the behaviour's expanded offset at zero), so the sheet itself carries the
+      status bar strip and is tinted with the hero colour. The nav bar inset is
+      ours, so the action bar's own surface reaches the bottom of the screen.
     -->
     <style name="Theme.DataReaderApp.BottomSheet.Review" parent="Theme.DataReaderApp.BottomSheet">
         <item name="bottomSheetStyle">@style/Widget.App.BottomSheet.Review</item>
         <item name="enableEdgeToEdge">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
     </style>
 
     <style name="Widget.App.BottomSheet.Review" parent="Widget.App.BottomSheet">
         <item name="shapeAppearance">@style/ShapeAppearance.App.BottomSheet.Review</item>
         <item name="shapeAppearanceOverlay">@null</item>
         <item name="backgroundTint">@color/review_hero_start</item>
-        <item name="paddingTopSystemWindowInsets">false</item>
         <item name="paddingBottomSystemWindowInsets">false</item>
     </style>
 

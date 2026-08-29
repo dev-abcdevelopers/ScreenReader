@@ -4,11 +4,13 @@ package com.bliss.screenreader.ui.capture
 
 import android.app.Dialog
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -31,6 +33,7 @@ import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.shape.MaterialShapeDrawable
 
 class CaptureReviewSheet : BottomSheetDialogFragment() {
 
@@ -71,12 +74,22 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
             BehaviorRef.isHideable = false
             BehaviorRef.state = BottomSheetBehavior.STATE_EXPANDED
             PaintSheetBackground(SheetView = SheetView)
-            DialogRef.window?.let { WindowRef ->
-                WindowCompat.getInsetsController(WindowRef, WindowRef.decorView)
-                    .isAppearanceLightStatusBars = false
-            }
+            ApplyBarAppearance(DialogRef = DialogRef)
         }
         return DialogRef
+    }
+
+    private fun ApplyBarAppearance(DialogRef: BottomSheetDialog) {
+        val WindowRef = DialogRef.window ?: return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            WindowRef.isNavigationBarContrastEnforced = false
+        }
+        val NightMode = (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val ControllerRef = WindowCompat.getInsetsController(WindowRef, WindowRef.decorView)
+        ControllerRef.isAppearanceLightStatusBars = false
+        ControllerRef.isAppearanceLightNavigationBars = !NightMode
     }
 
     private fun PaintSheetBackground(SheetView: View) {
@@ -86,9 +99,15 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
         } else {
             R.color.update_hero_forced_start
         }
-        SheetView.setBackgroundColor(
-            androidx.core.content.ContextCompat.getColor(requireContext(), BandColorId)
-        )
+        val BandColor = ContextCompat.getColor(requireContext(), BandColorId)
+        SheetView.post {
+            val ShapeBackground = SheetView.background as? MaterialShapeDrawable
+            if (ShapeBackground != null) {
+                ShapeBackground.fillColor = ColorStateList.valueOf(BandColor)
+            } else {
+                SheetView.setBackgroundColor(BandColor)
+            }
+        }
     }
 
     override fun onCreateView(
@@ -206,10 +225,19 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
     private fun ApplySheetInsets(BindingObj: SheetCaptureReviewBinding) {
         val HeroTopPadding = BindingObj.reviewHeroBand.paddingTop
         val ActionBottomPadding = BindingObj.reviewActionBar.paddingBottom
-        ViewCompat.setOnApplyWindowInsetsListener(BindingObj.root) { _, WindowInsetsObj ->
-            val BarInsets = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.systemBars())
-            BindingObj.reviewHeroBand.updatePadding(top = HeroTopPadding + BarInsets.top)
-            BindingObj.reviewActionBar.updatePadding(bottom = ActionBottomPadding + BarInsets.bottom)
+        ViewCompat.setOnApplyWindowInsetsListener(BindingObj.root) { RootView, WindowInsetsObj ->
+            val BarInsets = WindowInsetsObj.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val SheetView = RootView.parent as? View
+            val SheetTop = SheetView?.paddingTop ?: 0
+            val SheetBottom = SheetView?.paddingBottom ?: 0
+            BindingObj.reviewHeroBand.updatePadding(
+                top = HeroTopPadding + (BarInsets.top - SheetTop).coerceAtLeast(0)
+            )
+            BindingObj.reviewActionBar.updatePadding(
+                bottom = ActionBottomPadding + (BarInsets.bottom - SheetBottom).coerceAtLeast(0)
+            )
             WindowInsetsObj
         }
     }
