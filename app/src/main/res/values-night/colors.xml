@@ -62,4 +62,10 @@
     <color name="update_hero_track">#38FFFFFF</color>
     <color name="update_handle_light">#73FFFFFF</color>
 
+    <!-- Capture review sheet -->
+    <color name="review_hero_start">#0B7A5C</color>
+    <color name="review_hero_end">#053F30</color>
+    <color name="review_hero_text">#FFFFFF</color>
+    <color name="review_hero_subtitle">#BFEEDD</color>
+
 </resources>

@@ -210,6 +210,12 @@
     <string name="changes_share_header">%1$s \u00b7 %2$d change(s)</string>
     <string name="action_changes_title">Changes</string>
     <string name="action_changes_desc">What has been rewritten in this session, and what the last import skipped</string>
+    <string name="actions_section_server">Server</string>
+    <string name="actions_section_add">Add to this session</string>
+    <string name="actions_section_review">Review and export</string>
+    <string name="actions_section_session">This session</string>
+    <string name="action_share_log_desc">Sends the diagnostic log written during this capture</string>
+    <string name="action_delete_desc">Removes %1$s and the session log permanently</string>
     <string name="change_arrow">\u2192</string>
     <string name="due_preview_title">%1$d due date(s) will change</string>
     <string name="due_preview_hint">Nothing is saved yet. %1$d already updated, %2$d cannot be worked out.</string>

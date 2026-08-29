@@ -17,6 +17,7 @@
     <dimen name="radius_sm">8dp</dimen>
     <dimen name="radius_md">12dp</dimen>
     <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_hero_curve">28dp</dimen>
 
     <!-- Controls. 48dp is the minimum touch target. -->
     <dimen name="touch_min">48dp</dimen>

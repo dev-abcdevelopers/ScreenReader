@@ -103,13 +103,16 @@
 
     <string name="review_title">Capture complete</string>
     <string name="review_title_empty">Nothing captured</string>
-    <string name="review_subtitle_format">%1$s found in %2$s</string>
+    <string name="review_subtitle_stats_format">%1$s · %2$d nodes · %3$s</string>
+    <string name="review_filter_all">All %1$d</string>
+    <string name="review_filter_due">With due %1$d</string>
+    <string name="review_filter_partial">Partial %1$d</string>
+    <string name="review_filter_empty">Nothing matches this filter</string>
     <string name="review_subtitle_empty">No records matched in %1$d nodes. The target screen may have changed.</string>
     <string name="review_discard">Discard</string>
     <string name="review_save_format">Save %1$s</string>
     <string name="review_close">Close</string>
     <string name="review_view_raw_format">View %1$d raw nodes</string>
-    <string name="review_fields_format">%1$d fields</string>
     <string name="review_saved_format">Saved %1$s</string>
     <string name="review_discarded">Capture discarded</string>
     <string name="review_nothing_saved">Nothing was saved</string>

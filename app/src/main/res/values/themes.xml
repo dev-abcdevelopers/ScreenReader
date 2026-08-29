@@ -57,6 +57,14 @@
         <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
+    <!--
+      The capture review sheet is full height and paints its hero band to its own
+      top corners, so it reuses the update sheet's matched corner shape.
+    -->
+    <style name="Theme.DataReaderApp.BottomSheet.Review" parent="Theme.DataReaderApp.BottomSheet">
+        <item name="bottomSheetStyle">@style/Widget.App.BottomSheet.Update</item>
+    </style>
+
     <!-- ==================================================== type scale ==== -->
 
     <style name="TextAppearance.App.Title" parent="TextAppearance.Material3.TitleLarge">

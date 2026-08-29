@@ -814,14 +814,7 @@ class PoliciesFragment : Fragment() {
         AppToast.Show(ContextRef = context, MessageText = MessageVal, KindVal = KindVal)
     }
 
-    private fun HasAnySessionAction(): Boolean {
-        val ContextRef = context ?: return false
-        val IsPolicySession = SelectedSessionId.isNotEmpty() &&
-                SelectedSessionMode == CaptureMode.POLICY
-        if (IsPolicySession) return true
-        if (SessionUploader.IsEnabled() && IsUploadableSession()) return true
-        return SettingsStore.IsSessionExportVisible(ContextRef = ContextRef)
-    }
+    private fun HasAnySessionAction(): Boolean = SelectedSessionId.isNotEmpty()
 
     private fun RenderList(ResetScroll: Boolean = false) {
         when {
@@ -875,7 +868,7 @@ class PoliciesFragment : Fragment() {
             if (HasVisible) View.GONE else View.VISIBLE
         ShowPdfAction = false
         BindingObj.exportBar.visibility =
-            if (HasVisible && HasAnySessionAction()) View.VISIBLE else View.GONE
+            if (HasAnySessionAction()) View.VISIBLE else View.GONE
         if (HasVisible) return
 
         if (AllRenewals.isNotEmpty()) {
@@ -943,7 +936,7 @@ class PoliciesFragment : Fragment() {
         BindingObj.emptyState.emptyStateRoot.visibility =
             if (HasVisible) View.GONE else View.VISIBLE
         BindingObj.exportBar.visibility =
-            if (HasVisible && HasAnySessionAction()) View.VISIBLE else View.GONE
+            if (HasAnySessionAction()) View.VISIBLE else View.GONE
 
         if (HasVisible) return
 
@@ -1245,10 +1238,23 @@ class PoliciesFragment : Fragment() {
         val SheetBinding = SheetSessionActionsBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.setOnShowListener {
+            SheetDialog.behavior.skipCollapsed = true
+            SheetDialog.behavior.isDraggable = false
+            SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        }
 
         val IsPolicySession = SelectedSessionId.isNotEmpty() &&
                 SelectedSessionMode == CaptureMode.POLICY
         val ShowUpload = SessionUploader.IsEnabled() && IsUploadableSession()
+
+        val SessionRef = SessionList.firstOrNull { ItemRef ->
+            ItemRef.SessionId == SelectedSessionId
+        }
+        val HasLogs = SelectedSessionId.isNotEmpty() && CaptureDiagnostics.HasSessionLogs(
+            ContextObj = requireContext().applicationContext,
+            SessionId = SelectedSessionId
+        )
 
         SheetBinding.rowActionPersonal.visibility =
             if (IsPolicySession) View.VISIBLE else View.GONE
@@ -1261,9 +1267,34 @@ class PoliciesFragment : Fragment() {
         SheetBinding.rowActionExcel.visibility = if (ShowExports) View.VISIBLE else View.GONE
         SheetBinding.rowActionPdf.visibility =
             if (ShowExports && ShowPdfAction) View.VISIBLE else View.GONE
+        SheetBinding.rowActionShareLog.visibility =
+            if (HasLogs && SessionRef != null) View.VISIBLE else View.GONE
+        SheetBinding.rowActionDelete.visibility =
+            if (SessionRef != null) View.VISIBLE else View.GONE
         SheetBinding.tvActionPersonalDesc.text = getString(
             R.string.action_personal_desc,
             AllPolicies.size
+        )
+        SheetBinding.tvActionDeleteDesc.text = getString(
+            R.string.action_delete_desc,
+            SelectedSessionMode.DescribeCount(
+                CountVal = SessionRef?.RecordCount ?: AllPolicies.size
+            )
+        )
+
+        SheetBinding.labelActionsServer.visibility = SheetBinding.rowActionUpload.visibility
+        SheetBinding.labelActionsAdd.visibility = SectionVisibility(
+            RowViews = listOf(SheetBinding.rowActionPersonal, SheetBinding.rowActionDueDates)
+        )
+        SheetBinding.labelActionsReview.visibility = SectionVisibility(
+            RowViews = listOf(
+                SheetBinding.rowActionChanges,
+                SheetBinding.rowActionExcel,
+                SheetBinding.rowActionPdf
+            )
+        )
+        SheetBinding.labelActionsSession.visibility = SectionVisibility(
+            RowViews = listOf(SheetBinding.rowActionShareLog, SheetBinding.rowActionDelete)
         )
 
         SheetBinding.rowActionPersonal.setOnClickListener { ViewRef ->
@@ -1296,11 +1327,26 @@ class PoliciesFragment : Fragment() {
             SheetDialog.dismiss()
             ExportPdf()
         }
+        SheetBinding.rowActionShareLog.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            if (SessionRef != null) ShareSessionLog(SessionRef = SessionRef)
+        }
+        SheetBinding.rowActionDelete.setOnClickListener { ViewRef ->
+            HapticFeedback.Reject(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            if (SessionRef != null) ConfirmDeleteSession(SessionRef = SessionRef)
+        }
         SheetBinding.btnActionsCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
         }
         SheetDialog.show()
+    }
+
+    private fun SectionVisibility(RowViews: List<View>): Int {
+        val AnyVisible = RowViews.any { RowItem -> RowItem.visibility == View.VISIBLE }
+        return if (AnyVisible) View.VISIBLE else View.GONE
     }
 
     private fun IsUploadableSession(): Boolean =

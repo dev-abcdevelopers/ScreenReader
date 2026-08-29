@@ -34,9 +34,20 @@ data class ParsedRecord(
     val PrimaryLine: String,
     val SecondaryLine: String,
     val FieldCount: Int,
-    val Warning: String = ""
+    val Warning: String = "",
+    val MetaText: String = "",
+    val AmountText: String = "",
+    val AmountLabel: String = "",
+    val DueText: String = ""
 ) {
     val HasWarning: Boolean get() = Warning.isNotEmpty()
+
+    val HasDue: Boolean get() = DueText.isNotEmpty()
+
+    val DetailLine: String
+        get() = MetaText.ifEmpty {
+            if (AmountText.isEmpty() && DueText.isEmpty()) SecondaryLine else ""
+        }
 }
 
 data class CaptureSession(

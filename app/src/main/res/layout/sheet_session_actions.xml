@@ -10,29 +10,95 @@
     android:paddingEnd="@dimen/screen_margin"
     android:paddingBottom="@dimen/space_lg">
 
-    <View
-        android:layout_width="36dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="@dimen/space_md"
-        android:background="@drawable/bg_sheet_handle" />
-
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="@dimen/space_sm"
+        android:layout_marginTop="@dimen/space_sm"
         android:text="@string/actions_sheet_title"
         android:textAppearance="@style/TextAppearance.App.Heading" />
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/labelActionsServer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginBottom="2dp"
+            android:letterSpacing="0.05"
+            android:text="@string/actions_section_server"
+            android:textAllCaps="true"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_faint" />
+
+        <LinearLayout
+            android:id="@+id/rowActionUpload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_cloud_upload"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/policies_upload"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:text="@string/action_upload_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/labelActionsAdd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginBottom="2dp"
+            android:letterSpacing="0.05"
+            android:text="@string/actions_section_add"
+            android:textAllCaps="true"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_faint" />
 
         <LinearLayout
             android:id="@+id/rowActionPersonal"
@@ -68,6 +134,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/policies_capture_personal"
                     android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
                     android:textStyle="bold" />
 
                 <TextView
@@ -115,65 +182,31 @@
                     android:layout_height="wrap_content"
                     android:text="@string/policies_update_due"
                     android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:text="@string/action_due_desc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:text="@string/action_due_desc"
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
             </LinearLayout>
 
         </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/rowActionUpload"
+        <TextView
+            android:id="@+id/labelActionsReview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:minHeight="@dimen/touch_min"
-            android:orientation="horizontal"
-            android:paddingTop="@dimen/space_sm"
-            android:paddingBottom="@dimen/space_sm">
-
-            <ImageView
-                android:layout_width="@dimen/touch_min"
-                android:layout_height="@dimen/touch_min"
-                android:layout_marginEnd="@dimen/space_md"
-                android:background="@drawable/bg_stat_tile"
-                android:contentDescription="@null"
-                android:padding="@dimen/space_md"
-                android:src="@drawable/ic_cloud_upload"
-                app:tint="@color/primary" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/policies_upload"
-                    android:textAppearance="@style/TextAppearance.App.Body"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
-                    android:text="@string/action_upload_desc"
-                    android:textAppearance="@style/TextAppearance.App.Caption" />
-
-            </LinearLayout>
-
-        </LinearLayout>
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginBottom="2dp"
+            android:letterSpacing="0.05"
+            android:text="@string/actions_section_review"
+            android:textAllCaps="true"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_faint" />
 
         <LinearLayout
             android:id="@+id/rowActionChanges"
@@ -209,13 +242,14 @@
                     android:layout_height="wrap_content"
                     android:text="@string/action_changes_title"
                     android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:text="@string/action_changes_desc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:text="@string/action_changes_desc"
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
             </LinearLayout>
@@ -256,13 +290,14 @@
                     android:layout_height="wrap_content"
                     android:text="@string/action_excel_title"
                     android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:text="@string/action_excel_desc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:text="@string/action_excel_desc"
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
             </LinearLayout>
@@ -303,13 +338,122 @@
                     android:layout_height="wrap_content"
                     android:text="@string/action_pdf_title"
                     android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:text="@string/action_pdf_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/labelActionsSession"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginBottom="2dp"
+            android:letterSpacing="0.05"
+            android:text="@string/actions_section_session"
+            android:textAllCaps="true"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_faint" />
+
+        <LinearLayout
+            android:id="@+id/rowActionShareLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_share"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:text="@string/sessions_share_log"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:text="@string/action_share_log_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
-                    android:text="@string/action_pdf_desc"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/rowActionDelete"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_danger_icon"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_delete"
+                app:tint="@color/status_red_text" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sessions_delete"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/status_red_text"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvActionDeleteDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
             </LinearLayout>

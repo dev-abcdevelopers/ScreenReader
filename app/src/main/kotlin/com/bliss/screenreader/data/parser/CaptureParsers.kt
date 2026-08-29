@@ -11,6 +11,7 @@ import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.repository.PolicyRepository
+import java.util.Locale
 import java.util.regex.Pattern
 
 object CaptureParsers {
@@ -134,7 +135,11 @@ object CaptureParsers {
                     PolicyItem.HolderName.isEmpty() -> "No holder name found"
                     FieldCount < 3 -> "Only $FieldCount fields matched"
                     else -> ""
-                }
+                },
+                MetaText = PolicyItem.PlanName,
+                AmountText = PolicyItem.PremiumAmount,
+                AmountLabel = PremiumLabel(FrequencyText = PolicyItem.PremiumFrequency),
+                DueText = PolicyItem.RenewalDueDate
             )
         }
     }
@@ -154,7 +159,8 @@ object CaptureParsers {
                     FilledFields.joinToString(" · ")
                 },
                 FieldCount = FilledFields.size,
-                Warning = if (FilledFields.isEmpty()) "Nothing to update" else ""
+                Warning = if (FilledFields.isEmpty()) "Nothing to update" else "",
+                MetaText = FilledFields.joinToString(" · ")
             )
         }
     }
@@ -333,6 +339,11 @@ object CaptureParsers {
         return Candidates.count { it.isNotEmpty() }
     }
 
+    private fun PremiumLabel(FrequencyText: String): String {
+        if (FrequencyText.isEmpty()) return ""
+        return "/" + FrequencyText.lowercase(Locale.getDefault())
+    }
+
     private fun BuildPolicySummary(PolicyItem: CustomerPolicy): String {
         val Parts = mutableListOf<String>()
         if (PolicyItem.PlanName.isNotEmpty()) Parts.add(PolicyItem.PlanName)
@@ -378,7 +389,12 @@ object CaptureParsers {
                     PsItem.HolderName.isEmpty() -> "No holder name found"
                     FieldCount < 3 -> "Only $FieldCount fields matched"
                     else -> ""
-                }
+                },
+                MetaText = listOf(PsItem.Status, PsItem.Doc)
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" · "),
+                AmountText = PsItem.PremiumAmount,
+                DueText = PsItem.Fup
             )
         }
     }
@@ -431,7 +447,12 @@ object CaptureParsers {
                         "No due or payment date matched"
                     FieldCount < 4 -> "Only $FieldCount fields matched"
                     else -> ""
-                }
+                },
+                MetaText = listOf(FupItem.PlanName, FupItem.ModeOfPayment, FupItem.Status)
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" · "),
+                AmountText = FupItem.PremiumAmount,
+                DueText = FupItem.DueDate
             )
         }
     }
