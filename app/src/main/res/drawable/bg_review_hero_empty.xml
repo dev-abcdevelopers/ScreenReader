@@ -7,8 +7,6 @@
         android:startColor="@color/update_hero_forced_start"
         android:type="linear" />
     <corners
-        android:topLeftRadius="@dimen/radius_lg"
-        android:topRightRadius="@dimen/radius_lg"
         android:bottomLeftRadius="@dimen/radius_hero_curve"
         android:bottomRightRadius="@dimen/radius_hero_curve" />
 </shape>

@@ -203,7 +203,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val CUSTOMER_SHEET_LINK_RETRY_LIMIT = 6
         private const val SHEET_SCRIM_Y_RATIO = 0.08f
         private const val CUSTOMER_PAGE_OPTION_MIN_WIDTH_RATIO = 0.7f
-        private const val CUSTOMER_PAGE_OPTION_MIN_COUNT = 2
+        private const val CUSTOMER_PAGE_LIST_OPEN_MIN_RUN = 4
+        private const val CUSTOMER_PAGE_OPTION_VIEWPORT_RATIO = 0.24f
+        private const val CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP = 80f
+        private const val CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT = 6
         private const val CUSTOMER_SHEET_OCR_MIN_MS = 600L
         private const val SHEET_STALE_TREE_LIMIT = 6
         private const val CUSTOMER_REOPEN_LIMIT = 1
@@ -337,6 +340,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var CustomerPageRetryCount = 0
     private var CustomerPageWaitCount = 0
     private var CustomerPageChipRect: Rect? = null
+    private var CustomerPageOptionDeadOffset = 0
+    private var CustomerPageOptionPendingOffset = 0
+    private var CustomerPageOptionDeadTaps = 0
+    private var CustomerPageOptionSignature = ""
     private var CustomerOpenAttempts = 0
     private var CustomerStepAttempts = 0
     private var CustomerAutomationFailureCount = 0
@@ -8333,8 +8340,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return
         }
         CustomerPageChipRect = Rect(ChipBounds)
-        val OpenOptionCount = CustomerPageOptionNodes(ChipBounds = ChipBounds).size
-        if (OpenOptionCount >= CUSTOMER_PAGE_OPTION_MIN_COUNT) {
+        val OpenOptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds)
+        val OpenOptionCount = OpenOptionNodes.size
+        if (IsCustomerPageListOpen(OptionNodes = OpenOptionNodes)) {
             DiagnosticInfo(
                 EventName = "CUSTOMER_PAGE_SELECTOR",
                 MessageText = "page=$CustomerCurrentPage bounds=$ChipBounds " +
@@ -8363,6 +8371,50 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 OptionBounds.width() >= MinWidth
     }
 
+    private fun CustomerPageOptionOffset(OptionBounds: Rect, ChipBounds: Rect): Int {
+        return OptionBounds.top - ChipBounds.bottom
+    }
+
+    private fun CustomerPageOptionViewportPx(ChipBounds: Rect): Int {
+        val DisplayMetricsObj = resources.displayMetrics
+        val AssumedPx =
+            (DisplayMetricsObj.heightPixels * CUSTOMER_PAGE_OPTION_VIEWPORT_RATIO).toInt()
+        val MinimumPx = (CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP * DisplayMetricsObj.density).toInt()
+        val ToScreenBottom = DisplayMetricsObj.heightPixels - ChipBounds.bottom
+        return maxOf(MinimumPx, minOf(AssumedPx, ToScreenBottom))
+    }
+
+    private fun IsCustomerPageOptionReachable(OptionBounds: Rect, ChipBounds: Rect): Boolean {
+        val OffsetPx = CustomerPageOptionOffset(
+            OptionBounds = OptionBounds,
+            ChipBounds = ChipBounds
+        )
+        if (CustomerPageOptionDeadOffset in 1..OffsetPx) return false
+        return OffsetPx <= CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
+    }
+
+    private fun LongestConsecutiveRun(ValueList: List<Int>): Int {
+        val SortedValues = ValueList.distinct().sorted()
+        var BestRun = 0
+        var CurrentRun = 0
+        var PreviousValue = Int.MIN_VALUE
+        for (ValueItem in SortedValues) {
+            CurrentRun = if (ValueItem == PreviousValue + 1) CurrentRun + 1 else 1
+            if (CurrentRun > BestRun) BestRun = CurrentRun
+            PreviousValue = ValueItem
+        }
+        return BestRun
+    }
+
+    private fun IsCustomerPageListOpen(OptionNodes: List<Pair<String, Rect>>): Boolean {
+        val ValueList = OptionNodes.mapNotNull { NodePair -> NodePair.first.trim().toIntOrNull() }
+        val RequiredRun = minOf(
+            CUSTOMER_PAGE_LIST_OPEN_MIN_RUN,
+            maxOf(2, CustomerTotalPages)
+        )
+        return LongestConsecutiveRun(ValueList = ValueList) >= RequiredRun
+    }
+
     private fun CustomerPageOptionNodes(ChipBounds: Rect): List<Pair<String, Rect>> {
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
             ?: return emptyList()
@@ -8383,6 +8435,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
     }
 
+    private fun ResetCustomerSelectorScrollState() {
+        ResetPolicySelectorScrollState()
+        CustomerPageOptionSignature = ""
+    }
+
     private fun SelectNextCustomerPage() {
         val ChipBounds = CustomerPageChipRect
         if (ChipBounds == null) {
@@ -8390,7 +8447,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return
         }
         val OptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds)
-        if (OptionNodes.size < CUSTOMER_PAGE_OPTION_MIN_COUNT) {
+        if (!IsCustomerPageListOpen(OptionNodes = OptionNodes)) {
             RetryCustomerPageNavigation(
                 ReasonText = "page list did not open (options=${OptionNodes.size})"
             )
@@ -8404,65 +8461,161 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             .filter { NodePair -> IsPageLabel(NodeText = NodePair.first, Labels = OptionLabels) }
             .minByOrNull { NodePair -> NodePair.second.top }
             ?.second
-        if (OptionBounds == null) {
-            if (ScrollCustomerPageOptionList(OptionNodes = OptionNodes)) {
+        val ViewportPx = CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
+        if (OptionBounds == null ||
+            !IsCustomerPageOptionReachable(OptionBounds = OptionBounds, ChipBounds = ChipBounds)
+        ) {
+            val UnreachableOffset = OptionBounds?.let { BoundsObj ->
+                CustomerPageOptionOffset(OptionBounds = BoundsObj, ChipBounds = ChipBounds)
+            }
+            val HighestVisible = OptionNodes
+                .mapNotNull { NodePair -> NodePair.first.trim().toIntOrNull() }
+                .maxOrNull() ?: 0
+            val ScrollForward = UnreachableOffset != null || HighestVisible < TargetCustomerPage
+            if (ScrollCustomerPageOptionList(
+                    OptionNodes = OptionNodes,
+                    ChipBounds = ChipBounds,
+                    ForwardVal = ScrollForward
+                )
+            ) {
                 ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
                     SelectNextCustomerPage()
                 }
                 return
             }
-            ResetPolicySelectorScrollState()
-            RetryCustomerPageNavigation(
-                ReasonText = "option $TargetCustomerPage missing from " +
-                        "${OptionNodes.size} open option(s)"
+            ResetCustomerSelectorScrollState()
+            if (OptionBounds == null ||
+                !IsBoundsOnScreen(BoundsObj = OptionBounds) ||
+                CustomerPageOptionDeadOffset in 1..CustomerPageOptionOffset(
+                    OptionBounds = OptionBounds,
+                    ChipBounds = ChipBounds
+                )
+            ) {
+                RetryCustomerPageNavigation(
+                    ReasonText = if (UnreachableOffset == null) {
+                        "option $TargetCustomerPage missing from " +
+                                "${OptionNodes.size} open option(s)"
+                    } else {
+                        "option $TargetCustomerPage sits ${UnreachableOffset}px below the " +
+                                "chip, past the ${ViewportPx}px the list actually draws"
+                    }
+                )
+                return
+            }
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_UNVERIFIED",
+                MessageText = "target=$TargetCustomerPage offset=${UnreachableOffset}px is past " +
+                        "the ${ViewportPx}px viewport but the option column will not scroll; " +
+                        "tapping it anyway and checking the result"
             )
-            return
+        } else {
+            ResetCustomerSelectorScrollState()
         }
-        ResetPolicySelectorScrollState()
+        val OffsetPx = CustomerPageOptionOffset(
+            OptionBounds = OptionBounds,
+            ChipBounds = ChipBounds
+        )
+        CustomerPageOptionPendingOffset = OffsetPx
         val TapAccepted = PerformTapGesture(
             XPos = OptionBounds.centerX().toFloat(),
             YPos = OptionBounds.centerY().toFloat()
         )
         DiagnosticInfo(
             EventName = "CUSTOMER_PAGE_OPTION",
-            MessageText = "target=$TargetCustomerPage bounds=$OptionBounds accepted=$TapAccepted"
+            MessageText = "target=$TargetCustomerPage bounds=$OptionBounds offset=$OffsetPx " +
+                    "viewport=$ViewportPx deadOffset=$CustomerPageOptionDeadOffset " +
+                    "accepted=$TapAccepted"
         )
         ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_LOAD_DELAY_MS) { WaitForCustomerPageLoad() }
     }
 
-    private fun ScrollCustomerPageOptionList(OptionNodes: List<Pair<String, Rect>>): Boolean {
+    private fun SwipeCustomerPageOptionColumn(BoundsObj: Rect, ForwardVal: Boolean): Boolean {
+        CollapseBubbleForGesture()
+        val ColumnHeight = BoundsObj.height().toFloat()
+        val MinimumHeight = CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP * resources.displayMetrics.density
+        if (ColumnHeight < MinimumHeight) return false
+
+        val StartXVal = BoundsObj.centerX().toFloat()
+        val NearTop = BoundsObj.top + ColumnHeight * 0.12f
+        val NearBottom = BoundsObj.bottom - ColumnHeight * 0.12f
+        if (NearBottom <= NearTop) return false
+
+        val ScrollPath = Path().apply {
+            moveTo(StartXVal, if (ForwardVal) NearBottom else NearTop)
+            lineTo(StartXVal, if (ForwardVal) NearTop else NearBottom)
+        }
+        val GestureObj = GestureDescription.Builder()
+            .addStroke(
+                GestureDescription.StrokeDescription(
+                    ScrollPath,
+                    0,
+                    POLICY_SELECTOR_SCROLL_DURATION_MS
+                )
+            )
+            .build()
+        return try {
+            dispatchGesture(GestureObj, null, null)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_SCROLL_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: " +
+                        ExceptionObj.message.orEmpty()
+            )
+            false
+        }
+    }
+
+    private fun ScrollCustomerPageOptionList(
+        OptionNodes: List<Pair<String, Rect>>,
+        ChipBounds: Rect,
+        ForwardVal: Boolean
+    ): Boolean {
         if (PolicySelectorScrollCount >= POLICY_SELECTOR_SCROLL_LIMIT) return false
         if (OptionNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
 
-        val OptionBounds = Rect()
-        for (NodePair in OptionNodes) OptionBounds.union(NodePair.second)
-        if (OptionBounds.isEmpty) return false
+        val ViewportPx = CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
+        val DrawnNodes = OptionNodes.filter { NodePair ->
+            CustomerPageOptionOffset(
+                OptionBounds = NodePair.second,
+                ChipBounds = ChipBounds
+            ) <= ViewportPx
+        }
+        if (DrawnNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
 
-        val HighestOption = OptionNodes
-            .mapNotNull { NodePair -> NodePair.first.trim().toIntOrNull() }
-            .maxOrNull() ?: 0
-        if (HighestOption <= PolicySelectorHighestOption) {
+        val ColumnBounds = Rect()
+        for (NodePair in DrawnNodes) ColumnBounds.union(NodePair.second)
+        if (ColumnBounds.isEmpty) return false
+
+        val CurrentSignature = DrawnNodes
+            .map { NodePair -> NodePair.first.trim() }
+            .sorted()
+            .joinToString(separator = ",")
+        if (CurrentSignature == CustomerPageOptionSignature) {
             PolicySelectorScrollStalls++
         } else {
             PolicySelectorScrollStalls = 0
-            PolicySelectorHighestOption = HighestOption
+            CustomerPageOptionSignature = CurrentSignature
         }
         if (PolicySelectorScrollStalls >= POLICY_SCROLL_STALL_LIMIT) {
             DiagnosticWarning(
                 EventName = "CUSTOMER_PAGE_OPTION_STALLED",
-                MessageText = "target=$TargetCustomerPage highestVisible=$PolicySelectorHighestOption"
+                MessageText = "target=$TargetCustomerPage drawn=${DrawnNodes.size} " +
+                        "bounds=$ColumnBounds; the option column will not move"
             )
             return false
         }
 
-        val ScrollAccepted = ScrollNodeCoveringBounds(BoundsObj = OptionBounds) ||
-                SwipePolicyPageOptionColumn(BoundsObj = OptionBounds)
+        val ScrollAccepted = SwipeCustomerPageOptionColumn(
+            BoundsObj = ColumnBounds,
+            ForwardVal = ForwardVal
+        )
         PolicySelectorScrollCount++
         DiagnosticInfo(
             EventName = "CUSTOMER_PAGE_OPTION_SCROLL",
             MessageText = "target=$TargetCustomerPage attempt=$PolicySelectorScrollCount " +
-                    "options=${OptionNodes.size} highestVisible=$HighestOption " +
-                    "bounds=$OptionBounds accepted=$ScrollAccepted"
+                    "direction=${if (ForwardVal) "down" else "up"} " +
+                    "drawn=${DrawnNodes.size} of ${OptionNodes.size} " +
+                    "viewport=${ViewportPx}px bounds=$ColumnBounds accepted=$ScrollAccepted"
         )
         return ScrollAccepted
     }
@@ -8477,6 +8630,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             CustomerPageWaitCount = 0
             CustomerScrollAttempts = 0
             CustomerScrollStallCount = 0
+            CustomerPageOptionPendingOffset = 0
+            CustomerPageOptionDeadTaps = 0
             LatestCustomerVisibleSignature = 0
             DiagnosticInfo(
                 EventName = "CUSTOMER_PAGE_LOADED",
@@ -8484,6 +8639,32 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             )
             ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
                 RunCustomerDashboardStep()
+            }
+            return
+        }
+        val PendingOffset = CustomerPageOptionPendingOffset
+        CustomerPageOptionPendingOffset = 0
+        val ChipBounds = CustomerPageChipRect
+        if (PendingOffset > 0 &&
+            ChipBounds != null &&
+            CustomerPageOptionDeadTaps < CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT &&
+            IsCustomerPageListOpen(OptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds))
+        ) {
+            CustomerPageOptionDeadTaps++
+            if (CustomerPageOptionDeadOffset == 0 ||
+                PendingOffset < CustomerPageOptionDeadOffset
+            ) {
+                CustomerPageOptionDeadOffset = PendingOffset
+            }
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_DEAD",
+                MessageText = "target=$TargetCustomerPage offset=${PendingOffset}px changed " +
+                        "nothing and the option list is still open; the list draws fewer rows " +
+                        "than the tree reports. reachable<${CustomerPageOptionDeadOffset}px " +
+                        "attempt=$CustomerPageOptionDeadTaps"
+            )
+            ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                SelectNextCustomerPage()
             }
             return
         }
@@ -9525,6 +9706,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         CustomerPageRetryCount = 0
         CustomerPageWaitCount = 0
         CustomerPageChipRect = null
+        CustomerPageOptionDeadOffset = 0
+        CustomerPageOptionPendingOffset = 0
+        CustomerPageOptionDeadTaps = 0
+        CustomerPageOptionSignature = ""
         CustomerOpenAttempts = 0
         CustomerStepAttempts = 0
         CustomerAutomationFailureCount = 0

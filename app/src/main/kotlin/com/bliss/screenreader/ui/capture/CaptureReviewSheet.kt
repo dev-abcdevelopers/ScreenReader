@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -69,8 +70,25 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
             BehaviorRef.isDraggable = false
             BehaviorRef.isHideable = false
             BehaviorRef.state = BottomSheetBehavior.STATE_EXPANDED
+            PaintSheetBackground(SheetView = SheetView)
+            DialogRef.window?.let { WindowRef ->
+                WindowCompat.getInsetsController(WindowRef, WindowRef.decorView)
+                    .isAppearanceLightStatusBars = false
+            }
         }
         return DialogRef
+    }
+
+    private fun PaintSheetBackground(SheetView: View) {
+        val HasRecords = CaptureSessionState.PendingSession?.Records?.isNotEmpty() == true
+        val BandColorId = if (HasRecords) {
+            R.color.review_hero_start
+        } else {
+            R.color.update_hero_forced_start
+        }
+        SheetView.setBackgroundColor(
+            androidx.core.content.ContextCompat.getColor(requireContext(), BandColorId)
+        )
     }
 
     override fun onCreateView(

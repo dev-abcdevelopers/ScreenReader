@@ -87,6 +87,10 @@
     <string name="sessions_delete_cancel">Cancel</string>
     <string name="sessions_deleted">Session deleted</string>
     <string name="sessions_resumed_format">Updated %1$s</string>
+    <string name="sessions_group_today">Today</string>
+    <string name="sessions_group_yesterday">Yesterday</string>
+    <string name="sessions_group_expand">Show sessions from %1$s</string>
+    <string name="sessions_group_collapse">Hide sessions from %1$s</string>
     <string name="capture_resume_mismatch">That session was captured in a different mode.</string>
     <string name="review_save_resume_format">Save %1$d new · %2$d updated</string>
     <string name="sessions_empty_title">No capture sessions yet</string>

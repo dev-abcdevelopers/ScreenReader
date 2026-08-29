@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/sessionGroupRoot"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/session_group_header_height"
+    android:background="@color/surface_sunken"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingEnd="@dimen/screen_margin">
+
+    <ImageView
+        android:id="@+id/ivSessionGroupCaret"
+        android:layout_width="@dimen/icon_sm"
+        android:layout_height="@dimen/icon_sm"
+        android:layout_marginEnd="@dimen/space_sm"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_chevron_down"
+        app:tint="@color/text_muted" />
+
+    <TextView
+        android:id="@+id/tvSessionGroupLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textAllCaps="true"
+        android:textAppearance="@style/TextAppearance.App.Overline" />
+
+    <TextView
+        android:id="@+id/tvSessionGroupCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_sm"
+        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+</LinearLayout>

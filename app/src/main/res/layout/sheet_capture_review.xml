@@ -116,74 +116,67 @@
         android:textSize="13sp"
         android:visibility="gone" />
 
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/card_stroke" />
+
     <LinearLayout
         android:id="@+id/reviewActionBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:background="@color/surface_light"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingStart="@dimen/screen_margin"
         android:paddingTop="@dimen/space_md"
         android:paddingEnd="@dimen/screen_margin"
-        android:paddingBottom="@dimen/space_lg">
+        android:paddingBottom="@dimen/space_md">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_review_action_bar"
-            android:elevation="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="10dp">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReviewDiscard"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/review_discard"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            app:cornerRadius="24dp"
+            app:icon="@drawable/ic_close"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconTint="@color/text_secondary" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReviewDiscard"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/review_discard"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                app:cornerRadius="24dp"
-                app:icon="@drawable/ic_close"
-                app:iconGravity="textStart"
-                app:iconPadding="0dp"
-                app:iconTint="@color/text_secondary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReviewRaw"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            app:cornerRadius="24dp"
+            app:icon="@drawable/ic_code"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconTint="@color/text_accent" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReviewRaw"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="10dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                app:cornerRadius="24dp"
-                app:icon="@drawable/ic_code"
-                app:iconGravity="textStart"
-                app:iconPadding="0dp"
-                app:iconTint="@color/text_accent" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReviewSave"
-                style="@style/Widget.Material3.Button"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="10dp"
-                android:layout_weight="1"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                app:cornerRadius="24dp" />
-
-        </LinearLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReviewSave"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:cornerRadius="24dp" />
 
     </LinearLayout>
 

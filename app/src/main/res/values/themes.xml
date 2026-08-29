@@ -58,11 +58,26 @@
     </style>
 
     <!--
-      The capture review sheet is full height and paints its hero band to its own
-      top corners, so it reuses the update sheet's matched corner shape.
+      The capture review sheet fills the screen, so it draws behind the status bar
+      and squares its corners. paddingTopSystemWindowInsets is off because the
+      sheet pads its own hero band with the status bar inset.
     -->
     <style name="Theme.DataReaderApp.BottomSheet.Review" parent="Theme.DataReaderApp.BottomSheet">
-        <item name="bottomSheetStyle">@style/Widget.App.BottomSheet.Update</item>
+        <item name="bottomSheetStyle">@style/Widget.App.BottomSheet.Review</item>
+        <item name="enableEdgeToEdge">true</item>
+    </style>
+
+    <style name="Widget.App.BottomSheet.Review" parent="Widget.App.BottomSheet">
+        <item name="shapeAppearance">@style/ShapeAppearance.App.BottomSheet.Review</item>
+        <item name="shapeAppearanceOverlay">@null</item>
+        <item name="backgroundTint">@color/review_hero_start</item>
+        <item name="paddingTopSystemWindowInsets">false</item>
+        <item name="paddingBottomSystemWindowInsets">false</item>
+    </style>
+
+    <style name="ShapeAppearance.App.BottomSheet.Review" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">0dp</item>
     </style>
 
     <!-- ==================================================== type scale ==== -->

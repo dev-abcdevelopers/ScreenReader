@@ -58,6 +58,7 @@ import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
+import com.bliss.screenreader.ui.adapter.SessionStickyHeaderDecoration
 import com.bliss.screenreader.ui.adapter.SessionSwipeCallback
 import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.toast.AppToast
@@ -84,6 +85,7 @@ class PoliciesFragment : Fragment() {
         OnShareLogClick = { SessionRef -> ShareSessionLog(SessionRef = SessionRef) }
     )
     private val SessionSwipeHelper = ItemTouchHelper(SessionSwipeCallback(SessionAdapterObj))
+    private val SessionStickyObj = SessionStickyHeaderDecoration(SessionAdapterObj)
     private val RenewalAdapterObj = RenewalRowAdapter()
     private var RowDividerObj: DividerItemDecoration? = null
 
@@ -831,6 +833,19 @@ class PoliciesFragment : Fragment() {
             BindingObj.rvPolicies.adapter = TargetAdapter
         }
         ApplyRowDivider(WantsDivider = TargetAdapter !== RenewalAdapterObj)
+        ApplyStickyHeader(WantsSticky = TargetAdapter === SessionAdapterObj)
+    }
+
+    private fun ApplyStickyHeader(WantsSticky: Boolean) {
+        val BindingObj = ViewBindingObj ?: return
+        BindingObj.rvPolicies.removeItemDecoration(SessionStickyObj)
+        BindingObj.rvPolicies.removeOnItemTouchListener(SessionStickyObj)
+        if (!WantsSticky) {
+            SessionStickyObj.Reset()
+            return
+        }
+        BindingObj.rvPolicies.addItemDecoration(SessionStickyObj)
+        BindingObj.rvPolicies.addOnItemTouchListener(SessionStickyObj)
     }
 
     private fun ApplyRowDivider(WantsDivider: Boolean) {
@@ -1953,6 +1968,7 @@ class PoliciesFragment : Fragment() {
         UploadDialogObj?.dismiss()
         UploadDialogObj = null
         UploadSheetBinding = null
+        SessionStickyObj.Reset()
         ViewBindingObj = null
         SessionBackCallback = null
     }
