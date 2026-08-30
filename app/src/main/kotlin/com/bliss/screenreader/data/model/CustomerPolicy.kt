@@ -2,6 +2,7 @@
 
 package com.bliss.screenreader.data.model
 
+import com.bliss.screenreader.data.parser.PolicyStatusRules
 import java.util.Locale
 
 data class CustomerPolicy(
@@ -46,14 +47,30 @@ data class CustomerPolicy(
     var BonusCommission: String = "",
     var CommissionPaidAmount: String = "",
 
+    var StatusChips: List<String>? = null,
+
     var MobileNumberOthers: List<String>? = null,
     var EmailOthers: List<String>? = null,
     var AddressOthers: List<String>? = null
 ) {
+    val DerivedStatus: String
+        get() = PolicyStatusRules.Compute(
+            FupText = RenewalDueDate.ifEmpty { RenewalDateValue },
+            FrequencyText = PremiumFrequency,
+            CommencementText = DateOfCommencement
+        )
+
     val NormalizedStatus: String
         get() {
+            val Derived = DerivedStatus
+            if (Derived.isNotEmpty()) return Derived
+
             val Trimmed = Status.trim()
             if (Trimmed.isEmpty()) return ""
-            return if (Trimmed.lowercase(Locale.ROOT).contains("lapsed")) "Lapsed" else "Inforce"
+            return if (Trimmed.lowercase(Locale.ROOT).contains("lapsed")) {
+                PolicyStatusRules.LAPSED
+            } else {
+                ""
+            }
         }
 }

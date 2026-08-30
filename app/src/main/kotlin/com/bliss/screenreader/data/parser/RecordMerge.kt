@@ -64,9 +64,24 @@ object RecordMerge {
             NameText.isEmpty() || ScreenDataParser.IsPlausibleHolderName(TextValue = NameText)
         }.orEmpty()
 
+        val EffectiveFrequency = IncomingItem.PremiumFrequency.ifEmpty {
+            ExistingItem.PremiumFrequency
+        }
+        val EffectiveCommencement = IncomingItem.DateOfCommencement.ifEmpty {
+            ExistingItem.DateOfCommencement
+        }
+        val IncomingDueDate = PolicyStatusRules.RealDueDateOrBlank(
+            FrequencyText = EffectiveFrequency,
+            FupText = IncomingItem.RenewalDueDate,
+            CommencementText = EffectiveCommencement
+        )
         val KeepsDueDate = ScreenDataParser.DueDateSurvives(
             CardDateLabel = IncomingItem.RenewalDateLabel
-        )
+        ) && PolicyStatusRules.RealDueDateOrBlank(
+            FrequencyText = EffectiveFrequency,
+            FupText = ExistingItem.RenewalDueDate,
+            CommencementText = EffectiveCommencement
+        ).isNotEmpty()
         if (!KeepsDueDate && ExistingItem.RenewalDueDate.isNotEmpty()) {
             ChangeSink.add(
                 RecordFieldChange(
@@ -87,9 +102,7 @@ object RecordMerge {
             HolderName = Resolve("Holder name", ExistingHolder, IncomingItem.HolderName),
             PlanName = Resolve("Plan name", ExistingItem.PlanName, IncomingItem.PlanName),
             PlanCode = Resolve("Plan code", ExistingItem.PlanCode, IncomingItem.PlanCode),
-            RenewalDueDate = Resolve(
-                "Renewal due date", ExistingDueDate, IncomingItem.RenewalDueDate
-            ),
+            RenewalDueDate = Resolve("Renewal due date", ExistingDueDate, IncomingDueDate),
             RenewalDateLabel = Resolve(
                 "Renewal date label", ExistingItem.RenewalDateLabel, IncomingItem.RenewalDateLabel
             ),
@@ -98,6 +111,10 @@ object RecordMerge {
             ),
             SumAssured = Resolve("Sum assured", ExistingItem.SumAssured, IncomingItem.SumAssured),
             TermPPT = Resolve("Term / PPT", ExistingItem.TermPPT, IncomingItem.TermPPT),
+            StatusChips = StatusChipRules.Merge(
+                ExistingChips = ExistingItem.StatusChips,
+                IncomingChips = IncomingItem.StatusChips
+            ),
             DateOfCommencement = Resolve(
                 "Date of commencement",
                 ExistingItem.DateOfCommencement,

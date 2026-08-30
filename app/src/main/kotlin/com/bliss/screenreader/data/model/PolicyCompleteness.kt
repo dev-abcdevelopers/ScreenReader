@@ -3,6 +3,7 @@
 package com.bliss.screenreader.data.model
 
 import com.bliss.screenreader.data.parser.ContactValueSplit
+import com.bliss.screenreader.data.parser.PolicyStatusRules
 
 object PolicyCompleteness {
 
@@ -57,7 +58,7 @@ object PolicyCompleteness {
                 Title = Labels.CardTitle,
                 IsCountedTowardTotal = true,
                 IsCapturable = true,
-                Fields = listOf(
+                Fields = listOfNotNull(
                     FieldEntry(Labels.PlanCode, PolicyItem.PlanCode),
                     FieldEntry(Labels.PlanName, PolicyItem.PlanName),
                     FieldEntry(Labels.Status, PolicyItem.Status),
@@ -65,7 +66,11 @@ object PolicyCompleteness {
                     FieldEntry(Labels.PremiumFrequency, PolicyItem.PremiumFrequency),
                     FieldEntry(Labels.AutoPay, PolicyItem.AutoPay),
                     FieldEntry(Labels.RenewalType, PolicyItem.RenewalType),
-                    FieldEntry(Labels.RenewalDue, PolicyItem.RenewalDueDate, IsDate = true)
+                    if (PolicyStatusRules.IsSinglePremium(FrequencyText = PolicyItem.PremiumFrequency)) {
+                        null
+                    } else {
+                        FieldEntry(Labels.RenewalDue, PolicyItem.RenewalDueDate, IsDate = true)
+                    }
                 )
             ),
             FieldGroup(

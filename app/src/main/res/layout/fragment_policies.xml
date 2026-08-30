@@ -81,37 +81,28 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/chipGroupStatus"
+        <HorizontalScrollView
+            android:id="@+id/scrollStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_margin_bleed"
             android:layout_marginTop="@dimen/space_sm"
-            app:selectionRequired="true"
-            app:singleSelection="true">
+            android:layout_marginEnd="@dimen/screen_margin_bleed"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:scrollbars="none">
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipAll"
-                style="@style/Chip.Filter"
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="@string/policies_filter_all" />
+                app:selectionRequired="true"
+                app:singleLine="true"
+                app:singleSelection="true" />
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipInforce"
-                style="@style/Chip.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/policies_filter_inforce" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipLapsed"
-                style="@style/Chip.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/policies_filter_lapsed" />
-
-        </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
 
         <TextView
             android:id="@+id/tvListSummary"

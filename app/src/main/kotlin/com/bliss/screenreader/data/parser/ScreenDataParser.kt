@@ -105,6 +105,7 @@ object ScreenDataParser {
             var NomineeStatus = ""
             var MobileUpdateStatus = ""
             var AddressUpdateStatus = ""
+            val CardChipNodes = mutableListOf<String>()
 
             for (BackIdx in NodeIdx - 1 downTo maxOf(0, NodeIdx - 10)) {
                 val PreviousText = CleanNodes[BackIdx]
@@ -122,6 +123,9 @@ object ScreenDataParser {
                 if (PreviousLower.contains("nominee not updated")) NomineeStatus = "Not Updated"
                 if (PreviousLower.contains("mobile not updated")) MobileUpdateStatus = "Not Updated"
                 if (PreviousLower.contains("address not updated")) AddressUpdateStatus = "Not Updated"
+                if (StatusChipRules.IsStatusChip(TextValue = PreviousText)) {
+                    CardChipNodes.add(0, PreviousText)
+                }
             }
 
             var ForwardIdx = NodeIdx + 1
@@ -140,6 +144,9 @@ object ScreenDataParser {
                 if (CurrentLower.contains("nominee not updated")) NomineeStatus = "Not Updated"
                 if (CurrentLower.contains("mobile not updated")) MobileUpdateStatus = "Not Updated"
                 if (CurrentLower.contains("address not updated")) AddressUpdateStatus = "Not Updated"
+                if (StatusChipRules.IsStatusChip(TextValue = CurrentText)) {
+                    CardChipNodes.add(CurrentText)
+                }
 
                 if (IsCardDateLabel(TextValue = CurrentText)) {
                     PendingDateLabel = CurrentText
@@ -202,6 +209,16 @@ object ScreenDataParser {
                 ForwardIdx++
             }
 
+            if (
+                PolicyStatusRules.HasNoRealDueDate(
+                    FrequencyText = PremiumFrequency,
+                    FupText = RenewalDate,
+                    CommencementText = ""
+                )
+            ) {
+                RenewalDate = ""
+            }
+
             val (PlanCode, PlanNameOnly) = PlanIdentity.Split(RawLabel = PlanName)
             val IncomingPolicy = CustomerPolicy(
                 HolderName = HolderName,
@@ -220,7 +237,8 @@ object ScreenDataParser {
                 NeftStatus = NeftStatus,
                 RenewalType = RenewalType,
                 RenewalDateLabel = RenewalDateLabel,
-                RenewalDateValue = RenewalDateValue
+                RenewalDateValue = RenewalDateValue,
+                StatusChips = StatusChipRules.Extract(Nodes = CardChipNodes).ifEmpty { null }
             )
             val ExistingPolicy = PolicyMap[PolicyNumber]
             PolicyMap[PolicyNumber] = if (ExistingPolicy == null) {
@@ -237,8 +255,24 @@ object ScreenDataParser {
         ExistingPolicy: CustomerPolicy,
         IncomingPolicy: CustomerPolicy
     ): CustomerPolicy {
-        val CarriedDueDate = if (DueDateSurvives(CardDateLabel = IncomingPolicy.RenewalDateLabel)) {
-            ExistingPolicy.RenewalDueDate
+        val EffectiveFrequency = IncomingPolicy.PremiumFrequency.ifEmpty {
+            ExistingPolicy.PremiumFrequency
+        }
+        val EffectiveCommencement = IncomingPolicy.DateOfCommencement.ifEmpty {
+            ExistingPolicy.DateOfCommencement
+        }
+        val KeepsDueDate = DueDateSurvives(CardDateLabel = IncomingPolicy.RenewalDateLabel)
+        val IncomingDueDate = PolicyStatusRules.RealDueDateOrBlank(
+            FrequencyText = EffectiveFrequency,
+            FupText = IncomingPolicy.RenewalDueDate,
+            CommencementText = EffectiveCommencement
+        )
+        val CarriedDueDate = if (KeepsDueDate) {
+            PolicyStatusRules.RealDueDateOrBlank(
+                FrequencyText = EffectiveFrequency,
+                FupText = ExistingPolicy.RenewalDueDate,
+                CommencementText = EffectiveCommencement
+            )
         } else {
             ""
         }
@@ -248,7 +282,7 @@ object ScreenDataParser {
             HolderName = IncomingPolicy.HolderName.ifEmpty { ExistingPolicy.HolderName },
             PlanName = IncomingPolicy.PlanName.ifEmpty { ExistingPolicy.PlanName },
             PlanCode = IncomingPolicy.PlanCode.ifEmpty { ExistingPolicy.PlanCode },
-            RenewalDueDate = IncomingPolicy.RenewalDueDate.ifEmpty { CarriedDueDate },
+            RenewalDueDate = IncomingDueDate.ifEmpty { CarriedDueDate },
             RenewalDateLabel = IncomingPolicy.RenewalDateLabel.ifEmpty {
                 ExistingPolicy.RenewalDateLabel
             },
@@ -295,7 +329,11 @@ object ScreenDataParser {
             BonusCommission = IncomingPolicy.BonusCommission.ifEmpty { ExistingPolicy.BonusCommission },
             CommissionPaidAmount = IncomingPolicy.CommissionPaidAmount.ifEmpty {
                 ExistingPolicy.CommissionPaidAmount
-            }
+            },
+            StatusChips = StatusChipRules.Merge(
+                ExistingChips = ExistingPolicy.StatusChips,
+                IncomingChips = IncomingPolicy.StatusChips
+            )
         )
     }
 
@@ -508,6 +546,7 @@ object ScreenDataParser {
         }
         val PremiumParts = PremiumText.split("/", limit = 2)
         val Status = CleanNodes.firstOrNull { NodeText -> IsPolicyStatus(NodeText) }.orEmpty()
+        val DetailChips = StatusChipRules.Extract(Nodes = CleanNodes)
 
         return CustomerPolicy(
             HolderName = HolderName,
@@ -523,12 +562,13 @@ object ScreenDataParser {
             DateOfCommencement = DetailsMap["dateOfCommencement"].orEmpty(),
             EndOfPremiumPayingTerm = DetailsMap["endOfPremiumPayingTerm"].orEmpty(),
             DateOfMaturity = DetailsMap["dateOfMaturity"].orEmpty(),
-            KycStatus = if (CleanNodes.any { it.contains("KYC not updated", true) }) {
+            StatusChips = DetailChips.ifEmpty { null },
+            KycStatus = if (StatusChipRules.HasChip(DetailChips, "KYC not updated")) {
                 "Not Updated"
             } else {
                 ""
             },
-            NeftStatus = if (CleanNodes.any { it.contains("NEFT not updated", true) }) {
+            NeftStatus = if (StatusChipRules.HasChip(DetailChips, "NEFT not updated")) {
                 "Not Updated"
             } else {
                 ""

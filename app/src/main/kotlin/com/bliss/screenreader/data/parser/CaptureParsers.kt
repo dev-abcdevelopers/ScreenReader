@@ -96,7 +96,8 @@ object CaptureParsers {
             MobileNumber = ProfileMap["mobileNumber"].orEmpty(),
             Dob = ProfileMap["dob"].orEmpty(),
             PremiumAmount = FindFirstCurrency(Nodes = Nodes),
-            Status = FindStatus(Nodes = Nodes)
+            Status = FindStatus(Nodes = Nodes),
+            StatusChips = StatusChipRules.Extract(Nodes = Nodes).ifEmpty { null }
         )
     }
 

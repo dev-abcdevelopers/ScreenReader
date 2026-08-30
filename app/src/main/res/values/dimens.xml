@@ -9,6 +9,7 @@
     <dimen name="space_xl">24dp</dimen>
 
     <dimen name="screen_margin">16dp</dimen>
+    <dimen name="screen_margin_bleed">-16dp</dimen>
     <dimen name="card_padding">14dp</dimen>
     <dimen name="card_gap">8dp</dimen>
     <dimen name="section_gap">20dp</dimen>

@@ -69,13 +69,26 @@
                 android:textAppearance="@style/TextAppearance.App.Caption" />
 
 
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/chipGroupFlags"
+            <HorizontalScrollView
+                android:id="@+id/scrollFlags"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_margin_bleed"
                 android:layout_marginTop="@dimen/space_sm"
-                app:chipSpacingVertical="@dimen/space_xs"
-                app:singleLine="false" />
+                android:layout_marginEnd="@dimen/screen_margin_bleed"
+                android:clipToPadding="false"
+                android:overScrollMode="never"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:scrollbars="none">
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupFlags"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleLine="true" />
+
+            </HorizontalScrollView>
 
             <LinearLayout
                 android:layout_width="match_parent"

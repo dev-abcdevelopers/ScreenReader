@@ -21,6 +21,9 @@ import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.bliss.screenreader.data.parser.PolicyStatusRules
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.ChangeSource
@@ -145,11 +148,13 @@ class PoliciesFragment : Fragment() {
             }
         })
 
-        BindingObj.chipGroupStatus.setOnCheckedStateChangeListener { _, CheckedIds ->
-            StatusFilter = when (CheckedIds.firstOrNull()) {
-                R.id.chipInforce -> FILTER_INFORCE
-                R.id.chipLapsed -> FILTER_LAPSED
-                else -> FILTER_ALL
+        BindingObj.chipGroupStatus.setOnCheckedStateChangeListener { GroupRef, CheckedIds ->
+            if (SuppressChipCallback) return@setOnCheckedStateChangeListener
+            val CheckedId = CheckedIds.firstOrNull()
+            StatusFilter = if (CheckedId == null) {
+                FILTER_ALL
+            } else {
+                GroupRef.findViewById<Chip>(CheckedId)?.tag as? String ?: FILTER_ALL
             }
             RenderList(ResetScroll = true)
         }
@@ -214,11 +219,8 @@ class PoliciesFragment : Fragment() {
     private fun VisiblePolicies(): List<CustomerPolicy> {
         val QueryLower = SearchQuery.trim().lowercase(Locale.ROOT)
         return AllPolicies.filter { PolicyItem ->
-            val MatchesStatus = when (StatusFilter) {
-                FILTER_INFORCE -> PolicyItem.NormalizedStatus.equals("Inforce", ignoreCase = true)
-                FILTER_LAPSED -> PolicyItem.NormalizedStatus.equals("Lapsed", ignoreCase = true)
-                else -> true
-            }
+            val MatchesStatus = StatusFilter == FILTER_ALL ||
+                    StatusFilter == StatusFilterKey(StatusText = PolicyItem.NormalizedStatus)
             val MatchesQuery = QueryLower.isEmpty() ||
                     PolicyItem.PolicyNumber.lowercase(Locale.ROOT).contains(QueryLower) ||
                     PolicyItem.HolderName.lowercase(Locale.ROOT).contains(QueryLower)
@@ -858,16 +860,14 @@ class PoliciesFragment : Fragment() {
 
     private fun RenderRenewals() {
         val BindingObj = ViewBindingObj ?: return
+        BuildRenewalStatusChips()
         val VisibleList = VisibleRenewals()
         BindListAdapter(TargetAdapter = RenewalAdapterObj)
         RenewalAdapterObj.UpdateData(NewRenewals = VisibleList)
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
-        BindingObj.chipGroupStatus.visibility = View.VISIBLE
-        BindingObj.chipInforce.setText(R.string.renewals_filter_ontime)
-        BindingObj.chipLapsed.setText(R.string.renewals_filter_grace)
-        BindingObj.chipAll.setText(R.string.renewals_filter_all)
+        BindingObj.scrollStatus.visibility = View.VISIBLE
         BindingObj.tilSearch.hint = getString(R.string.renewals_search_hint)
         SessionBackCallback?.isEnabled = true
 
@@ -926,16 +926,14 @@ class PoliciesFragment : Fragment() {
 
     private fun RenderPolicies() {
         val BindingObj = ViewBindingObj ?: return
+        BuildPolicyStatusChips()
         val VisibleList = VisiblePolicies()
         BindListAdapter(TargetAdapter = AdapterObj)
         AdapterObj.UpdateData(NewPolicies = VisibleList)
         BindingObj.tvPoliciesHeading.setText(R.string.sessions_policies_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
-        BindingObj.chipGroupStatus.visibility = View.VISIBLE
-        BindingObj.chipInforce.setText(R.string.policies_filter_inforce)
-        BindingObj.chipLapsed.setText(R.string.policies_filter_lapsed)
-        BindingObj.chipAll.setText(R.string.policies_filter_all)
+        BindingObj.scrollStatus.visibility = View.VISIBLE
         BindingObj.tvListSummary.visibility = View.GONE
         ShowPdfAction = true
         BindingObj.tilSearch.hint = getString(R.string.policies_search_hint)
@@ -981,13 +979,121 @@ class PoliciesFragment : Fragment() {
             .sortedByDescending { SessionRef -> SessionRef.SavedAt }
     }
 
+    private fun StatusFilterKey(StatusText: String): String {
+        return when (StatusText) {
+            PolicyStatusRules.IN_FORCE -> FILTER_INFORCE
+            PolicyStatusRules.GRACE -> FILTER_GRACE
+            PolicyStatusRules.OUTSTANDING -> FILTER_OUTSTANDING
+            PolicyStatusRules.LAPSED -> FILTER_LAPSED
+            PolicyStatusRules.PAID_UP -> FILTER_PAID_UP
+            PolicyStatusRules.REDUCED_PAID_UP -> FILTER_REDUCED_PAID_UP
+            else -> FILTER_UNKNOWN
+        }
+    }
+
+    private fun StatusFilterLabel(FilterKey: String): Int {
+        return when (FilterKey) {
+            FILTER_INFORCE -> R.string.policies_filter_inforce
+            FILTER_GRACE -> R.string.policies_filter_grace
+            FILTER_OUTSTANDING -> R.string.policies_filter_outstanding
+            FILTER_LAPSED -> R.string.policies_filter_lapsed
+            FILTER_PAID_UP -> R.string.policies_filter_paidup
+            FILTER_REDUCED_PAID_UP -> R.string.policies_filter_rpu
+            else -> R.string.policies_filter_unknown
+        }
+    }
+
+    private fun BuildPolicyStatusChips() {
+        val Counts = LinkedHashMap<String, Int>()
+        for (FilterKey in POLICY_FILTER_ORDER) Counts[FilterKey] = 0
+        for (PolicyItem in AllPolicies) {
+            val FilterKey = StatusFilterKey(StatusText = PolicyItem.NormalizedStatus)
+            Counts[FilterKey] = (Counts[FilterKey] ?: 0) + 1
+        }
+
+        val ChipSpecs = mutableListOf<Pair<String, String>>()
+        ChipSpecs.add(
+            FILTER_ALL to getString(
+                R.string.policies_filter_count_format,
+                getString(R.string.policies_filter_all),
+                AllPolicies.size
+            )
+        )
+        for (FilterKey in POLICY_FILTER_ORDER) {
+            val CountValue = Counts[FilterKey] ?: 0
+            if (CountValue == 0) continue
+            ChipSpecs.add(
+                FilterKey to getString(
+                    R.string.policies_filter_count_format,
+                    getString(StatusFilterLabel(FilterKey = FilterKey)),
+                    CountValue
+                )
+            )
+        }
+        ApplyStatusChips(ChipSpecs = ChipSpecs)
+    }
+
+    private fun BuildRenewalStatusChips() {
+        ApplyStatusChips(
+            ChipSpecs = listOf(
+                FILTER_ALL to getString(R.string.renewals_filter_all),
+                FILTER_INFORCE to getString(R.string.renewals_filter_ontime),
+                FILTER_LAPSED to getString(R.string.renewals_filter_grace)
+            )
+        )
+    }
+
+    private fun ApplyStatusChips(ChipSpecs: List<Pair<String, String>>) {
+        val BindingObj = ViewBindingObj ?: return
+        val GroupRef = BindingObj.chipGroupStatus
+
+        val CurrentSignature = ChipSpecs.joinToString("|") { SpecItem ->
+            "${SpecItem.first}=${SpecItem.second}"
+        }
+        val SelectedKey = if (ChipSpecs.any { SpecItem -> SpecItem.first == StatusFilter }) {
+            StatusFilter
+        } else {
+            FILTER_ALL
+        }
+        if (SelectedKey != StatusFilter) StatusFilter = SelectedKey
+        if (CurrentSignature == RenderedChipSignature) {
+            SyncChipSelection(GroupRef = GroupRef, SelectedKey = SelectedKey)
+            return
+        }
+
+        SuppressChipCallback = true
+        GroupRef.removeAllViews()
+        for (SpecItem in ChipSpecs) {
+            val ChipRef = layoutInflater.inflate(
+                R.layout.item_filter_chip, GroupRef, false
+            ) as Chip
+            ChipRef.id = View.generateViewId()
+            ChipRef.tag = SpecItem.first
+            ChipRef.text = SpecItem.second
+            ChipRef.isCheckable = true
+            ChipRef.isClickable = true
+            ChipRef.isChecked = SpecItem.first == SelectedKey
+            GroupRef.addView(ChipRef)
+        }
+        RenderedChipSignature = CurrentSignature
+        SuppressChipCallback = false
+    }
+
+    private fun SyncChipSelection(GroupRef: ChipGroup, SelectedKey: String) {
+        SuppressChipCallback = true
+        for (ChildIdx in 0 until GroupRef.childCount) {
+            val ChipRef = GroupRef.getChildAt(ChildIdx) as? Chip ?: continue
+            ChipRef.isChecked = ChipRef.tag as? String == SelectedKey
+        }
+        SuppressChipCallback = false
+    }
+
     private fun OpenSession(SessionRef: PolicyRepository.CaptureSessionReference) {
         SelectedSessionId = SessionRef.SessionId
         SelectedSessionMode = SessionRef.Mode
         SearchQuery = ""
         StatusFilter = FILTER_ALL
         ViewBindingObj?.etSearch?.setText("")
-        ViewBindingObj?.chipAll?.isChecked = true
         LoadSessionRecords()
         RenderList(ResetScroll = true)
     }
@@ -1971,6 +2077,8 @@ class PoliciesFragment : Fragment() {
         SessionStickyObj.Reset()
         ViewBindingObj = null
         SessionBackCallback = null
+        RenderedChipSignature = ""
+        SuppressChipCallback = false
     }
 
     private data class DueEntry(
@@ -1983,8 +2091,25 @@ class PoliciesFragment : Fragment() {
     companion object {
         private const val FILTER_ALL = "all"
         private const val FILTER_INFORCE = "inforce"
+        private const val FILTER_GRACE = "grace"
+        private const val FILTER_OUTSTANDING = "outstanding"
         private const val FILTER_LAPSED = "lapsed"
+        private const val FILTER_PAID_UP = "paidup"
+        private const val FILTER_REDUCED_PAID_UP = "reducedpaidup"
+        private const val FILTER_UNKNOWN = "unknown"
+
+        private val POLICY_FILTER_ORDER = listOf(
+            FILTER_INFORCE,
+            FILTER_GRACE,
+            FILTER_OUTSTANDING,
+            FILTER_LAPSED,
+            FILTER_PAID_UP,
+            FILTER_REDUCED_PAID_UP,
+            FILTER_UNKNOWN
+        )
     }
 
     private var SessionBackCallback: OnBackPressedCallback? = null
+    private var SuppressChipCallback = false
+    private var RenderedChipSignature = ""
 }

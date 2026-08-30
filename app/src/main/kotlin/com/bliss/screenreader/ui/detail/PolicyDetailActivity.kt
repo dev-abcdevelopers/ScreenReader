@@ -31,6 +31,8 @@ import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.data.parser.PolicyStatusRules
+import com.bliss.screenreader.data.parser.StatusChipRules
 import com.google.android.material.chip.Chip
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -128,27 +130,61 @@ class PolicyDetailActivity : AppCompatActivity() {
 
         val StatusText = PolicyRef.NormalizedStatus
         if (StatusText.isNotEmpty()) {
-            val IsLapsed = StatusText.equals("Lapsed", ignoreCase = true)
+            val BackgroundRes = when {
+                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_bg
+                PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_bg
+                else -> R.color.status_green_bg
+            }
+            val TextColorRes = when {
+                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_text
+                PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_text
+                else -> R.color.status_green_text
+            }
             AddChip(
                 LabelText = StatusText,
-                BackgroundRes = if (IsLapsed) R.color.status_red_bg else R.color.status_green_bg,
-                TextColorRes = if (IsLapsed) R.color.status_red_text else R.color.status_green_text
+                BackgroundRes = BackgroundRes,
+                TextColorRes = TextColorRes
             )
         }
 
-        val FlagList = PolicyCompleteness.StatusFlags(
-            PolicyItem = PolicyRef,
-            Labels = BuildLabels()
-        )
-        for (FlagText in FlagList) {
-            AddChip(
-                LabelText = FlagText,
-                BackgroundRes = R.color.status_amber_bg,
-                TextColorRes = R.color.status_amber_text
+        val CapturedChips = PolicyRef.StatusChips.orEmpty()
+        if (CapturedChips.isNotEmpty()) {
+            for (ChipText in CapturedChips) {
+                when (StatusChipRules.PolarityOf(TextValue = ChipText)) {
+                    StatusChipRules.Polarity.POSITIVE -> AddChip(
+                        LabelText = ChipText,
+                        BackgroundRes = R.color.status_green_bg,
+                        TextColorRes = R.color.status_green_text
+                    )
+
+                    StatusChipRules.Polarity.NEGATIVE -> AddChip(
+                        LabelText = ChipText,
+                        BackgroundRes = R.color.status_red_bg,
+                        TextColorRes = R.color.status_red_text
+                    )
+
+                    StatusChipRules.Polarity.NEUTRAL -> AddChip(
+                        LabelText = ChipText,
+                        BackgroundRes = R.color.status_blue_bg,
+                        TextColorRes = R.color.status_blue_text
+                    )
+                }
+            }
+        } else {
+            val FlagList = PolicyCompleteness.StatusFlags(
+                PolicyItem = PolicyRef,
+                Labels = BuildLabels()
             )
+            for (FlagText in FlagList) {
+                AddChip(
+                    LabelText = FlagText,
+                    BackgroundRes = R.color.status_amber_bg,
+                    TextColorRes = R.color.status_amber_text
+                )
+            }
         }
 
-        ViewBindingObj.chipGroupFlags.visibility =
+        ViewBindingObj.scrollFlags.visibility =
             if (ViewBindingObj.chipGroupFlags.isEmpty()) View.GONE else View.VISIBLE
     }
 
