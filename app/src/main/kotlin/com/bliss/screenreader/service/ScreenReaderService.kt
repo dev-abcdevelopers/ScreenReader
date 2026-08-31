@@ -372,6 +372,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var CustomerStageValue = CustomerStage.IDLE
     private val ProfilePaneNodes = linkedSetOf<String>()
     private val PendingSheetKinds = mutableListOf<CustomerProfileParser.ContactKind>()
+    private val ExpectedSheetCounts =
+        mutableMapOf<CustomerProfileParser.ContactKind, Int>()
     private val ProcessedCustomerKeys = mutableSetOf<String>()
     private val CustomerReopenCounts = mutableMapOf<String, Int>()
     private var RequeueActiveCustomer = false
@@ -8922,6 +8924,13 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             CustomerNameVal = ActiveCustomerName
         )
         PendingSheetKinds.clear()
+        ExpectedSheetCounts.clear()
+        for (KindVal in CustomerProfileParser.ContactKind.values()) {
+            ExpectedSheetCounts[KindVal] = CustomerProfileParser.ExpectedValueCount(
+                Nodes = CollectedNodes,
+                KindVal = KindVal
+            )
+        }
         if (CustomerProfileParser.NeedsSheet(
                 Nodes = CollectedNodes,
                 LabelText = CustomerProfileParser.LABEL_MOBILE
@@ -8955,7 +8964,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "complete=$IsComplete fields=${ActiveProfile?.FieldCount ?: 0} " +
                     "partialValues=$PartialCount paneNodes=${CollectedNodes.size} " +
                     "email=${ActiveProfile?.Emails?.firstOrNull()?.Value.orEmpty()} " +
-                    "sheetsPending=${PendingSheetKinds.map { KindVal -> KindVal.name }}"
+                    "sheetsPending=${PendingSheetKinds.map { KindVal -> KindVal.name }} " +
+                    "expected=[" + ExpectedSheetCounts.entries.joinToString(", ") { EntryVal ->
+                        "${EntryVal.key.name}=${EntryVal.value}"
+                    } + "]"
         )
         if (PendingSheetKinds.isEmpty()) {
             FinishActiveCustomer()
@@ -9139,7 +9151,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 DiagnosticInfo(
                     EventName = "CUSTOMER_SHEET_OCR_READ",
                     MessageText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
-                            "lines=${OutcomeVal.TextLines.size}"
+                            "lines=${OutcomeVal.TextLines.size} " +
+                            "ocr=[" + OutcomeVal.TextLines.joinToString(" | ") + "]"
                 )
                 PendingOcrLines = OutcomeVal.TextLines
             }
@@ -9292,6 +9305,31 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 CustomerProfileParser.ContactKind.EMAIL -> ProfileObj.copy(Emails = ValueList)
                 CustomerProfileParser.ContactKind.ADDRESS -> ProfileObj.copy(Addresses = ValueList)
             }
+        }
+        val ExpectedCount = ExpectedSheetCounts[SheetKind] ?: 0
+        val UnattributedCount = ValueList.count { ValueItem ->
+            ValueItem.RelatedPolicies.isEmpty()
+        }
+        val CountOk = ExpectedCount <= 0 || ValueList.size >= ExpectedCount
+        val AttributionOk = UnattributedCount == 0
+        val SheetOk = CountOk && AttributionOk
+        val FailReason = when {
+            SheetOk -> ""
+            !CountOk && !AttributionOk -> "reason=count+attribution "
+            !CountOk -> "reason=count "
+            else -> "reason=attribution "
+        }
+        val VerifyText = "customer=$ActiveCustomerName kind=${SheetKind.name} " +
+                "expected=$ExpectedCount parsed=${ValueList.size} " +
+                "unattributed=$UnattributedCount ok=$SheetOk " + FailReason +
+                "source=" + (if (OcrLines != null) "ocr" else "tree") + " " +
+                "values=[" + ValueList.joinToString(" | ") { ValueItem ->
+                    ValueItem.Value + "->" + ValueItem.RelatedPolicies.joinToString(",")
+                } + "]"
+        if (SheetOk) {
+            DiagnosticInfo(EventName = "CUSTOMER_SHEET_VERIFY", MessageText = VerifyText)
+        } else {
+            DiagnosticWarning(EventName = "CUSTOMER_SHEET_VERIFY", MessageText = VerifyText)
         }
         if (ValueList.isEmpty()) {
             EmptySheetReadCount++
@@ -9449,6 +9487,39 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         } else {
             MarkCustomerVisited(NameText = ActiveCustomerName)
         }
+        if (ProfileObj != null) {
+            DiagnosticInfo(
+                EventName = "CUSTOMER_PROFILE_VERIFY",
+                MessageText = "customer=$ActiveCustomerName " +
+                        ContactSummary(LabelText = "mobiles", Values = ProfileObj.Mobiles) +
+                        " " + ContactSummary(LabelText = "emails", Values = ProfileObj.Emails) +
+                        " " + ContactSummary(
+                            LabelText = "addresses",
+                            Values = ProfileObj.Addresses
+                        ) +
+                        " dob=${ProfileObj.Dob} gender=${ProfileObj.Gender}" +
+                        " education=${ProfileObj.Education}" +
+                        " occupation=${ProfileObj.Occupation}" +
+                        " marital=${ProfileObj.MaritalStatus}" +
+                        " income=${ProfileObj.AnnualIncome}"
+            )
+            for (PolicyNumber in ActiveCustomerRelevantNumbers) {
+                val VerifyPatch = ProfileObj.ToPolicyPatch(PolicyNumber = PolicyNumber)
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_PATCH_VERIFY",
+                    MessageText = "customer=$ActiveCustomerName policy=$PolicyNumber " +
+                            "mobile=${VerifyPatch.MobileNumber} " +
+                            "mobileOthers=" +
+                            VerifyPatch.MobileNumberOthers.orEmpty().joinToString(",") + " " +
+                            "email=${VerifyPatch.Email} " +
+                            "emailOthers=" +
+                            VerifyPatch.EmailOthers.orEmpty().joinToString(",") + " " +
+                            "address=${VerifyPatch.Address} " +
+                            "addressOthers=" +
+                            VerifyPatch.AddressOthers.orEmpty().joinToString(",")
+                )
+            }
+        }
         DiagnosticInfo(
             EventName = "CUSTOMER_DONE",
             MessageText = "customer=$ActiveCustomerName policiesFilled=$FilledCount " +
@@ -9464,6 +9535,19 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         ScheduleCustomerAction(DelayMs = CUSTOMER_NAVIGATION_DELAY_MS) {
             ReturnToCustomerDashboard(AttemptCount = 0)
         }
+    }
+
+    private fun ContactSummary(
+        LabelText: String,
+        Values: List<com.bliss.screenreader.data.model.ContactValue>
+    ): String {
+        if (Values.isEmpty()) return "$LabelText=0[]"
+        val DetailText = Values.joinToString(" | ") { ValueItem ->
+            ValueItem.Value + "->" + ValueItem.RelatedPolicies.joinToString(",") +
+                    (if (ValueItem.IsDefault) "*" else "") +
+                    (if (ValueItem.IsPartial) "~" else "")
+        }
+        return "$LabelText=${Values.size}[$DetailText]"
     }
 
     private fun ReturnToCustomerDashboard(AttemptCount: Int, BackCount: Int = 0) {

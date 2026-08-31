@@ -19,7 +19,8 @@ object PolicyCompleteness {
         val Title: String,
         val Fields: List<FieldEntry>,
         val IsCountedTowardTotal: Boolean,
-        val IsCapturable: Boolean
+        val IsCapturable: Boolean,
+        val IsRefreshable: Boolean = false
     ) {
         val CapturedCount: Int get() = Fields.count { FieldRef -> FieldRef.Value.isNotEmpty() }
         val TotalCount: Int get() = Fields.size
@@ -120,6 +121,7 @@ object PolicyCompleteness {
                 Title = Labels.CustomerTitle,
                 IsCountedTowardTotal = false,
                 IsCapturable = false,
+                IsRefreshable = true,
                 Fields = buildList {
                     addAll(
                         ContactFields(

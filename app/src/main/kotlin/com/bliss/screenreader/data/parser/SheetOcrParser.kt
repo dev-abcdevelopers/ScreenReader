@@ -11,6 +11,10 @@ object SheetOcrParser {
     private val TITLE_PREFIXES = listOf("mobile number(", "email id(", "address(es")
     private val POLICY_NUMBER_REGEX = Regex("\\d{9}")
     private val CLOSE_LABELS = setOf("x", "×", "close")
+    private val MOBILE_VALUE_REGEX = Regex("^[6-9]\\d{9}$")
+    private val WHITESPACE_REGEX = Regex("\\s+")
+    private const val MARKER_HEAD = "polic"
+    private const val MARKER_TAIL = "related"
 
     fun ParseSheetText(
         Lines: List<String>,
@@ -26,14 +30,16 @@ object SheetOcrParser {
         for (LineText in Body) {
             val JoinedLine = CustomerProfileParser.JoinSplitDigits(TextValue = LineText)
 
-            if (CustomerProfileParser.IsRelatedPoliciesMarker(TextValue = LineText)) {
+            if (IsRelatedMarkerLine(LineText = LineText)) {
                 if (ValueBuilders.isEmpty()) continue
                 SeenRelatedForCurrent = true
                 RelatedGroups.last().addAll(PolicyNumbersIn(TextValue = LineText))
                 continue
             }
 
-            if (SeenRelatedForCurrent && POLICY_NUMBER_REGEX.containsMatchIn(JoinedLine) &&
+            if (SeenRelatedForCurrent &&
+                !IsOwnValueLine(LineText = LineText, KindVal = KindVal) &&
+                POLICY_NUMBER_REGEX.containsMatchIn(JoinedLine) &&
                 LineText.none { CharacterVal -> CharacterVal.isLetter() }
             ) {
                 RelatedGroups.last().addAll(PolicyNumbersIn(TextValue = LineText))
@@ -65,7 +71,7 @@ object SheetOcrParser {
         val Cleaned = Lines
             .map { LineText -> LineText.trim() }
             .filter { LineText -> LineText.isNotEmpty() }
-            .filterNot { LineText -> CLOSE_LABELS.contains(LineText.lowercase(Locale.US)) }
+            .filterNot { LineText -> IsCloseLabel(LineText = LineText) }
 
         val TitleIndex = Cleaned.indexOfLast { LineText ->
             val Lower = LineText.lowercase(Locale.US)
@@ -77,6 +83,32 @@ object SheetOcrParser {
             .drop(TitleIndex + 1)
             .filterNot { LineText -> LineText.lowercase(Locale.US).startsWith(DEFAULT_MARKER) }
     }
+
+    private fun IsOwnValueLine(
+        LineText: String,
+        KindVal: CustomerProfileParser.ContactKind
+    ): Boolean {
+        if (KindVal != CustomerProfileParser.ContactKind.MOBILE) return false
+        return MOBILE_VALUE_REGEX.matches(LineText.replace(WHITESPACE_REGEX, ""))
+    }
+
+    private fun IsRelatedMarkerLine(LineText: String): Boolean {
+        if (CustomerProfileParser.IsRelatedPoliciesMarker(TextValue = LineText)) return true
+        val FirstToken = LineText.trim().substringBefore(' ')
+        val Letters = LettersOf(TextValue = FirstToken)
+        if (Letters.startsWith(MARKER_HEAD) && FirstToken.contains('(')) return true
+        return Letters == MARKER_TAIL
+    }
+
+    private fun IsCloseLabel(LineText: String): Boolean {
+        val Stripped = LineText
+            .filter { CharacterVal -> CharacterVal.isLetterOrDigit() }
+            .lowercase(Locale.US)
+        return CLOSE_LABELS.contains(Stripped)
+    }
+
+    private fun LettersOf(TextValue: String): String =
+        TextValue.lowercase(Locale.US).filter { CharacterVal -> CharacterVal.isLetter() }
 
     private fun PolicyNumbersIn(TextValue: String): List<String> =
         POLICY_NUMBER_REGEX

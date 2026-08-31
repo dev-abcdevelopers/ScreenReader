@@ -1,5 +1,5 @@
 @file:Suppress("FunctionName", "PrivatePropertyName", "LocalVariableName", "PropertyName",
-    "SameParameterValue", "SpellCheckingInspection", "UsePropertyAccessSyntax"
+    "SameParameterValue", "SpellCheckingInspection", "UsePropertyAccessSyntax", "unused"
 )
 
 package com.bliss.screenreader.ui.detail
@@ -21,8 +21,10 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.PolicyCompleteness
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.ActivityPolicyDetailBinding
-import com.bliss.screenreader.databinding.PartialFieldGroupBinding
+import com.bliss.screenreader.databinding.PartialCaseContactBinding
+import com.bliss.screenreader.databinding.PartialCaseStopBinding
 import com.bliss.screenreader.databinding.PartialFieldRowBinding
+import com.bliss.screenreader.databinding.PartialRenewalRowBinding
 import com.bliss.screenreader.export.ExcelExporter
 import com.bliss.screenreader.export.ExportFormat
 import com.bliss.screenreader.settings.SettingsStore
@@ -37,6 +39,7 @@ import com.google.android.material.chip.Chip
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.core.view.isNotEmpty
 
 
 class PolicyDetailActivity : AppCompatActivity() {
@@ -44,6 +47,7 @@ class PolicyDetailActivity : AppCompatActivity() {
     private lateinit var ViewBindingObj: ActivityPolicyDetailBinding
     private var SessionIdVal: String = ""
     private var ActivePolicyObj: CustomerPolicy? = null
+    private var RenewalRowBinding: PartialRenewalRowBinding? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +56,15 @@ class PolicyDetailActivity : AppCompatActivity() {
 
         SetupEdgeToEdge(RootView = ViewBindingObj.root, AppBarView = ViewBindingObj.toolbar)
         ViewBindingObj.toolbar.setNavigationOnClickListener { finish() }
+        ViewBindingObj.toolbar.inflateMenu(R.menu.menu_policy_detail)
+        ViewBindingObj.toolbar.setOnMenuItemClickListener { MenuItemRef ->
+            if (MenuItemRef.itemId != R.id.actionExportPolicy) {
+                return@setOnMenuItemClickListener false
+            }
+            val PolicyRef = ActivePolicyObj
+            if (PolicyRef != null) ExportSingle(PolicyRef = PolicyRef)
+            true
+        }
 
         val PolicyNumber = intent.getStringExtra(EXTRA_POLICY_NUMBER).orEmpty()
         SessionIdVal = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
@@ -68,17 +81,17 @@ class PolicyDetailActivity : AppCompatActivity() {
 
         ActivePolicyObj = ResolvedPolicy
         BindHeader(PolicyRef = ResolvedPolicy)
+        BindVerdict(PolicyRef = ResolvedPolicy)
         BindActions(PolicyRef = ResolvedPolicy)
-        BindRevival(PolicyRef = ResolvedPolicy)
+        BindLife(PolicyRef = ResolvedPolicy)
+        BindCustomer(PolicyRef = ResolvedPolicy)
+        BindRecord(PolicyRef = ResolvedPolicy)
 
         val SummaryVal = PolicyCompleteness.Describe(
             PolicyItem = ResolvedPolicy,
             Labels = BuildLabels()
         )
-        BindCompleteness(SummaryVal = SummaryVal)
-        BindGroups(SummaryVal = SummaryVal)
-        BindRenewalHistory(PolicyRef = ResolvedPolicy)
-        BindProvenance(PolicyRef = ResolvedPolicy)
+        BindFooter(PolicyRef = ResolvedPolicy, SummaryVal = SummaryVal)
     }
 
     override fun onResume() {
@@ -86,10 +99,11 @@ class PolicyDetailActivity : AppCompatActivity() {
         RenderAdvancedVisibility()
     }
 
+
     private fun RenderAdvancedVisibility() {
-        ViewBindingObj.btnExportPolicy.visibility =
-            if (SettingsStore.IsSessionExportVisible(ContextRef = this)) View.VISIBLE else View.GONE
-        ViewBindingObj.rowRenewalHistory.visibility =
+        ViewBindingObj.toolbar.menu.findItem(R.id.actionExportPolicy)?.isVisible =
+            SettingsStore.IsSessionExportVisible(ContextRef = this)
+        RenewalRowBinding?.root?.visibility =
             if (SettingsStore.IsRenewalHistoryVisible(ContextRef = this)) {
                 View.VISIBLE
             } else {
@@ -99,8 +113,8 @@ class PolicyDetailActivity : AppCompatActivity() {
 
 
     private fun BindHeader(PolicyRef: CustomerPolicy) {
-        ViewBindingObj.tvDetailNumber.text =
-            PolicyRef.PolicyNumber.ifEmpty { getString(R.string.detail_missing) }
+        ViewBindingObj.toolbar.title =
+            PolicyRef.PolicyNumber.ifEmpty { getString(R.string.detail_toolbar_title) }
 
         ViewBindingObj.tvDetailHolder.text =
             PolicyRef.HolderName.ifEmpty { getString(R.string.status_unknown) }
@@ -113,39 +127,46 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.tvDetailPlan.text = PlanText
         ViewBindingObj.tvDetailPlan.visibility = if (PlanText.isBlank()) View.GONE else View.VISIBLE
 
+        BindStatusChip(PolicyRef = PolicyRef)
         BindFlagChips(PolicyRef = PolicyRef)
+    }
 
-        ViewBindingObj.btnCopyNumber.setOnClickListener { ViewRef ->
-            HapticFeedback.Tap(ViewRef = ViewRef)
-            CopyValue(
-                LabelText = getString(R.string.detail_copy_number),
-                ValueText = PolicyRef.PolicyNumber
+    private fun BindStatusChip(PolicyRef: CustomerPolicy) {
+        val StatusText = PolicyRef.NormalizedStatus
+        if (StatusText.isEmpty()) {
+            ViewBindingObj.chipStatus.visibility = View.GONE
+            return
+        }
+        ViewBindingObj.chipStatus.visibility = View.VISIBLE
+        ViewBindingObj.chipStatus.text = StatusText
+        ViewBindingObj.chipStatus.chipBackgroundColor =
+            android.content.res.ColorStateList.valueOf(
+                ContextCompat.getColor(this, StatusBackgroundFor(StatusText = StatusText))
             )
+        ViewBindingObj.chipStatus.setTextColor(
+            ContextCompat.getColor(this, StatusTextFor(StatusText = StatusText))
+        )
+    }
+
+    private fun StatusBackgroundFor(StatusText: String): Int {
+        return when {
+            PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_bg
+            PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_bg
+            else -> R.color.status_green_bg
+        }
+    }
+
+    private fun StatusTextFor(StatusText: String): Int {
+        return when {
+            PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_text
+            PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_text
+            else -> R.color.status_green_text
         }
     }
 
 
     private fun BindFlagChips(PolicyRef: CustomerPolicy) {
         ViewBindingObj.chipGroupFlags.removeAllViews()
-
-        val StatusText = PolicyRef.NormalizedStatus
-        if (StatusText.isNotEmpty()) {
-            val BackgroundRes = when {
-                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_bg
-                PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_bg
-                else -> R.color.status_green_bg
-            }
-            val TextColorRes = when {
-                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_text
-                PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_text
-                else -> R.color.status_green_text
-            }
-            AddChip(
-                LabelText = StatusText,
-                BackgroundRes = BackgroundRes,
-                TextColorRes = TextColorRes
-            )
-        }
 
         val CapturedChips = PolicyRef.StatusChips.orEmpty()
         if (CapturedChips.isNotEmpty()) {
@@ -200,195 +221,212 @@ class PolicyDetailActivity : AppCompatActivity() {
     }
 
 
-    private fun BindActions(PolicyRef: CustomerPolicy) {
-        val MobileNumber = PolicyRef.MobileNumber.filter { CharValue ->
-            CharValue.isDigit() || CharValue == '+'
+    private fun BindVerdict(PolicyRef: CustomerPolicy) {
+        val StatusText = PolicyRef.NormalizedStatus
+        val DueText = DisplayDate(
+            RawText = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
+        )
+        val PremiumText = DisplayAmount(RawText = PolicyRef.PremiumAmount)
+        val MissingText = getString(R.string.detail_missing)
+
+        val BackgroundRes: Int
+        val LeadColourRes: Int
+        val LeadText: String
+        val ValueText: String
+        val SubText: String
+
+        when {
+            StatusText.equals(PolicyStatusRules.LAPSED, ignoreCase = true) -> {
+                BackgroundRes = R.drawable.bg_verdict_bad
+                LeadColourRes = R.color.status_red_text
+                LeadText = PolicyRef.RenewalType
+                    .ifEmpty { PolicyRef.RenewalDateLabel }
+                    .ifEmpty { getString(R.string.detail_revival_default) }
+                ValueText = DueText.ifEmpty { MissingText }
+                SubText = StatusText
+            }
+
+            StatusText.equals(PolicyStatusRules.GRACE, ignoreCase = true) ||
+                    StatusText.equals(PolicyStatusRules.OUTSTANDING, ignoreCase = true) -> {
+                BackgroundRes = R.drawable.bg_verdict_warn
+                LeadColourRes = R.color.status_amber_text
+                LeadText = getString(
+                    if (StatusText.equals(PolicyStatusRules.GRACE, ignoreCase = true)) {
+                        R.string.detail_verdict_grace
+                    } else {
+                        R.string.detail_verdict_overdue
+                    }
+                )
+                ValueText = if (PremiumText.isEmpty()) {
+                    DueText.ifEmpty { MissingText }
+                } else {
+                    getString(R.string.detail_verdict_overdue_amount, PremiumText)
+                }
+                SubText = if (DueText.isEmpty()) {
+                    ""
+                } else {
+                    getString(R.string.detail_verdict_due_on, DueText)
+                }
+            }
+
+            StatusText.equals(PolicyStatusRules.PAID_UP, ignoreCase = true) ||
+                    StatusText.equals(PolicyStatusRules.REDUCED_PAID_UP, ignoreCase = true) -> {
+                BackgroundRes = R.drawable.bg_verdict_neutral
+                LeadColourRes = R.color.text_muted
+                LeadText = StatusText
+                ValueText = getString(R.string.detail_verdict_settled)
+                SubText = DisplayAmount(RawText = PolicyRef.SumAssured)
+            }
+
+            else -> {
+                BackgroundRes = R.drawable.bg_verdict_neutral
+                LeadColourRes = R.color.text_muted
+                LeadText = getString(R.string.detail_verdict_next)
+                ValueText = DueText.ifEmpty { MissingText }
+                SubText = PremiumFrequencyLine(PolicyRef = PolicyRef)
+            }
         }
+
+        ViewBindingObj.verdictBlock.setBackgroundResource(BackgroundRes)
+        ViewBindingObj.tvVerdictLead.text = LeadText
+        ViewBindingObj.tvVerdictLead.setTextColor(ContextCompat.getColor(this, LeadColourRes))
+        ViewBindingObj.tvVerdictValue.text = ValueText
+        ViewBindingObj.tvVerdictSub.text = SubText
+        ViewBindingObj.tvVerdictSub.visibility = if (SubText.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun PremiumFrequencyLine(PolicyRef: CustomerPolicy): String {
+        val PremiumText = DisplayAmount(RawText = PolicyRef.PremiumAmount)
+        if (PremiumText.isEmpty()) return ""
+        if (PolicyRef.PremiumFrequency.isEmpty()) return PremiumText
+        return getString(
+            R.string.detail_verdict_premium_format,
+            PremiumText,
+            PolicyRef.PremiumFrequency
+        )
+    }
+
+
+    private fun BindActions(PolicyRef: CustomerPolicy) {
+        val MobileNumber = DialableNumber(RawText = PolicyRef.MobileNumber)
         val HasMobile = MobileNumber.length >= MIN_DIALABLE_DIGITS
+
+        ViewBindingObj.btnCallCustomer.isEnabled = HasMobile
+        ViewBindingObj.btnMessageCustomer.isEnabled = HasMobile
 
         ViewBindingObj.btnCallCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
-            if (!HasMobile) {
-                ShowMessage(
-                    MessageVal = getString(R.string.detail_no_mobile),
-                    KindVal = AppToast.Kind.Warning
-                )
-                return@setOnClickListener
-            }
-            LaunchIntentSafely(
-                IntentObj = Intent(Intent.ACTION_DIAL, "tel:$MobileNumber".toUri())
-            )
+            DialNumber(NumberText = MobileNumber)
         }
 
         ViewBindingObj.btnMessageCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
-            if (!HasMobile) {
-                ShowMessage(
-                    MessageVal = getString(R.string.detail_no_mobile),
-                    KindVal = AppToast.Kind.Warning
-                )
-                return@setOnClickListener
-            }
             LaunchIntentSafely(
                 IntentObj = Intent(Intent.ACTION_SENDTO, "smsto:$MobileNumber".toUri())
             )
         }
-
-        ViewBindingObj.btnExportPolicy.setOnClickListener { ViewRef ->
-            HapticFeedback.Confirm(ViewRef = ViewRef)
-            ExportSingle(PolicyRef = PolicyRef)
-        }
     }
 
-    private fun BindRevival(PolicyRef: CustomerPolicy) {
-        val IsLapsed = PolicyRef.NormalizedStatus.equals("Lapsed", ignoreCase = true)
-        val CardDateText = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
-        val DueDateIso = ExportFormat.IsoDate(RawText = CardDateText)
+    private fun DialableNumber(RawText: String): String {
+        return RawText.filter { CharValue -> CharValue.isDigit() || CharValue == '+' }
+    }
 
-        if (!IsLapsed || DueDateIso.isEmpty()) {
-            ViewBindingObj.revivalBlock.visibility = View.GONE
-            return
-        }
-
-        ViewBindingObj.revivalBlock.visibility = View.VISIBLE
-        ViewBindingObj.tvRevivalLabel.text = PolicyRef.RenewalType
-            .ifEmpty { PolicyRef.RenewalDateLabel }
-            .ifEmpty { getString(R.string.detail_revival_default) }
-        ViewBindingObj.tvRevivalDate.text = DueDateIso
+    private fun DialNumber(NumberText: String) {
+        LaunchIntentSafely(IntentObj = Intent(Intent.ACTION_DIAL, "tel:$NumberText".toUri()))
     }
 
 
-    private fun BindCompleteness(
-        SummaryVal: PolicyCompleteness.Summary
-    ) {
-        ViewBindingObj.tvCompletenessLabel.text = getString(
-            R.string.detail_completeness_format,
-            SummaryVal.CapturedCount,
-            SummaryVal.TotalCount
-        )
-        ViewBindingObj.tvCompletenessPercent.text =
-            getString(R.string.detail_completeness_percent_format, SummaryVal.Percent)
-        ViewBindingObj.tvCompletenessPercent.setTextColor(
-            ContextCompat.getColor(
-                this,
-                if (SummaryVal.IsComplete) R.color.status_green_text else R.color.status_amber_text
-            )
-        )
+    private fun BindLife(PolicyRef: CustomerPolicy) {
+        ViewBindingObj.railContainer.removeAllViews()
+        RenewalRowBinding = null
 
-        ViewBindingObj.progressCompleteness.max = 100
-        ViewBindingObj.progressCompleteness.setProgressCompat(SummaryVal.Percent, false)
-        ViewBindingObj.progressCompleteness.setIndicatorColor(
-            ContextCompat.getColor(
-                this,
-                if (SummaryVal.IsComplete) R.color.status_green_text else R.color.status_amber_text
-            )
-        )
+        val Labels = BuildLabels()
+        val IsOverdue = PolicyStatusRules.IsAdverse(StatusText = PolicyRef.NormalizedStatus) ||
+                PolicyStatusRules.IsAttention(StatusText = PolicyRef.NormalizedStatus)
+        val DueRaw = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
 
-        if (SummaryVal.IsComplete) {
-            ViewBindingObj.btnCaptureMissing.visibility = View.GONE
-            return
-        }
-
-        ViewBindingObj.btnCaptureMissing.visibility = View.VISIBLE
-        ViewBindingObj.btnCaptureMissing.text = if (SummaryVal.MissingCount == 1) {
-            getString(R.string.detail_capture_missing_one)
-        } else {
-            getString(R.string.detail_capture_missing_format, SummaryVal.MissingCount)
-        }
-        ViewBindingObj.btnCaptureMissing.setOnClickListener { ViewRef ->
-            HapticFeedback.Confirm(ViewRef = ViewRef)
-            ResumeCaptureForPolicy()
-        }
-    }
-
-    private fun BindGroups(
-        SummaryVal: PolicyCompleteness.Summary
-    ) {
-        ViewBindingObj.groupContainer.removeAllViews()
-
-        for (GroupRef in SummaryVal.Groups) {
-            val GroupBinding = PartialFieldGroupBinding.inflate(
-                layoutInflater, ViewBindingObj.groupContainer, false
-            )
-            GroupBinding.tvGroupTitle.text = GroupRef.Title
-
-            val ShowCapture = GroupRef.IsCapturable && !GroupRef.IsComplete
-            GroupBinding.tvGroupAction.visibility = if (ShowCapture) View.VISIBLE else View.GONE
-            GroupBinding.ivGroupChevron.visibility = if (ShowCapture) View.VISIBLE else View.GONE
-
-            GroupBinding.tvGroupCount.text = if (GroupRef.IsEmpty && GroupRef.IsCapturable) {
-                getString(R.string.detail_group_not_captured)
-            } else {
+        val StopList = listOf(
+            Triple(Labels.Commenced, PolicyRef.DateOfCommencement, STOP_PAST),
+            Triple(
                 getString(
-                    R.string.detail_group_count_format,
-                    GroupRef.CapturedCount,
-                    GroupRef.TotalCount
+                    if (IsOverdue) R.string.detail_stop_overdue else R.string.detail_stop_next
+                ),
+                DueRaw,
+                STOP_NOW
+            ),
+            Triple(Labels.PremiumsEnd, PolicyRef.EndOfPremiumPayingTerm, STOP_FUTURE),
+            Triple(Labels.Matures, PolicyRef.DateOfMaturity, STOP_FUTURE)
+        )
+
+        for ((StopIndex, StopItem) in StopList.withIndex()) {
+            val StopBinding = PartialCaseStopBinding.inflate(
+                layoutInflater, ViewBindingObj.railContainer, false
+            )
+            val ValueText = DisplayDate(RawText = StopItem.second)
+            val IsGap = ValueText.isEmpty()
+
+            StopBinding.tvStopLabel.text = StopItem.first
+            StopBinding.tvStopValue.text =
+                ValueText.ifEmpty { getString(R.string.detail_capture_action) }
+
+            val DotColourRes = when {
+                IsGap -> R.color.text_faint
+                StopItem.third == STOP_NOW -> R.color.text_accent
+                StopItem.third == STOP_PAST -> R.color.text_secondary
+                else -> R.color.text_faint
+            }
+            StopBinding.railDot.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this, DotColourRes)
+                )
+
+            val ValueColourRes = when {
+                IsGap -> R.color.text_accent
+                StopItem.third == STOP_NOW -> R.color.text_accent
+                else -> R.color.text_primary
+            }
+            StopBinding.tvStopValue.setTextColor(ContextCompat.getColor(this, ValueColourRes))
+            if (StopItem.third == STOP_NOW && !IsGap) {
+                StopBinding.tvStopLabel.setTextColor(
+                    ContextCompat.getColor(this, R.color.text_accent)
                 )
             }
-            GroupBinding.tvGroupCount.setTextColor(
-                ContextCompat.getColor(
-                    this,
-                    if (GroupRef.IsComplete) R.color.text_secondary else R.color.status_amber_text
-                )
-            )
 
-            if (ShowCapture) {
-                GroupBinding.groupHeader.setOnClickListener { ViewRef ->
+            StopBinding.railTop.visibility =
+                if (StopIndex == 0) View.INVISIBLE else View.VISIBLE
+            StopBinding.railBottom.visibility =
+                if (StopIndex == StopList.size - 1) View.INVISIBLE else View.VISIBLE
+
+            if (IsGap) {
+                StopBinding.stopRoot.setOnClickListener { ViewRef ->
                     HapticFeedback.Confirm(ViewRef = ViewRef)
                     ResumeCaptureForPolicy()
                 }
             }
 
-            AddGroupFields(FieldContainer = GroupBinding.groupFields, GroupRef = GroupRef)
-
-            if (GroupRef.IsEmpty && !GroupRef.IsCapturable) {
-                GroupBinding.tvGroupEmpty.visibility = View.VISIBLE
-                GroupBinding.tvGroupEmpty.setText(R.string.detail_group_empty_customer)
-            }
-
-            ViewBindingObj.groupContainer.addView(GroupBinding.root)
+            ViewBindingObj.railContainer.addView(StopBinding.root)
         }
+
+        val RowBinding = PartialRenewalRowBinding.inflate(
+            layoutInflater, ViewBindingObj.railContainer, false
+        )
+        ViewBindingObj.railContainer.addView(RowBinding.root)
+        RenewalRowBinding = RowBinding
+        BindRenewalHistory(PolicyRef = PolicyRef)
     }
-
-    private fun AddGroupFields(
-        FieldContainer: LinearLayout,
-        GroupRef: PolicyCompleteness.FieldGroup
-    ) {
-        FieldContainer.removeAllViews()
-        for (FieldRef in GroupRef.Fields) {
-            if (FieldRef.Value.isEmpty()) continue
-
-            val RowBinding = PartialFieldRowBinding.inflate(layoutInflater, FieldContainer, false)
-            RowBinding.tvFieldLabel.text = FieldRef.Label
-            RowBinding.tvFieldValue.text = FormatForDisplay(FieldRef = FieldRef)
-
-
-            RowBinding.root.setOnClickListener { ViewRef ->
-                HapticFeedback.Tap(ViewRef = ViewRef)
-                CopyValue(LabelText = FieldRef.Label, ValueText = FieldRef.Value)
-            }
-            FieldContainer.addView(RowBinding.root)
-        }
-    }
-
-
-    private fun FormatForDisplay(FieldRef: PolicyCompleteness.FieldEntry): String {
-        if (!FieldRef.IsDate) return FieldRef.Value
-        return ExportFormat.IsoDate(RawText = FieldRef.Value).ifEmpty { FieldRef.Value }
-    }
-
 
     private fun BindRenewalHistory(PolicyRef: CustomerPolicy) {
+        val RowBinding = RenewalRowBinding ?: return
         val RenewalList = PolicyRepository.GetFupPolicies(ContextRef = this)
             .filter { RenewalItem -> RenewalItem.PolicyNumber == PolicyRef.PolicyNumber }
 
-        ViewBindingObj.tvRenewalMeta.text = if (RenewalList.isEmpty()) {
+        RowBinding.tvRenewalMeta.text = if (RenewalList.isEmpty()) {
             getString(R.string.detail_renewals_none)
         } else {
             getString(R.string.detail_entries_format, RenewalList.size)
         }
 
-        ViewBindingObj.rowRenewalHistory.setOnClickListener { ViewRef ->
+        RowBinding.rowRenewalHistory.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             if (RenewalList.isEmpty()) {
                 StartCaptureFor(ModeVal = CaptureMode.FUP)
@@ -400,33 +438,278 @@ class PolicyDetailActivity : AppCompatActivity() {
     }
 
 
-    private fun BindProvenance(PolicyRef: CustomerPolicy) {
-        val CapturedLabel = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
-            .format(Date(PolicyRef.CapturedAt))
-        val SessionRef = PolicyRepository.GetSessionReference(
-            ContextRef = this,
-            SessionId = ResolveSessionId()
+    private fun BindCustomer(PolicyRef: CustomerPolicy) {
+        ViewBindingObj.contactContainer.removeAllViews()
+        ViewBindingObj.personalContainer.removeAllViews()
+
+        val Labels = BuildLabels()
+        AddContactGroup(
+            IconRes = R.drawable.ic_phone,
+            KindLabel = Labels.Mobile,
+            PrimaryValue = PolicyRef.MobileNumber,
+            OtherValues = PolicyRef.MobileNumberOthers.orEmpty(),
+            IsDialable = true
         )
-        val ModeLabel = getString(
-            if (SessionRef?.CapturePolicyDetails == true) {
-                R.string.detail_capture_full
-            } else {
-                R.string.detail_capture_fast
-            }
+        AddContactGroup(
+            IconRes = R.drawable.ic_message,
+            KindLabel = Labels.Email,
+            PrimaryValue = PolicyRef.Email,
+            OtherValues = PolicyRef.EmailOthers.orEmpty(),
+            IsDialable = false
+        )
+        AddContactGroup(
+            IconRes = R.drawable.ic_person,
+            KindLabel = Labels.Address,
+            PrimaryValue = PolicyRef.Address,
+            OtherValues = PolicyRef.AddressOthers.orEmpty(),
+            IsDialable = false
         )
 
-        ViewBindingObj.tvProvenance.text = if (SessionRef == null) {
-            getString(R.string.detail_provenance_format, ModeLabel, CapturedLabel)
-        } else {
-            getString(
-                R.string.detail_provenance_session_format,
-                ModeLabel,
-                CapturedLabel,
-                SessionRef.SessionId.take(SESSION_ID_PREVIEW_LENGTH)
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.Dob,
+            ValueText = DisplayDate(RawText = PolicyRef.Dob),
+            ShowGap = true,
+            OnGap = { RefreshCustomerDetails() }
+        )
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.Gender,
+            ValueText = PolicyRef.Gender
+        )
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.Education,
+            ValueText = PolicyRef.Education
+        )
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.Occupation,
+            ValueText = PolicyRef.Occupation
+        )
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.MaritalStatus,
+            ValueText = PolicyRef.MaritalStatus
+        )
+        AddRecordRow(
+            Container = ViewBindingObj.personalContainer,
+            LabelText = Labels.AnnualIncome,
+            ValueText = DisplayAmount(RawText = PolicyRef.AnnualIncome)
+        )
+
+        val HasContacts = ViewBindingObj.contactContainer.isNotEmpty()
+        val HasPersonal = ViewBindingObj.personalContainer.isNotEmpty()
+        ViewBindingObj.contactCard.visibility = if (HasContacts) View.VISIBLE else View.GONE
+        ViewBindingObj.personalCard.visibility = if (HasPersonal) View.VISIBLE else View.GONE
+        ViewBindingObj.customerEmpty.visibility =
+            if (HasContacts || HasPersonal) View.GONE else View.VISIBLE
+        ViewBindingObj.btnCaptureCustomer.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            RefreshCustomerDetails()
+        }
+    }
+
+    private fun AddContactGroup(
+        IconRes: Int,
+        KindLabel: String,
+        PrimaryValue: String,
+        OtherValues: List<String>,
+        IsDialable: Boolean
+    ) {
+        if (PrimaryValue.isEmpty()) return
+        AddContactRow(
+            IconRes = IconRes,
+            KindLabel = KindLabel,
+            ValueText = PrimaryValue,
+            MetaText = if (OtherValues.isEmpty()) {
+                ""
+            } else {
+                getString(R.string.detail_contact_this_policy)
+            },
+            IsDialable = IsDialable
+        )
+        for (OtherValue in OtherValues) {
+            AddContactRow(
+                IconRes = IconRes,
+                KindLabel = KindLabel,
+                ValueText = OtherValue,
+                MetaText = getString(R.string.detail_contact_other),
+                IsDialable = IsDialable
             )
+        }
+    }
+
+    private fun AddContactRow(
+        IconRes: Int,
+        KindLabel: String,
+        ValueText: String,
+        MetaText: String,
+        IsDialable: Boolean
+    ) {
+        val RowBinding = PartialCaseContactBinding.inflate(
+            layoutInflater, ViewBindingObj.contactContainer, false
+        )
+        RowBinding.ivContactIcon.setImageResource(IconRes)
+        RowBinding.tvContactValue.text = ValueText
+        RowBinding.tvContactMeta.text = MetaText
+        RowBinding.tvContactMeta.visibility = if (MetaText.isEmpty()) View.GONE else View.VISIBLE
+        RowBinding.tvContactAction.setText(
+            if (IsDialable) R.string.detail_action_call else R.string.detail_action_copy
+        )
+        RowBinding.contactRoot.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            if (IsDialable) {
+                DialNumber(NumberText = DialableNumber(RawText = ValueText))
+            } else {
+                CopyValue(LabelText = KindLabel, ValueText = ValueText)
+            }
+        }
+        ViewBindingObj.contactContainer.addView(RowBinding.root)
+    }
+
+
+    private fun BindRecord(PolicyRef: CustomerPolicy) {
+        ViewBindingObj.recordContainer.removeAllViews()
+        val Labels = BuildLabels()
+        val Container = ViewBindingObj.recordContainer
+
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.Premium,
+            ValueText = DisplayAmount(RawText = PolicyRef.PremiumAmount),
+            ShowGap = true,
+            OnGap = { ResumeCaptureForPolicy() }
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.PremiumFrequency,
+            ValueText = PolicyRef.PremiumFrequency
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.AutoPay,
+            ValueText = PolicyRef.AutoPay
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.SumAssured,
+            ValueText = DisplayAmount(RawText = PolicyRef.SumAssured),
+            ShowGap = true,
+            OnGap = { ResumeCaptureForPolicy() }
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.TermPpt,
+            ValueText = PolicyRef.TermPPT,
+            ShowGap = true,
+            OnGap = { ResumeCaptureForPolicy() }
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.RenewalType,
+            ValueText = PolicyRef.RenewalType
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.CommissionType,
+            ValueText = PolicyRef.CommissionType,
+            ShowGap = true,
+            OnGap = { ResumeCaptureForPolicy() }
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.CommissionPaid,
+            ValueText = DisplayAmount(RawText = PolicyRef.CommissionPaidAmount)
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.BonusCommission,
+            ValueText = DisplayAmount(RawText = PolicyRef.BonusCommission)
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.CommissionPaymentDate,
+            ValueText = DisplayDate(RawText = PolicyRef.CommissionDateOfPayment)
+        )
+        AddRecordRow(
+            Container = Container,
+            LabelText = Labels.CommissionPremiumDate,
+            ValueText = DisplayDate(RawText = PolicyRef.CommissionDateOfPremiumPayment)
+        )
+
+        ViewBindingObj.recordCard.visibility =
+            if (Container.childCount == 0) View.GONE else View.VISIBLE
+        ViewBindingObj.headerRecord.visibility = ViewBindingObj.recordCard.visibility
+    }
+
+    private fun AddRecordRow(
+        Container: LinearLayout,
+        LabelText: String,
+        ValueText: String,
+        ShowGap: Boolean = false,
+        OnGap: (() -> Unit)? = null
+    ) {
+        val IsGap = ValueText.isEmpty()
+        if (IsGap && !ShowGap) return
+
+        val RowBinding = PartialFieldRowBinding.inflate(layoutInflater, Container, false)
+        RowBinding.tvFieldLabel.text = LabelText
+        RowBinding.tvFieldValue.text =
+            ValueText.ifEmpty { getString(R.string.detail_capture_action) }
+        RowBinding.tvFieldValue.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (IsGap) R.color.text_accent else R.color.text_primary
+            )
+        )
+        if (IsGap && OnGap != null) {
+            RowBinding.root.setOnClickListener { ViewRef ->
+                HapticFeedback.Confirm(ViewRef = ViewRef)
+                OnGap()
+            }
+        }
+        Container.addView(RowBinding.root)
+    }
+
+
+    private fun BindFooter(PolicyRef: CustomerPolicy, SummaryVal: PolicyCompleteness.Summary) {
+        val CapturedLabel = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
+            .format(Date(PolicyRef.CapturedAt))
+        ViewBindingObj.tvProvenance.text = getString(
+            R.string.detail_provenance_short,
+            SummaryVal.CapturedCount,
+            SummaryVal.TotalCount,
+            CapturedLabel
+        )
+        ViewBindingObj.btnUpdate.visibility =
+            if (SummaryVal.IsComplete) View.GONE else View.VISIBLE
+        ViewBindingObj.btnUpdate.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            ResumeCaptureForPolicy()
         }
         ViewBindingObj.toolbar.subtitle =
             getString(R.string.detail_captured_at_format, CapturedLabel)
+    }
+
+    private fun DisplayAmount(RawText: String): String {
+        val Trimmed = RawText.trim()
+        if (Trimmed.isEmpty()) return ""
+        if (Trimmed.contains('₹')) return Trimmed
+        if (!Trimmed.first().isDigit()) return Trimmed
+        return getString(R.string.detail_amount_format, Trimmed)
+    }
+
+    private fun DisplayDate(RawText: String): String {
+        val IsoText = ExportFormat.IsoDate(RawText = RawText)
+        if (IsoText.isEmpty()) return RawText.trim()
+        val ParsedDate = try {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(IsoText)
+        } catch (_: Exception) {
+            null
+        }
+        if (ParsedDate == null) return IsoText
+        return SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(ParsedDate)
     }
 
 
@@ -455,6 +738,27 @@ class PolicyDetailActivity : AppCompatActivity() {
             } else {
                 PolicyRef?.HolderName.orEmpty()
             }
+        )
+        if (StartedOk) finish()
+    }
+
+    private fun RefreshCustomerDetails() {
+        val HolderName = ActivePolicyObj?.HolderName.orEmpty().trim()
+        if (HolderName.isEmpty()) {
+            ShowMessage(
+                MessageVal = getString(R.string.detail_refresh_no_holder),
+                KindVal = AppToast.Kind.Warning
+            )
+            return
+        }
+        val StartedOk = CaptureFlow.Start(
+            ActivityRef = this,
+            ModeVal = CaptureMode.CUSTOMER,
+            LaunchTarget = true,
+            OriginOverride = MainActivity::class.java.name,
+            ResumeSessionId = ResolveSessionId(),
+            RevisitFilled = true,
+            TargetCustomerNames = listOf(HolderName)
         )
         if (StartedOk) finish()
     }
@@ -568,6 +872,9 @@ class PolicyDetailActivity : AppCompatActivity() {
         const val EXTRA_POLICY_NUMBER = "extra_policy_number"
         const val EXTRA_SESSION_ID = "extra_session_id"
         private const val MIN_DIALABLE_DIGITS = 6
+        private const val STOP_PAST = 0
+        private const val STOP_NOW = 1
+        private const val STOP_FUTURE = 2
         private const val SESSION_ID_PREVIEW_LENGTH = 8
     }
 }

@@ -11,10 +11,12 @@
         android:id="@+id/toolbar"
         style="@style/Widget.App.Toolbar"
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
+        android:layout_height="wrap_content"
         android:background="@color/bg_light"
+        android:minHeight="?attr/actionBarSize"
         app:navigationContentDescription="@string/cd_back"
-        app:navigationIcon="@drawable/ic_arrow_back" />
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:titleTextAppearance="@style/TextAppearance.App.Mono" />
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -33,41 +35,107 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/tvDetailNumber"
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:textAppearance="@style/TextAppearance.App.Mono"
-                    android:textSize="22sp" />
+                    android:orientation="vertical">
 
-                <ImageButton
-                    android:id="@+id/btnCopyNumber"
-                    android:layout_width="@dimen/touch_min"
-                    android:layout_height="@dimen/touch_min"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/detail_copy_number"
-                    android:src="@drawable/ic_copy"
-                    app:tint="@color/text_secondary" />
+                    <TextView
+                        android:id="@+id/tvDetailHolder"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.App.Heading" />
+
+                    <TextView
+                        android:id="@+id/tvDetailPlan"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+                </LinearLayout>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipStatus"
+                    style="@style/Widget.Material3.Chip.Assist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_sm"
+                    android:checkable="false"
+                    android:clickable="false"
+                    android:visibility="gone"
+                    app:chipMinHeight="28dp"
+                    app:chipStrokeWidth="0dp"
+                    app:ensureMinTouchTargetSize="false" />
 
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvDetailHolder"
+            <LinearLayout
+                android:id="@+id/verdictBlock"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.App.Body"
-                android:textStyle="bold" />
+                android:layout_marginTop="@dimen/space_md"
+                android:background="@drawable/bg_verdict_neutral"
+                android:orientation="vertical"
+                android:padding="@dimen/space_lg">
 
-            <TextView
-                android:id="@+id/tvDetailPlan"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.App.Caption" />
+                <TextView
+                    android:id="@+id/tvVerdictLead"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.App.Overline" />
 
+                <TextView
+                    android:id="@+id/tvVerdictValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.App.Title"
+                    android:textSize="24sp" />
+
+                <TextView
+                    android:id="@+id/tvVerdictSub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="@style/TextAppearance.App.Label" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_md"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCallCustomer"
+                        style="@style/Widget.App.Button.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="@dimen/space_sm"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/detail_action_call"
+                        app:icon="@drawable/ic_phone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnMessageCustomer"
+                        style="@style/Widget.App.Button.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/detail_action_message"
+                        app:icon="@drawable/ic_message" />
+
+                </LinearLayout>
+
+            </LinearLayout>
 
             <HorizontalScrollView
                 android:id="@+id/scrollFlags"
@@ -90,170 +158,154 @@
 
             </HorizontalScrollView>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_md"
-                android:baselineAligned="false"
-                android:orientation="horizontal">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnCallCustomer"
-                    style="@style/Widget.App.Button.Outlined"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="@dimen/space_xs"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/detail_action_call"
-                    app:icon="@drawable/ic_phone" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnMessageCustomer"
-                    style="@style/Widget.App.Button.Outlined"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="@dimen/space_xs"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/detail_action_message"
-                    app:icon="@drawable/ic_message" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnExportPolicy"
-                    style="@style/Widget.App.Button.Outlined"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:text="@string/detail_action_export"
-                    app:icon="@drawable/ic_export" />
-
-            </LinearLayout>
-
-
-            <LinearLayout
-                android:id="@+id/revivalBlock"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_md"
-                android:background="@drawable/bg_badge_lapsed"
-                android:orientation="vertical"
-                android:padding="@dimen/space_md"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/tvRevivalLabel"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textAppearance="@style/TextAppearance.App.Caption"
-                    android:textColor="@color/status_red_text" />
-
-                <TextView
-                    android:id="@+id/tvRevivalDate"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textAppearance="@style/TextAppearance.App.Heading"
-                    android:textColor="@color/status_red_text" />
-
-            </LinearLayout>
-
-            <LinearLayout
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/section_gap"
-                android:baselineAligned="false"
-                android:orientation="horizontal">
+                android:layout_marginBottom="@dimen/space_sm"
+                android:text="@string/detail_section_life"
+                android:textAppearance="@style/TextAppearance.App.Overline" />
+
+            <LinearLayout
+                android:id="@+id/railContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/section_gap"
+                android:layout_marginBottom="@dimen/space_sm"
+                android:text="@string/detail_group_customer"
+                android:textAppearance="@style/TextAppearance.App.Overline" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/contactCard"
+                style="@style/Widget.App.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/contactContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="@dimen/space_xs"
+                    android:paddingBottom="@dimen/space_xs" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <LinearLayout
+                android:id="@+id/customerEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_verdict_neutral"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:padding="@dimen/space_lg"
+                android:visibility="gone">
 
                 <TextView
-                    android:id="@+id/tvCompletenessLabel"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="@string/detail_group_empty_customer"
                     android:textAppearance="@style/TextAppearance.App.Label" />
 
                 <TextView
-                    android:id="@+id/tvCompletenessPercent"
+                    android:id="@+id/btnCaptureCustomer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_sm"
+                    android:background="?attr/selectableItemBackground"
+                    android:minHeight="@dimen/touch_min"
+                    android:gravity="center"
+                    android:paddingStart="@dimen/space_md"
+                    android:paddingEnd="@dimen/space_md"
+                    android:text="@string/detail_capture_customer"
                     android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/text_accent"
                     android:textStyle="bold" />
 
             </LinearLayout>
 
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/progressCompleteness"
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/personalCard"
+                style="@style/Widget.App.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_xs"
-                app:trackCornerRadius="3dp"
-                app:trackThickness="5dp" />
+                android:layout_marginTop="@dimen/card_gap">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnCaptureMissing"
-                style="@style/Widget.App.Button.Outlined"
+                <LinearLayout
+                    android:id="@+id/personalContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/card_padding"
+                    android:paddingEnd="@dimen/card_padding" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/headerRecord"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_md"
-                android:visibility="gone"
-                app:icon="@drawable/ic_record" />
+                android:layout_marginTop="@dimen/section_gap"
+                android:layout_marginBottom="@dimen/space_sm"
+                android:text="@string/detail_section_record"
+                android:textAppearance="@style/TextAppearance.App.Overline" />
 
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/recordCard"
+                style="@style/Widget.App.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/recordContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/card_padding"
+                    android:paddingEnd="@dimen/card_padding" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="@dimen/section_gap"
+                android:background="@color/divider" />
 
             <LinearLayout
-                android:id="@+id/groupContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_sm"
-                android:orientation="vertical" />
-
-            <LinearLayout
-                android:id="@+id/rowRenewalHistory"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackground"
+                android:baselineAligned="false"
                 android:gravity="center_vertical"
                 android:minHeight="@dimen/touch_min"
                 android:orientation="horizontal">
 
-                <ImageView
-                    android:layout_width="@dimen/icon_sm"
-                    android:layout_height="@dimen/icon_sm"
-                    android:layout_marginEnd="@dimen/space_md"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_calendar_repeat"
-                    app:tint="@color/text_secondary" />
-
                 <TextView
+                    android:id="@+id/tvProvenance"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="@string/detail_section_renewals"
-                    android:textAppearance="@style/TextAppearance.App.Body" />
-
-                <TextView
-                    android:id="@+id/tvRenewalMeta"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
-                <ImageView
-                    android:layout_width="@dimen/icon_sm"
-                    android:layout_height="@dimen/icon_sm"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_chevron_right"
-                    app:tint="@color/text_faint" />
+                <TextView
+                    android:id="@+id/btnUpdate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:paddingStart="@dimen/space_md"
+                    android:text="@string/detail_update_action"
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/text_accent"
+                    android:textStyle="bold" />
 
             </LinearLayout>
-
-            <TextView
-                android:id="@+id/tvProvenance"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/section_gap"
-                android:textAppearance="@style/TextAppearance.App.Caption" />
 
         </LinearLayout>
 

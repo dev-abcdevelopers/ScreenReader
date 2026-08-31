@@ -130,6 +130,12 @@ class PolicyCompletenessTest {
         }
         assertFalse(CustomerGroup.IsCapturable)
         assertFalse(CustomerGroup.IsCountedTowardTotal)
+        assertTrue(CustomerGroup.IsRefreshable)
+        assertFalse(
+            SummaryVal.Groups.any { GroupRef ->
+                GroupRef.Key != PolicyCompleteness.GROUP_CUSTOMER && GroupRef.IsRefreshable
+            }
+        )
     }
 
     @Test

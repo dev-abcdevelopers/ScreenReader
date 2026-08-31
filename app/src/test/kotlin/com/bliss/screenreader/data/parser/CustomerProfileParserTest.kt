@@ -327,4 +327,49 @@ class CustomerProfileParserTest {
             )
         )
     }
+
+    @Test
+    fun ExpectedValueCount_ReadsTheChipAndDefaultsToOne() {
+        assertEquals(
+            1,
+            CustomerProfileParser.ExpectedValueCount(
+                Nodes = ProfilePaneNodes,
+                KindVal = ContactKind.MOBILE
+            )
+        )
+        assertEquals(
+            2,
+            CustomerProfileParser.ExpectedValueCount(
+                Nodes = ProfilePaneNodes,
+                KindVal = ContactKind.EMAIL
+            )
+        )
+        assertEquals(
+            4,
+            CustomerProfileParser.ExpectedValueCount(
+                Nodes = listOf(
+                    "Contact Details",
+                    "Mobile Number", "8368659292", "+1", "View all",
+                    "Communication Address", "H. NO. K - 3 / 51 ....", "+3", "View all",
+                    "Personal Details"
+                ),
+                KindVal = ContactKind.ADDRESS
+            )
+        )
+    }
+
+    @Test
+    fun ChipCountFor_DoesNotLeakAcrossFields() {
+        assertEquals(
+            0,
+            CustomerProfileParser.ChipCountFor(
+                Nodes = listOf(
+                    "Contact Details",
+                    "Mobile Number", "8368659292", "View all",
+                    "Email ID", "a@b.com", "+2", "View all"
+                ),
+                LabelText = CustomerProfileParser.LABEL_MOBILE
+            )
+        )
+    }
 }

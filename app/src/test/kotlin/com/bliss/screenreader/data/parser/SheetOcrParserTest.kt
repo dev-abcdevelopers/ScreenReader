@@ -50,7 +50,7 @@ class SheetOcrParserTest {
     }
 
     @Test
-    fun `two mobile numbers are two values`() {
+    fun `two mobile numbers keep their own policies`() {
         val Lines = listOf(
             "Mobile Number(s)", "Mark as default number for calls",
             "8368659292",
@@ -62,6 +62,10 @@ class SheetOcrParserTest {
         val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Mobile)
         assertEquals(2, Values.size)
         assertEquals("8368659292", Values[0].Value)
+        assertEquals(
+            listOf("156255273", "156255275", "156255276", "156255278"),
+            Values[0].RelatedPolicies
+        )
         assertEquals("8802772259", Values[1].Value)
         assertEquals(3, Values[1].RelatedPolicies.size)
     }
@@ -81,5 +85,110 @@ class SheetOcrParserTest {
         val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Email)
         assertEquals(1, Values.size)
         assertEquals("a@b.com", Values[0].Value)
+    }
+
+    @Test
+    fun `a bare mobile after a related list is a value not a policy number`() {
+        val Lines = listOf(
+            "Mobile Number(s)", "Mark as default number for calls",
+            "9718282229",
+            "Policy(ies) Related: 156255273",
+            "8802772259",
+            "Policy(ies) Related: 128365360, 129835618, 156264667"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Mobile)
+        assertEquals(2, Values.size)
+        assertEquals(listOf("156255273"), Values[0].RelatedPolicies)
+        assertEquals("8802772259", Values[1].Value)
+        assertEquals(
+            listOf("128365360", "129835618", "156264667"),
+            Values[1].RelatedPolicies
+        )
+    }
+
+    @Test
+    fun `the label column and the number column interleave in real OCR`() {
+        val Lines = listOf(
+            "Mobile Number(s)", "X", "Mark as default number for calls",
+            "8368659292",
+            "Policy(es)",
+            "156255273, 156255275, 156255276,",
+            "Related:",
+            "156255278",
+            "8802772259",
+            "Policy(ies) Related: 128365360, 129835618, 156264667"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Mobile)
+        assertEquals(2, Values.size)
+        assertEquals("8368659292", Values[0].Value)
+        assertEquals(
+            listOf("156255273", "156255275", "156255276", "156255278"),
+            Values[0].RelatedPolicies
+        )
+        assertEquals("8802772259", Values[1].Value)
+        assertEquals(
+            listOf("128365360", "129835618", "156264667"),
+            Values[1].RelatedPolicies
+        )
+        assertTrue(Values[0].IsDefault)
+    }
+
+    @Test
+    fun `a split label still attributes every policy to the one value`() {
+        val Lines = listOf(
+            "Email ID(s)", "X", "Mark as default email for emails",
+            "rahul.rhct@gmail.com",
+            "Policy(ies) 128365360, 129835618, 156255273, 156255275,",
+            "Related: 156255276, 156255278, 156264667"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Email)
+        assertEquals(1, Values.size)
+        assertEquals("rahul.rhct@gmail.com", Values[0].Value)
+        assertEquals(7, Values[0].RelatedPolicies.size)
+    }
+
+    @Test
+    fun `a close button read as a bracketed X does not join the first value`() {
+        val Lines = listOf(
+            "Address(es)", "(X", "Mark as default address for address",
+            "K-3/51, GALI NO. 12A WEST GHONDA DELHI, 110053",
+            "Policy(ies) Related: 156264667"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Address)
+        assertEquals(1, Values.size)
+        assertEquals("K-3/51, GALI NO. 12A WEST GHONDA DELHI, 110053", Values[0].Value)
+    }
+
+    @Test
+    fun `a nine digit policy number on its own line is never a mobile value`() {
+        val Lines = listOf(
+            "Mobile Number(s)", "Mark as default number for calls",
+            "8368659292",
+            "Policy(ies) Related: 156255273, 156255275,",
+            "156255276"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Mobile)
+        assertEquals(1, Values.size)
+        assertEquals(3, Values[0].RelatedPolicies.size)
+    }
+
+    @Test
+    fun `an address beginning with a police colony is not treated as a label`() {
+        val Lines = listOf(
+            "Address(es)", "Mark as default address for address",
+            "POLICE COLONY, BLOCK C",
+            "RAJPUR ROAD, 248001",
+            "Policy(ies) Related: 156264667"
+        )
+
+        val Values = SheetOcrParser.ParseSheetText(Lines = Lines, KindVal = Address)
+        assertEquals(1, Values.size)
+        assertEquals("POLICE COLONY, BLOCK C RAJPUR ROAD, 248001", Values[0].Value)
+        assertEquals(listOf("156264667"), Values[0].RelatedPolicies)
     }
 }

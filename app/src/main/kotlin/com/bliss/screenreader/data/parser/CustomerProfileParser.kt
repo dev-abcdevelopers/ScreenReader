@@ -107,6 +107,34 @@ object CustomerProfileParser {
         return false
     }
 
+    fun ChipCountFor(Nodes: List<String>, LabelText: String): Int {
+        val CleanList = CleanNodes(Nodes = Nodes)
+        val LabelIndex = CleanList.indexOfFirst { NodeText ->
+            NodeText.equals(LabelText, ignoreCase = true)
+        }
+        if (LabelIndex < 0) return 0
+
+        var ScanIndex = LabelIndex + 1
+        while (ScanIndex < CleanList.size) {
+            val NodeText = CleanList[ScanIndex]
+            if (IsFieldLabel(NodeText = NodeText) || IsSectionLabel(NodeText = NodeText)) break
+            if (CHIP_REGEX.matches(NodeText)) {
+                return NodeText.drop(1).toIntOrNull() ?: 0
+            }
+            ScanIndex++
+        }
+        return 0
+    }
+
+    fun ExpectedValueCount(Nodes: List<String>, KindVal: ContactKind): Int {
+        val LabelText = when (KindVal) {
+            ContactKind.MOBILE -> LABEL_MOBILE
+            ContactKind.EMAIL -> LABEL_EMAIL
+            ContactKind.ADDRESS -> LABEL_ADDRESS
+        }
+        return ChipCountFor(Nodes = Nodes, LabelText = LabelText) + 1
+    }
+
     fun ParseProfilePane(Nodes: List<String>, CustomerNameVal: String = ""): CustomerProfile {
         val CleanList = CleanNodes(Nodes = Nodes)
         val FieldMap = PairLabelsWithValues(CleanList = CleanList)
