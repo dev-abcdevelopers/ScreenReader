@@ -172,13 +172,36 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/section_gap"
                 android:layout_marginBottom="@dimen/space_sm"
-                android:text="@string/detail_group_customer"
-                android:textAppearance="@style/TextAppearance.App.Overline" />
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="@dimen/touch_min"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/detail_group_customer"
+                    android:textAppearance="@style/TextAppearance.App.Overline" />
+
+                <TextView
+                    android:id="@+id/btnRefreshCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:paddingStart="@dimen/space_md"
+                    android:text="@string/detail_refresh_action"
+                    android:textAppearance="@style/TextAppearance.App.Label"
+                    android:textColor="@color/text_accent"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/contactCard"

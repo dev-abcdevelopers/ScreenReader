@@ -69,6 +69,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import androidx.core.view.isEmpty
+import com.bliss.screenreader.data.parser.RenewalDateRange
 
 private const val ADVANCED_TAP_WINDOW_MS = 2500L
 
@@ -446,6 +447,18 @@ class SettingsFragment : Fragment() {
             ShowChevron = true,
             IsEnabled = !IsRunning
         ) { ShowPaceSheet() }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_renewal_range_title),
+            DescText = getString(R.string.settings_renewal_range_desc),
+            ValueText = RenewalRangeLabel(
+                DaysVal = SettingsStore.RenewalRangeDays(ContextRef = ContextRef)
+            ),
+            IconRes = R.drawable.ic_calendar_repeat,
+            ShowChevron = true,
+            IsEnabled = !IsRunning
+        ) { ShowRenewalRangeSheet() }
 
         AddRow(
             ContainerRef = SectionRef,
@@ -1012,6 +1025,35 @@ class SettingsFragment : Fragment() {
             SelectedIndex = Options.indexOf(SettingsStore.DepthOf(ContextRef = ContextRef))
         ) { PickedIndex ->
             SettingsStore.SetDepth(ContextRef = ContextRef, DepthVal = Options[PickedIndex])
+            RenderAll()
+        }
+    }
+
+    private fun RenewalRangeLabel(DaysVal: Int): String =
+        getString(R.string.settings_renewal_range_value, DaysVal)
+
+    private fun ShowRenewalRangeSheet() {
+        val ContextRef = requireContext()
+        val Options = RenewalDateRange.SUPPORTED_SPAN_DAYS
+        val StoredDays = SettingsStore.RenewalRangeDays(ContextRef = ContextRef)
+        val StoredIndex = Options.indexOf(StoredDays)
+        ShowChoiceSheet(
+            TitleText = getString(R.string.settings_renewal_range_title),
+            BodyText = getString(R.string.settings_renewal_range_body),
+            NoteText = getString(R.string.settings_renewal_range_note),
+            Labels = Options.map { DaysVal -> RenewalRangeLabel(DaysVal = DaysVal) },
+            Descriptions = listOf(
+                getString(R.string.settings_renewal_range_7_desc),
+                getString(R.string.settings_renewal_range_15_desc),
+                getString(R.string.settings_renewal_range_30_desc),
+                getString(R.string.settings_renewal_range_60_desc)
+            ),
+            SelectedIndex = if (StoredIndex < 0) Options.lastIndex else StoredIndex
+        ) { PickedIndex ->
+            SettingsStore.SetRenewalRangeDays(
+                ContextRef = ContextRef,
+                ValueVal = Options[PickedIndex]
+            )
             RenderAll()
         }
     }

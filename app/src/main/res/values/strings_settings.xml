@@ -223,4 +223,13 @@
     <string name="settings_close">Close</string>
     <string name="settings_capture_running">Finish the capture that is running before changing this</string>
 
+    <string name="settings_renewal_range_title">Renewal history range</string>
+    <string name="settings_renewal_range_desc">How far back a renewal capture reads</string>
+    <string name="settings_renewal_range_value">Last %1$d days</string>
+    <string name="settings_renewal_range_body">The Timeline filter on the renewal history screen is set to this range at the start of every renewal capture.</string>
+    <string name="settings_renewal_range_note">Capture 60 days once, then drop to 7 or 15 to keep later runs short.</string>
+    <string name="settings_renewal_range_7_desc">Quickest catch-up between runs</string>
+    <string name="settings_renewal_range_15_desc">A fortnight of renewals</string>
+    <string name="settings_renewal_range_30_desc">A month of renewals</string>
+    <string name="settings_renewal_range_60_desc">Everything the app offers, and the slowest</string>
 </resources>

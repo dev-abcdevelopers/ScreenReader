@@ -4,6 +4,10 @@ package com.bliss.screenreader.data.parser
 
 object RenewalDateRange {
 
+    const val DEFAULT_SPAN_DAYS = 60
+
+    val SUPPORTED_SPAN_DAYS = listOf(7, 15, 30, 60)
+
     private const val MAX_LABEL_LENGTH = 60
 
     private val RELATIVE_RANGE =
@@ -27,6 +31,14 @@ object RenewalDateRange {
 
     fun IsRangeLabel(TextValue: String): Boolean =
         FindRange(TextValue = TextValue) != null
+
+    fun ChooseSpanDays(AvailableSpans: List<Int>, TargetDays: Int): Int? {
+        if (AvailableSpans.isEmpty()) return null
+        if (AvailableSpans.contains(TargetDays)) return TargetDays
+        val BelowTarget = AvailableSpans.filter { SpanVal -> SpanVal < TargetDays }
+        if (BelowTarget.isNotEmpty()) return BelowTarget.max()
+        return AvailableSpans.min()
+    }
 
     fun SpanDays(TextValue: String): Int? {
         val NormalisedText = Normalise(TextValue = TextValue)

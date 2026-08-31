@@ -223,9 +223,8 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     private fun BindVerdict(PolicyRef: CustomerPolicy) {
         val StatusText = PolicyRef.NormalizedStatus
-        val DueText = DisplayDate(
-            RawText = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
-        )
+        val DueText = DisplayDate(RawText = PolicyRef.RenewalDueDate)
+        val CardDateText = DisplayDate(RawText = PolicyRef.RenewalDateValue)
         val PremiumText = DisplayAmount(RawText = PolicyRef.PremiumAmount)
         val MissingText = getString(R.string.detail_missing)
 
@@ -242,7 +241,7 @@ class PolicyDetailActivity : AppCompatActivity() {
                 LeadText = PolicyRef.RenewalType
                     .ifEmpty { PolicyRef.RenewalDateLabel }
                     .ifEmpty { getString(R.string.detail_revival_default) }
-                ValueText = DueText.ifEmpty { MissingText }
+                ValueText = CardDateText.ifEmpty { DueText }.ifEmpty { MissingText }
                 SubText = StatusText
             }
 
@@ -258,14 +257,18 @@ class PolicyDetailActivity : AppCompatActivity() {
                     }
                 )
                 ValueText = if (PremiumText.isEmpty()) {
-                    DueText.ifEmpty { MissingText }
+                    DueText.ifEmpty { CardDateText }.ifEmpty { MissingText }
                 } else {
                     getString(R.string.detail_verdict_overdue_amount, PremiumText)
                 }
-                SubText = if (DueText.isEmpty()) {
-                    ""
-                } else {
-                    getString(R.string.detail_verdict_due_on, DueText)
+                SubText = when {
+                    DueText.isNotEmpty() -> getString(R.string.detail_verdict_due_on, DueText)
+                    CardDateText.isNotEmpty() -> CardDateLine(
+                        PolicyRef = PolicyRef,
+                        DateText = CardDateText
+                    )
+
+                    else -> ""
                 }
             }
 
@@ -278,11 +281,38 @@ class PolicyDetailActivity : AppCompatActivity() {
                 SubText = DisplayAmount(RawText = PolicyRef.SumAssured)
             }
 
+            PolicyStatusRules.IsSinglePremium(
+                FrequencyText = PolicyRef.PremiumFrequency
+            ) -> {
+                BackgroundRes = R.drawable.bg_verdict_neutral
+                LeadColourRes = R.color.text_muted
+                LeadText = getString(R.string.detail_verdict_single_lead)
+                ValueText = getString(R.string.detail_verdict_all_paid)
+                SubText = SinglePremiumLine(PolicyRef = PolicyRef)
+            }
+
+            DueText.isNotEmpty() -> {
+                BackgroundRes = R.drawable.bg_verdict_neutral
+                LeadColourRes = R.color.text_muted
+                LeadText = getString(R.string.detail_verdict_next)
+                ValueText = DueText
+                SubText = PremiumFrequencyLine(PolicyRef = PolicyRef)
+            }
+
+            CardDateText.isNotEmpty() -> {
+                BackgroundRes = R.drawable.bg_verdict_neutral
+                LeadColourRes = R.color.text_muted
+                LeadText = PolicyRef.RenewalDateLabel
+                    .ifEmpty { getString(R.string.detail_verdict_next) }
+                ValueText = CardDateText
+                SubText = PremiumFrequencyLine(PolicyRef = PolicyRef)
+            }
+
             else -> {
                 BackgroundRes = R.drawable.bg_verdict_neutral
                 LeadColourRes = R.color.text_muted
                 LeadText = getString(R.string.detail_verdict_next)
-                ValueText = DueText.ifEmpty { MissingText }
+                ValueText = MissingText
                 SubText = PremiumFrequencyLine(PolicyRef = PolicyRef)
             }
         }
@@ -293,6 +323,25 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.tvVerdictValue.text = ValueText
         ViewBindingObj.tvVerdictSub.text = SubText
         ViewBindingObj.tvVerdictSub.visibility = if (SubText.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun CardDateLine(PolicyRef: CustomerPolicy, DateText: String): String {
+        val LabelText = PolicyRef.RenewalDateLabel
+        if (LabelText.isEmpty()) return DateText
+        return getString(R.string.detail_verdict_card_date_format, LabelText, DateText)
+    }
+
+    private fun SinglePremiumLine(PolicyRef: CustomerPolicy): String {
+        val PremiumText = DisplayAmount(RawText = PolicyRef.PremiumAmount)
+        val MaturesText = DisplayDate(RawText = PolicyRef.DateOfMaturity)
+        val MaturesLine = if (MaturesText.isEmpty()) {
+            ""
+        } else {
+            getString(R.string.detail_verdict_matures_on, MaturesText)
+        }
+        if (PremiumText.isEmpty()) return MaturesLine
+        if (MaturesLine.isEmpty()) return PremiumText
+        return getString(R.string.detail_verdict_card_date_format, PremiumText, MaturesLine)
     }
 
     private fun PremiumFrequencyLine(PolicyRef: CustomerPolicy): String {
@@ -341,22 +390,42 @@ class PolicyDetailActivity : AppCompatActivity() {
         RenewalRowBinding = null
 
         val Labels = BuildLabels()
+        val IsSingle = PolicyStatusRules.IsSinglePremium(
+            FrequencyText = PolicyRef.PremiumFrequency
+        )
         val IsOverdue = PolicyStatusRules.IsAdverse(StatusText = PolicyRef.NormalizedStatus) ||
                 PolicyStatusRules.IsAttention(StatusText = PolicyRef.NormalizedStatus)
-        val DueRaw = PolicyRef.RenewalDueDate.ifEmpty { PolicyRef.RenewalDateValue }
+        val HasRealDue = PolicyRef.RenewalDueDate.isNotEmpty()
+        val NowValue = if (HasRealDue) PolicyRef.RenewalDueDate else PolicyRef.RenewalDateValue
+        val NowLabel = if (!HasRealDue && PolicyRef.RenewalDateValue.isNotEmpty() &&
+            PolicyRef.RenewalDateLabel.isNotEmpty()
+        ) {
+            PolicyRef.RenewalDateLabel
+        } else {
+            getString(
+                if (IsOverdue) R.string.detail_stop_overdue else R.string.detail_stop_next
+            )
+        }
 
-        val StopList = listOf(
-            Triple(Labels.Commenced, PolicyRef.DateOfCommencement, STOP_PAST),
-            Triple(
-                getString(
-                    if (IsOverdue) R.string.detail_stop_overdue else R.string.detail_stop_next
-                ),
-                DueRaw,
-                STOP_NOW
-            ),
-            Triple(Labels.PremiumsEnd, PolicyRef.EndOfPremiumPayingTerm, STOP_FUTURE),
-            Triple(Labels.Matures, PolicyRef.DateOfMaturity, STOP_FUTURE)
-        )
+        val StopList = buildList {
+            add(Labels.Commenced to PolicyRef.DateOfCommencement)
+            if (!IsSingle) add(NowLabel to NowValue)
+            add(Labels.PremiumsEnd to PolicyRef.EndOfPremiumPayingTerm)
+            add(Labels.Matures to PolicyRef.DateOfMaturity)
+        }
+
+        val TodayIso = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val IsoList = StopList.map { StopItem -> ExportFormat.IsoDate(RawText = StopItem.second) }
+        val PassedList = IsoList.map { IsoText ->
+            IsoText.isNotEmpty() && IsoText <= TodayIso
+        }
+        val DueIndex = if (IsSingle) -1 else 1
+        val NowIndex = when {
+            DueIndex >= 0 && IsOverdue -> DueIndex
+            else -> IsoList.indices.firstOrNull { StopIndex ->
+                IsoList[StopIndex].isNotEmpty() && !PassedList[StopIndex]
+            } ?: PassedList.indexOfLast { PassedVal -> PassedVal }
+        }
 
         for ((StopIndex, StopItem) in StopList.withIndex()) {
             val StopBinding = PartialCaseStopBinding.inflate(
@@ -364,6 +433,8 @@ class PolicyDetailActivity : AppCompatActivity() {
             )
             val ValueText = DisplayDate(RawText = StopItem.second)
             val IsGap = ValueText.isEmpty()
+            val IsPassed = PassedList[StopIndex]
+            val IsNow = StopIndex == NowIndex && !IsGap
 
             StopBinding.tvStopLabel.text = StopItem.first
             StopBinding.tvStopValue.text =
@@ -371,8 +442,8 @@ class PolicyDetailActivity : AppCompatActivity() {
 
             val DotColourRes = when {
                 IsGap -> R.color.text_faint
-                StopItem.third == STOP_NOW -> R.color.text_accent
-                StopItem.third == STOP_PAST -> R.color.text_secondary
+                IsNow -> R.color.text_accent
+                IsPassed -> R.color.text_secondary
                 else -> R.color.text_faint
             }
             StopBinding.railDot.backgroundTintList =
@@ -382,11 +453,11 @@ class PolicyDetailActivity : AppCompatActivity() {
 
             val ValueColourRes = when {
                 IsGap -> R.color.text_accent
-                StopItem.third == STOP_NOW -> R.color.text_accent
+                IsNow -> R.color.text_accent
                 else -> R.color.text_primary
             }
             StopBinding.tvStopValue.setTextColor(ContextCompat.getColor(this, ValueColourRes))
-            if (StopItem.third == STOP_NOW && !IsGap) {
+            if (IsNow) {
                 StopBinding.tvStopLabel.setTextColor(
                     ContextCompat.getColor(this, R.color.text_accent)
                 )
@@ -396,6 +467,14 @@ class PolicyDetailActivity : AppCompatActivity() {
                 if (StopIndex == 0) View.INVISIBLE else View.VISIBLE
             StopBinding.railBottom.visibility =
                 if (StopIndex == StopList.size - 1) View.INVISIBLE else View.VISIBLE
+            PaintRail(
+                RailView = StopBinding.railTop,
+                IsTravelled = StopIndex > 0 && PassedList[StopIndex - 1] && IsPassed
+            )
+            PaintRail(
+                RailView = StopBinding.railBottom,
+                IsTravelled = IsPassed && PassedList.getOrElse(StopIndex + 1) { false }
+            )
 
             if (IsGap) {
                 StopBinding.stopRoot.setOnClickListener { ViewRef ->
@@ -413,6 +492,15 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.railContainer.addView(RowBinding.root)
         RenewalRowBinding = RowBinding
         BindRenewalHistory(PolicyRef = PolicyRef)
+    }
+
+    private fun PaintRail(RailView: View, IsTravelled: Boolean) {
+        RailView.setBackgroundColor(
+            ContextCompat.getColor(
+                this,
+                if (IsTravelled) R.color.text_faint else R.color.divider
+            )
+        )
     }
 
     private fun BindRenewalHistory(PolicyRef: CustomerPolicy) {
@@ -505,6 +593,12 @@ class PolicyDetailActivity : AppCompatActivity() {
         ViewBindingObj.customerEmpty.visibility =
             if (HasContacts || HasPersonal) View.GONE else View.VISIBLE
         ViewBindingObj.btnCaptureCustomer.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            RefreshCustomerDetails()
+        }
+        ViewBindingObj.btnRefreshCustomer.visibility =
+            if (HasContacts || HasPersonal) View.VISIBLE else View.GONE
+        ViewBindingObj.btnRefreshCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             RefreshCustomerDetails()
         }

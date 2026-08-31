@@ -10,12 +10,14 @@ import androidx.core.content.edit
 import com.bliss.screenreader.security.AuthManager
 import com.bliss.screenreader.security.SecurePrefs
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.data.parser.RenewalDateRange
 
 object SettingsStore {
     const val PREFS_NAME = "screenreader_settings"
     private const val KEY_CAPTURE_DEPTH = "capture_depth"
     private const val KEY_PACE = "pace_profile"
     private const val KEY_OFFLINE_WAIT_MS = "offline_wait_ms"
+    private const val KEY_RENEWAL_RANGE_DAYS = "renewal_range_days"
     private const val KEY_ERROR_RETRY_LIMIT = "error_retry_limit"
     private const val KEY_ERROR_GIVEUP_LIMIT = "error_giveup_limit"
     private const val KEY_ERROR_SLOW_DOWN = "error_slow_down"
@@ -96,6 +98,13 @@ object SettingsStore {
 
     fun SetOfflineWaitMs(ContextRef: Context, ValueMs: Long) {
         Prefs(ContextRef = ContextRef).edit { putLong(KEY_OFFLINE_WAIT_MS, ValueMs) }
+    }
+
+    fun RenewalRangeDays(ContextRef: Context): Int = Prefs(ContextRef = ContextRef)
+        .getInt(KEY_RENEWAL_RANGE_DAYS, RenewalDateRange.DEFAULT_SPAN_DAYS)
+
+    fun SetRenewalRangeDays(ContextRef: Context, ValueVal: Int) {
+        Prefs(ContextRef = ContextRef).edit { putInt(KEY_RENEWAL_RANGE_DAYS, ValueVal) }
     }
 
     fun ErrorRetryLimit(ContextRef: Context): Int =

@@ -1297,6 +1297,39 @@ class PoliciesFragment : Fragment() {
     }
 
 
+    private fun ConfirmClearSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
+        val ContextRef = context ?: return
+        AlertDialog.Builder(ContextRef)
+            .setTitle(R.string.sessions_clear_log_title)
+            .setMessage(
+                getString(
+                    R.string.sessions_clear_log_body,
+                    SessionRef.Mode.DescribeCount(CountVal = SessionRef.RecordCount)
+                )
+            )
+            .setPositiveButton(R.string.sessions_clear_log_confirm) { _, _ ->
+                ClearSessionLog(SessionRef = SessionRef)
+            }
+            .setNegativeButton(R.string.sessions_delete_cancel) { _, _ ->
+                SessionAdapterObj.CloseOpenRow()
+            }
+            .setOnCancelListener { SessionAdapterObj.CloseOpenRow() }
+            .show()
+    }
+
+    private fun ClearSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
+        HapticFeedback.Tap(ViewRef = ViewBindingObj?.root)
+        CaptureDiagnostics.DeleteSessionLogs(
+            ContextObj = requireContext().applicationContext,
+            SessionId = SessionRef.SessionId
+        )
+        SessionAdapterObj.CloseOpenRow()
+        ShowSnack(
+            MessageVal = getString(R.string.sessions_clear_log_done),
+            KindVal = AppToast.Kind.Success
+        )
+    }
+
     private fun ConfirmDeleteSession(SessionRef: PolicyRepository.CaptureSessionReference) {
         val ContextRef = context ?: return
         AlertDialog.Builder(ContextRef)
@@ -1390,6 +1423,8 @@ class PoliciesFragment : Fragment() {
             if (ShowExports && ShowPdfAction) View.VISIBLE else View.GONE
         SheetBinding.rowActionShareLog.visibility =
             if (HasLogs && SessionRef != null) View.VISIBLE else View.GONE
+        SheetBinding.rowActionClearLog.visibility =
+            if (HasLogs && SessionRef != null) View.VISIBLE else View.GONE
         SheetBinding.rowActionDelete.visibility =
             if (SessionRef != null) View.VISIBLE else View.GONE
         SheetBinding.tvActionPersonalDesc.text = getString(
@@ -1415,7 +1450,11 @@ class PoliciesFragment : Fragment() {
             )
         )
         SheetBinding.labelActionsSession.visibility = SectionVisibility(
-            RowViews = listOf(SheetBinding.rowActionShareLog, SheetBinding.rowActionDelete)
+            RowViews = listOf(
+                SheetBinding.rowActionShareLog,
+                SheetBinding.rowActionClearLog,
+                SheetBinding.rowActionDelete
+            )
         )
 
         SheetBinding.rowActionPersonal.setOnClickListener { ViewRef ->
@@ -1452,6 +1491,11 @@ class PoliciesFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             if (SessionRef != null) ShareSessionLog(SessionRef = SessionRef)
+        }
+        SheetBinding.rowActionClearLog.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            if (SessionRef != null) ConfirmClearSessionLog(SessionRef = SessionRef)
         }
         SheetBinding.rowActionDelete.setOnClickListener { ViewRef ->
             HapticFeedback.Reject(ViewRef = ViewRef)

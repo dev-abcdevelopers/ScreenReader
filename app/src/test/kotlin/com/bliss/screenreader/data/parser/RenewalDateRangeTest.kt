@@ -180,4 +180,48 @@ class RenewalDateRangeTest {
         )
         assertEquals("Last 60 Days", PickWidest(EntryList = Reordered, ChipCentreY = 178)?.TextValue)
     }
+
+    @Test
+    fun ChooseSpanDays_TakesTheExactRangeTheUserPicked() {
+        val Available = listOf(7, 15, 30, 60)
+        assertEquals(7, RenewalDateRange.ChooseSpanDays(Available, 7))
+        assertEquals(15, RenewalDateRange.ChooseSpanDays(Available, 15))
+        assertEquals(30, RenewalDateRange.ChooseSpanDays(Available, 30))
+        assertEquals(60, RenewalDateRange.ChooseSpanDays(Available, 60))
+    }
+
+    @Test
+    fun ChooseSpanDays_FallsToTheWidestRangeBelowTheTarget() {
+        assertEquals(15, RenewalDateRange.ChooseSpanDays(listOf(7, 15, 60), 30))
+        assertEquals(7, RenewalDateRange.ChooseSpanDays(listOf(7, 90), 15))
+    }
+
+    @Test
+    fun ChooseSpanDays_TakesTheNarrowestWhenEveryRangeIsWiderThanTheTarget() {
+        assertEquals(30, RenewalDateRange.ChooseSpanDays(listOf(30, 60, 90), 7))
+    }
+
+    @Test
+    fun ChooseSpanDays_HasNothingToSayAboutAnEmptySheet() {
+        assertNull(RenewalDateRange.ChooseSpanDays(emptyList(), 60))
+    }
+
+    @Test
+    fun ChooseSpanDays_ReadsTheRealTimelineSheet() {
+        val SheetLabels = listOf(
+            "Timeline",
+            "Last 7 Days",
+            "Last 15 Days",
+            "Last 30 Days",
+            "Last 60 Days",
+            "Custom"
+        )
+        val Spans = SheetLabels.mapNotNull { LabelText ->
+            RenewalDateRange.SpanDays(TextValue = LabelText)
+        }
+
+        assertEquals(listOf(7, 15, 30, 60), Spans)
+        assertEquals(15, RenewalDateRange.ChooseSpanDays(Spans, 15))
+        assertEquals(60, RenewalDateRange.ChooseSpanDays(Spans, RenewalDateRange.DEFAULT_SPAN_DAYS))
+    }
 }

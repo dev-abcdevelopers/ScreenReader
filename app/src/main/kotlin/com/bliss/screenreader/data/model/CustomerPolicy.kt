@@ -3,6 +3,7 @@
 package com.bliss.screenreader.data.model
 
 import com.bliss.screenreader.data.parser.PolicyStatusRules
+import com.bliss.screenreader.data.parser.ScreenDataParser
 import java.util.Locale
 
 data class CustomerPolicy(
@@ -53,9 +54,18 @@ data class CustomerPolicy(
     var EmailOthers: List<String>? = null,
     var AddressOthers: List<String>? = null
 ) {
+    val FupForStatus: String
+        get() {
+            if (RenewalDueDate.isNotEmpty()) return RenewalDueDate
+            if (ScreenDataParser.DueDateSurvives(CardDateLabel = RenewalDateLabel)) {
+                return RenewalDateValue
+            }
+            return ""
+        }
+
     val DerivedStatus: String
         get() = PolicyStatusRules.Compute(
-            FupText = RenewalDueDate.ifEmpty { RenewalDateValue },
+            FupText = FupForStatus,
             FrequencyText = PremiumFrequency,
             CommencementText = DateOfCommencement
         )
@@ -67,10 +77,11 @@ data class CustomerPolicy(
 
             val Trimmed = Status.trim()
             if (Trimmed.isEmpty()) return ""
-            return if (Trimmed.lowercase(Locale.ROOT).contains("lapsed")) {
-                PolicyStatusRules.LAPSED
-            } else {
-                ""
+            val Lowered = Trimmed.lowercase(Locale.ROOT)
+            return when {
+                Lowered.contains("lapsed") -> PolicyStatusRules.LAPSED
+                Lowered.contains("grace") -> PolicyStatusRules.GRACE
+                else -> ""
             }
         }
 }

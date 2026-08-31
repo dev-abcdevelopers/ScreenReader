@@ -173,6 +173,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val SCREEN_READY_RECHECK_MS = 500L
         private const val SCREEN_READY_MAX_WAITS = 6
         private const val SCREEN_READY_LOOK_STALE_MS = 900L
+        private const val BLANK_SCREEN_HOLD_MS = 12_000L
+        private const val BLANK_SCREEN_RETRY_DELAY_MS = 4_000L
+        private const val BLANK_SCREEN_RETRY_LIMIT = 3
         private const val CUSTOMER_SCROLL_SETTLE_MS = 900L
         private const val CUSTOMER_PAGE_LOAD_DELAY_MS = 2000L
         private const val CUSTOMER_DETAIL_OPEN_DELAY_MS = 1400L
@@ -492,6 +495,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var RenewalSkipTargetPage = 0
     private var RenewalSkipWaitCount = 0
     private var RenewalRangeOcrCount = 0
+    private var RenewalRangeDays = RenewalDateRange.DEFAULT_SPAN_DAYS
     private var RenewalKnownTotalPages = 0
     private var RenewalPickedRangeLabel = ""
     private var RenewalLastRelistTarget = 0
@@ -499,6 +503,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private val RenewalKnownBadPages = linkedSetOf<Int>()
     private var RenewalKnownBadSpanDays = 0
     private var IsRenewalRangeSheetHidden = false
+    private var BlankSinceAt = 0L
+    private var BlankRecoveryAttempts = 0
+    private var BlankRecoveryScheduled = false
+    private var BlankRecoveryRunnable: Runnable? = null
     private var RenewalManualWaitCount = 0
     private var RenewalRangeBaselineLabel = ""
 
@@ -1278,6 +1286,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         ErrorGiveUpLimit = SettingsStore.ErrorGiveUpLimit(ContextRef = this)
         ErrorSlowDownEnabled = SettingsStore.IsErrorSlowDownOn(ContextRef = this)
         ContactOcrEnabled = SettingsStore.IsContactOcrOn(ContextRef = this)
+        RenewalRangeDays = SettingsStore.RenewalRangeDays(ContextRef = this)
         AgentPackageName = AppLauncherUtils.ResolveAgentPackage(ContextRef = this)
     }
 
@@ -5307,13 +5316,19 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return
         }
 
-        val WidestOption = RangeOptions.maxWithOrNull(
-            compareBy(
-                { Entry -> Entry.SpanDays },
-                { Entry -> Entry.BoundsObj.centerY() }
-            )
+        val TargetSpan = RenewalDateRange.ChooseSpanDays(
+            AvailableSpans = RangeOptions.map { Entry -> Entry.SpanDays },
+            TargetDays = RenewalRangeDays
         )
-        val ChosenOption = WidestOption
+        val PickedOption = RangeOptions
+            .filter { Entry -> TargetSpan == null || Entry.SpanDays == TargetSpan }
+            .maxWithOrNull(
+                compareBy(
+                    { Entry -> Entry.SpanDays },
+                    { Entry -> Entry.BoundsObj.centerY() }
+                )
+            )
+        val ChosenOption = PickedOption
             ?.let { Entry -> Entry.TextValue to Entry.BoundsObj }
             ?: BottomOption
         if (RenewalDateRange.SpanDays(TextValue = ChosenOption.first) == null) {
@@ -5335,8 +5350,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             EventName = "RENEWAL_DATE_RANGE_SELECTED",
             MessageText = buildString {
                 append("text=[${ChosenOption.first}] bounds=${ChosenOption.second} ")
-                append("spanDays=${WidestOption?.SpanDays} ")
-                append("source=${if (WidestOption != null) "widest-range" else "bottom-most"} ")
+                append("spanDays=${PickedOption?.SpanDays} ")
+                append("wanted=$RenewalRangeDays target=$TargetSpan ")
+                append("source=${if (PickedOption != null) "settings-range" else "bottom-most"} ")
                 append("accepted=$TapAccepted")
             }
         )
@@ -5745,7 +5761,15 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return
         }
 
-        val ChosenBox = RangeBoxes.maxByOrNull { Entry -> Entry.second } ?: return
+        val TargetSpan = RenewalDateRange.ChooseSpanDays(
+            AvailableSpans = RangeBoxes.map { Entry -> Entry.second },
+            TargetDays = RenewalRangeDays
+        )
+        val ChosenBox = RangeBoxes
+            .filter { Entry -> TargetSpan == null || Entry.second == TargetSpan }
+            .maxByOrNull { Entry -> Entry.second }
+            ?: RangeBoxes.maxByOrNull { Entry -> Entry.second }
+            ?: return
         val ScreenHeight = resources.displayMetrics.heightPixels
         val TapY = ChosenBox.first.Bounds.centerY().toFloat()
         if (TapY <= ScreenHeight * RENEWAL_RANGE_OCR_TOP_FRACTION) {
@@ -5759,6 +5783,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         DiagnosticInfo(
             EventName = "RENEWAL_DATE_RANGE_OCR_PICK",
             MessageText = "text=[${ChosenBox.first.TextValue}] spanDays=${ChosenBox.second} " +
+                    "wanted=$RenewalRangeDays target=$TargetSpan " +
                     "bounds=${ChosenBox.first.Bounds} accepted=$TapAccepted"
         )
         if (!TapAccepted) {
@@ -6165,6 +6190,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             RenewalKnownBadPages.clear()
             RenewalKnownBadSpanDays = 0
             IsRenewalRangeSheetHidden = false
+            ClearBlankScreenState()
             RenewalManualWaitCount = 0
             RenewalRangeBaselineLabel = ""
             RenewalRelistCount = 0
@@ -7539,6 +7565,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
     private fun NoteScreenSubstance(VisibleNodes: List<String>) {
         val NowMs = System.currentTimeMillis()
+        TrackBlankScreen(NodeCount = VisibleNodes.size, NowMs = NowMs)
         val SignatureVal = VisibleNodes.hashCode()
         LastScreenLookAt = NowMs
         LastScreenNodeCount = VisibleNodes.size
@@ -7558,6 +7585,119 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         } finally {
             RecycleNode(NodeRef = FreshRoot)
         }
+    }
+
+    private fun TrackBlankScreen(NodeCount: Int, NowMs: Long) {
+        if (NodeCount >= SCREEN_READY_MIN_TEXT_NODES) {
+            if (BlankRecoveryAttempts > 0 || BlankRecoveryScheduled) {
+                DiagnosticInfo(
+                    EventName = "BLANK_SCREEN_RECOVERED",
+                    MessageText = "attempts=$BlankRecoveryAttempts nodes=$NodeCount " +
+                            "mode=${CurrentMode.name}"
+                )
+            }
+            ClearBlankScreenState()
+            return
+        }
+        if (BlankRecoveryScheduled) return
+        if (!IsBlankWatchActive()) {
+            BlankSinceAt = 0L
+            return
+        }
+        if (BlankSinceAt == 0L) {
+            BlankSinceAt = NowMs
+            return
+        }
+        if (NowMs - BlankSinceAt < BLANK_SCREEN_HOLD_MS) return
+
+        BlankRecoveryScheduled = true
+        DiagnosticWarning(
+            EventName = "BLANK_SCREEN_SEEN",
+            MessageText = "blankMs=${NowMs - BlankSinceAt} nodes=$NodeCount " +
+                    "mode=${CurrentMode.name} records=${CurrentRecordCount()}"
+        )
+        RunBlankScreenRecovery()
+    }
+
+    private fun IsBlankWatchActive(): Boolean {
+        if (!IsCapturing || IsPaused) return false
+        if (CurrentMode != CaptureMode.POLICY &&
+            CurrentMode != CaptureMode.FUP &&
+            CurrentMode != CaptureMode.CUSTOMER
+        ) return false
+        if (OcrInFlight) return false
+        if (OfflineSinceAt != 0L) return false
+        if (ErrorRecoveryScheduled) return false
+        if (IsRenewalRangeSheetHidden) return false
+        return true
+    }
+
+    private fun RunBlankScreenRecovery() {
+        if (!IsCapturing) {
+            ClearBlankScreenState()
+            return
+        }
+        BlankRecoveryAttempts++
+        if (BlankRecoveryAttempts > BLANK_SCREEN_RETRY_LIMIT) {
+            StopSessionForBlankScreen()
+            return
+        }
+
+        val BackAccepted = performGlobalAction(GLOBAL_ACTION_BACK)
+        DiagnosticInfo(
+            EventName = "BLANK_SCREEN_RECOVERY",
+            MessageText = "attempt=$BlankRecoveryAttempts/$BLANK_SCREEN_RETRY_LIMIT " +
+                    "action=back accepted=$BackAccepted mode=${CurrentMode.name}"
+        )
+
+        val RunnableRef = Runnable {
+            BlankRecoveryRunnable = null
+            if (!IsCapturing) {
+                ClearBlankScreenState()
+                return@Runnable
+            }
+            RefreshScreenSubstanceLook()
+            if (!BlankRecoveryScheduled) return@Runnable
+            if (LastScreenNodeCount >= SCREEN_READY_MIN_TEXT_NODES) {
+                DiagnosticInfo(
+                    EventName = "BLANK_SCREEN_RECOVERED",
+                    MessageText = "attempts=$BlankRecoveryAttempts nodes=$LastScreenNodeCount " +
+                            "mode=${CurrentMode.name}"
+                )
+                ClearBlankScreenState()
+                return@Runnable
+            }
+            RunBlankScreenRecovery()
+        }
+        BlankRecoveryRunnable = RunnableRef
+        MainHandler.postDelayed(RunnableRef, BLANK_SCREEN_RETRY_DELAY_MS)
+    }
+
+    private fun StopSessionForBlankScreen() {
+        val AttemptCount = BlankRecoveryAttempts - 1
+        ClearBlankScreenState()
+        CancelOfflineWatch()
+        CancelErrorRetry()
+        SuspendAutomationForError()
+        DiagnosticWarning(
+            EventName = "SESSION_STOPPED_BLANK_SCREEN",
+            MessageText = "attempts=$AttemptCount mode=${CurrentMode.name} " +
+                    "records=${CurrentRecordCount()} nodes=${CapturedNodes.size}; " +
+                    "session saved so it can be resumed"
+        )
+        ShowServiceToast(
+            MessageText = getString(R.string.capture_stopped_blank_screen),
+            KindVal = AppToast.Kind.Warning
+        )
+        FinishCaptureSession()
+    }
+
+    private fun ClearBlankScreenState() {
+        BlankRecoveryRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        BlankRecoveryRunnable = null
+        BlankRecoveryScheduled = false
+        BlankRecoveryAttempts = 0
+        BlankSinceAt = 0L
     }
 
     private fun IsScreenSettled(WaitCount: Int): Boolean {

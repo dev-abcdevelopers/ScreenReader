@@ -100,6 +100,7 @@
     <string name="bubble_customer_visited_format">%1$d customer(s)</string>
     <string name="capture_stopped_app_errors">Stopped \u2014 the app kept failing. What was captured is waiting for review.</string>
     <string name="capture_stopped_no_network">Stopped \u2014 the phone stayed offline. What was captured is waiting for review.</string>
+    <string name="capture_stopped_blank_screen">Stopped \u2014 the LIC app stopped drawing. What was captured is waiting for review.</string>
 
     <string name="review_title">Capture complete</string>
     <string name="review_title_empty">Nothing captured</string>
