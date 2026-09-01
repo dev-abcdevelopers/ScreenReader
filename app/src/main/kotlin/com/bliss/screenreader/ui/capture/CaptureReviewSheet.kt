@@ -21,10 +21,8 @@ import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.model.PolicyResumeTrack
-import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCaptureReviewBinding
-import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.ui.adapter.ReviewRecordAdapter
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
@@ -167,57 +165,18 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
 
         BindingObj.btnReviewSave.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
-            val AppContext = requireContext().applicationContext
-            val SavedCount = try {
-                CaptureParsers.Commit(
-                    ContextRef = AppContext,
-                    SessionId = SessionObj.SessionId,
-                    ModeVal = SessionObj.Mode,
-                    Nodes = SessionObj.RawNodes,
-                    PolicyRecords = SessionObj.PolicyRecords,
-                    FupRecords = SessionObj.FupRecords,
-                    CapturePolicyDetails = SessionObj.CapturePolicyDetails,
-                    GapRecords = SessionObj.GapRecords
-                )
-            } catch (ExceptionObj: Exception) {
-                CaptureDiagnostics.LogForSession(
-                    ContextObj = AppContext,
-                    SessionId = SessionObj.SessionId,
-                    EventName = "SESSION_COMMIT_FAILED",
-                    MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
-                            "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
-                )
-                0
-            }
-            val CommitBreakdown = CaptureParsers.LastCommitResult
-            CaptureDiagnostics.LogForSession(
-                ContextObj = AppContext,
-                SessionId = SessionObj.SessionId,
-                EventName = "SESSION_COMMIT",
-                MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
-                        "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +
-                        "updated=${CommitBreakdown.UpdatedCount} nodes=${SessionObj.NodeCount}"
+            val OutcomeObj = CaptureFlow.CommitPendingSession(
+                ContextRef = requireContext().applicationContext,
+                SessionObj = SessionObj
             )
-            if (SessionObj.GapRecords.isNotEmpty()) {
-                val GapNumberText = SessionObj.GapRecords.joinToString(",") { GapItem ->
-                    GapItem.PolicyNumber
-                }
-                CaptureDiagnostics.LogForSession(
-                    ContextObj = AppContext,
-                    SessionId = SessionObj.SessionId,
-                    EventName = "SESSION_GAPS",
-                    MessageText = "session=${SessionObj.SessionId} " +
-                            "gaps=${SessionObj.GapRecords.size} policies=$GapNumberText"
-                )
+            if (OutcomeObj.GapCount > 0) {
                 AppToast.Warning(
                     ContextRef = activity,
-                    MessageText = getString(
-                        R.string.review_gaps_format, SessionObj.GapRecords.size
-                    )
+                    MessageText = getString(R.string.review_gaps_format, OutcomeObj.GapCount)
                 )
             }
             CaptureSessionState.ConsumePending()
-            ResultListener?.invoke(SavedCount)
+            ResultListener?.invoke(OutcomeObj.SavedCount)
             dismissAllowingStateLoss()
         }
     }
@@ -348,6 +307,11 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
             ).size
 
             CaptureMode.PS -> PolicyRepository.GetPsPolicies(
+                ContextRef = ContextRef,
+                SessionId = SessionObj.SessionId
+            ).size
+
+            CaptureMode.RENEWAL_DUE -> PolicyRepository.GetRenewalDuePolicies(
                 ContextRef = ContextRef,
                 SessionId = SessionObj.SessionId
             ).size

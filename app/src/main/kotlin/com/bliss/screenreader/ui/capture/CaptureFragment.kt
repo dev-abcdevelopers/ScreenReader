@@ -25,7 +25,9 @@ import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.CustomerSheetOcr
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.settings.SettingsStore
+import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.utils.CaptureNotifier
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.text.SimpleDateFormat
@@ -74,6 +76,12 @@ class CaptureFragment : Fragment() {
             DescRes = R.string.capture_mode_fup_desc
         )
         BindModeRow(
+            RowBinding = BindingObj.rowModeRenewalDue,
+            IconRes = R.drawable.ic_calendar_repeat,
+            TitleRes = R.string.capture_mode_renewal_due,
+            DescRes = R.string.capture_mode_renewal_due_desc
+        )
+        BindModeRow(
             RowBinding = BindingObj.rowModeCustomer,
             IconRes = R.drawable.ic_person,
             TitleRes = R.string.capture_mode_customer,
@@ -91,6 +99,10 @@ class CaptureFragment : Fragment() {
         BindingObj.cardModeFup.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SelectMode(ModeVal = CaptureMode.FUP)
+        }
+        BindingObj.cardModeRenewalDue.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SelectMode(ModeVal = CaptureMode.RENEWAL_DUE)
         }
         BindingObj.cardModeCustomer.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -151,6 +163,11 @@ class CaptureFragment : Fragment() {
             Triple(CaptureMode.POLICY, BindingObj.cardModePolicy, BindingObj.rowModePolicy),
             Triple(CaptureMode.PS, BindingObj.cardModePs, BindingObj.rowModePs),
             Triple(CaptureMode.FUP, BindingObj.cardModeFup, BindingObj.rowModeFup),
+            Triple(
+                CaptureMode.RENEWAL_DUE,
+                BindingObj.cardModeRenewalDue,
+                BindingObj.rowModeRenewalDue
+            ),
             Triple(CaptureMode.CUSTOMER, BindingObj.cardModeCustomer, BindingObj.rowModeCustomer)
         )
 
@@ -410,30 +427,78 @@ class CaptureFragment : Fragment() {
     private fun ShowPendingReviewIfAny() {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val SessionObj = CaptureSessionState.PendingSession ?: return
+
+        if (SettingsStore.IsAutoSaveSessions(ContextRef = ActivityRef)) {
+            AutoSavePendingSession(ActivityRef = ActivityRef, SessionObj = SessionObj)
+            return
+        }
+
         CaptureFlow.ShowPendingReview(ActivityRef = ActivityRef, ModeVal = SessionObj.Mode) { SavedCount ->
-            RenderActionState()
-            if (SavedCount > 0) {
-                CaptureFlow.ShowMessage(
-                    ActivityRef = ActivityRef,
-                    MessageVal = getString(
-                        R.string.review_saved_format,
-                        SessionObj.Mode.DescribeCount(CountVal = SavedCount)
-                    )
+            AfterPendingSaved(
+                ActivityRef = ActivityRef,
+                SessionObj = SessionObj,
+                SavedCount = SavedCount
+            )
+        }
+    }
+
+    private fun AutoSavePendingSession(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        SessionObj: CaptureSession
+    ) {
+        val OutcomeObj = CaptureFlow.CommitPendingSession(
+            ContextRef = ActivityRef.applicationContext,
+            SessionObj = SessionObj
+        )
+        CaptureSessionState.ConsumePending()
+
+        CaptureNotifier.NotifySessionSaved(
+            ContextRef = ActivityRef.applicationContext,
+            ModeVal = SessionObj.Mode,
+            SavedCount = OutcomeObj.SavedCount,
+            GapCount = OutcomeObj.GapCount
+        )
+        if (OutcomeObj.GapCount > 0) {
+            AppToast.Warning(
+                ContextRef = ActivityRef,
+                MessageText = getString(R.string.review_gaps_format, OutcomeObj.GapCount)
+            )
+        }
+
+        AfterPendingSaved(
+            ActivityRef = ActivityRef,
+            SessionObj = SessionObj,
+            SavedCount = OutcomeObj.SavedCount
+        )
+    }
+
+    private fun AfterPendingSaved(
+        ActivityRef: androidx.appcompat.app.AppCompatActivity,
+        SessionObj: CaptureSession,
+        SavedCount: Int
+    ) {
+        RenderActionState()
+        if (SavedCount > 0) {
+            CaptureFlow.ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = getString(
+                    R.string.review_saved_format,
+                    SessionObj.Mode.DescribeCount(CountVal = SavedCount)
                 )
-            }
-            val ChainName = SessionObj.ChainCustomerName
-            if (SavedCount > 0 &&
-                SessionObj.Mode == CaptureMode.POLICY &&
-                ChainName.isNotEmpty()
-            ) {
-                CaptureFlow.Start(
-                    ActivityRef = ActivityRef,
-                    ModeVal = CaptureMode.CUSTOMER,
-                    LaunchTarget = true,
-                    ResumeSessionId = SessionObj.SessionId,
-                    TargetCustomerNames = listOf(ChainName)
-                )
-            }
+            )
+        }
+        val ChainName = SessionObj.ChainCustomerName
+        if (SavedCount > 0 &&
+            SessionObj.Mode == CaptureMode.POLICY &&
+            ChainName.isNotEmpty()
+        ) {
+            CaptureFlow.Start(
+                ActivityRef = ActivityRef,
+                ModeVal = CaptureMode.CUSTOMER,
+                LaunchTarget = true,
+                ResumeSessionId = SessionObj.SessionId,
+                TargetCustomerNames = listOf(ChainName)
+            )
         }
     }
 

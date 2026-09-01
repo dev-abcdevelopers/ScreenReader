@@ -9,10 +9,12 @@ import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.DueDateReport
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.model.PolicyDeletion
 import com.bliss.screenreader.data.model.PolicyResumeMark
 import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.security.SecurePrefs
 import com.google.gson.Gson
@@ -25,10 +27,12 @@ object PolicyRepository {
     private const val KEY_CUSTOMER_POLICIES = "key_customer_policies"
     private const val KEY_FUP_POLICIES = "key_fup_policies"
     private const val KEY_PS_POLICIES = "key_ps_policies"
+    private const val KEY_RENEWAL_DUE_POLICIES = "key_renewal_due_policies"
 
     private const val KEY_LATEST_POLICY_SESSION = "latest_policy_session"
     private const val KEY_LATEST_FUP_SESSION = "latest_fup_session"
     private const val KEY_LATEST_PS_SESSION = "latest_ps_session"
+    private const val KEY_LATEST_RENEWAL_DUE_SESSION = "latest_renewal_due_session"
     private const val KEY_SESSION_HISTORY = "capture_session_history"
     private const val SESSION_KEY_PREFIX = "capture_session"
     private const val CHANGE_KEY_PREFIX = "capture_changes"
@@ -112,6 +116,35 @@ object PolicyRepository {
             LegacyKey = KEY_FUP_POLICIES,
             LatestSessionKey = KEY_LATEST_FUP_SESSION,
             DataType = object : TypeToken<List<FupPolicy>>() {}.type
+        )
+    }
+
+    fun SaveRenewalDuePolicies(
+        ContextRef: Context,
+        Policies: List<RenewalDuePolicy>,
+        SessionId: String = ""
+    ) {
+        SaveSessionRecords(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.RENEWAL_DUE,
+            SessionId = SessionId,
+            Records = Policies,
+            LegacyKey = KEY_RENEWAL_DUE_POLICIES,
+            LatestSessionKey = KEY_LATEST_RENEWAL_DUE_SESSION
+        )
+    }
+
+    fun GetRenewalDuePolicies(
+        ContextRef: Context,
+        SessionId: String = ""
+    ): List<RenewalDuePolicy> {
+        return ReadSessionRecords(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.RENEWAL_DUE,
+            SessionId = SessionId,
+            LegacyKey = KEY_RENEWAL_DUE_POLICIES,
+            LatestSessionKey = KEY_LATEST_RENEWAL_DUE_SESSION,
+            DataType = object : TypeToken<List<RenewalDuePolicy>>() {}.type
         )
     }
 
@@ -282,6 +315,7 @@ object PolicyRepository {
         SessionRef: CaptureSessionReference,
         Policies: List<CustomerPolicy>,
         Renewals: List<FupPolicy>,
+        RenewalsDue: List<RenewalDuePolicy>,
         Servicing: List<PsPolicy>,
         Gaps: List<SessionGap>,
         Changes: Map<CaptureMode, List<RecordFieldChange>>,
@@ -303,6 +337,12 @@ object PolicyRepository {
                 putString(
                     SessionStorageKey(ModeVal = CaptureMode.FUP, SessionId = SessionId),
                     GsonInstance.toJson(Renewals)
+                )
+            }
+            if (RenewalsDue.isNotEmpty()) {
+                putString(
+                    SessionStorageKey(ModeVal = CaptureMode.RENEWAL_DUE, SessionId = SessionId),
+                    GsonInstance.toJson(RenewalsDue)
                 )
             }
             if (Servicing.isNotEmpty()) {
@@ -345,6 +385,90 @@ object PolicyRepository {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    fun DeletePoliciesFromSession(
+        ContextRef: Context,
+        SessionId: String,
+        PolicyNumbers: Collection<String>
+    ): Int {
+        if (SessionId.isBlank()) return 0
+        val TargetSet = PolicyDeletion.NormaliseNumbers(NumberList = PolicyNumbers)
+        if (TargetSet.isEmpty()) return 0
+
+        val ExistingPolicies = GetCustomerPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        )
+        val RemainingPolicies = PolicyDeletion.RemainingPolicies(
+            PolicyList = ExistingPolicies,
+            NumberList = TargetSet
+        )
+        val RemovedCount = ExistingPolicies.size - RemainingPolicies.size
+        if (RemovedCount <= 0) return 0
+
+        val RemainingChanges = PolicyDeletion.RemainingChanges(
+            ChangeList = GetFieldChanges(
+                ContextRef = ContextRef,
+                ModeVal = CaptureMode.POLICY,
+                SessionId = SessionId
+            ),
+            NumberList = TargetSet
+        )
+        val RemainingGaps = PolicyDeletion.RemainingGaps(
+            GapList = ReadStoredGaps(ContextRef = ContextRef, SessionId = SessionId),
+            NumberList = TargetSet
+        )
+        val RemainingVisited = PolicyDeletion.RemainingVisitedCustomers(
+            VisitedNames = GetVisitedCustomers(
+                ContextRef = ContextRef,
+                SessionId = SessionId
+            ).toList(),
+            RemainingPolicyList = RemainingPolicies
+        )
+
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        PrefsObj.edit {
+            putString(
+                SessionStorageKey(ModeVal = CaptureMode.POLICY, SessionId = SessionId),
+                GsonInstance.toJson(RemainingPolicies)
+            )
+            val ChangeKey = ChangeStorageKey(
+                ModeVal = CaptureMode.POLICY,
+                SessionId = SessionId
+            )
+            if (RemainingChanges.isEmpty()) {
+                remove(ChangeKey)
+            } else {
+                putString(ChangeKey, GsonInstance.toJson(RemainingChanges))
+            }
+            val GapKey = GapStorageKey(SessionId = SessionId)
+            if (RemainingGaps.isEmpty()) {
+                remove(GapKey)
+            } else {
+                putString(GapKey, GsonInstance.toJson(RemainingGaps))
+            }
+            val VisitedKey = VisitedStorageKey(SessionId = SessionId)
+            if (RemainingVisited.isEmpty()) {
+                remove(VisitedKey)
+            } else {
+                putString(VisitedKey, GsonInstance.toJson(RemainingVisited))
+            }
+        }
+
+        // Re-register with the original stamps so a deletion never reorders the
+        // session list the way a fresh save does.
+        val ExistingRef = GetSessionReference(ContextRef = ContextRef, SessionId = SessionId)
+        if (ExistingRef != null) {
+            RegisterSession(
+                ContextRef = ContextRef,
+                SessionRef = ExistingRef.copy(
+                    RecordCount = RemainingPolicies.size,
+                    ChangeCount = RemainingChanges.size
+                )
+            )
+        }
+        return RemovedCount
     }
 
     fun DeleteSession(ContextRef: Context, SessionId: String, ModeVal: CaptureMode): Boolean {
@@ -816,9 +940,11 @@ object PolicyRepository {
             remove(KEY_CUSTOMER_POLICIES)
             remove(KEY_FUP_POLICIES)
             remove(KEY_PS_POLICIES)
+            remove(KEY_RENEWAL_DUE_POLICIES)
             remove(KEY_LATEST_POLICY_SESSION)
             remove(KEY_LATEST_FUP_SESSION)
             remove(KEY_LATEST_PS_SESSION)
+            remove(KEY_LATEST_RENEWAL_DUE_SESSION)
             remove(KEY_SESSION_HISTORY)
         }
         return HistoryList.size
@@ -846,6 +972,7 @@ object PolicyRepository {
             CaptureMode.PS -> KEY_LATEST_PS_SESSION
             CaptureMode.FUP -> KEY_LATEST_FUP_SESSION
             CaptureMode.CUSTOMER -> KEY_LATEST_POLICY_SESSION
+            CaptureMode.RENEWAL_DUE -> KEY_LATEST_RENEWAL_DUE_SESSION
         }
     }
 }

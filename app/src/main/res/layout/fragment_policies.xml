@@ -53,6 +53,54 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/selectionBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_stat_tile"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/space_md"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingEnd="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvSelectionCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textAppearance="@style/TextAppearance.App.Heading" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSelectAll"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="@dimen/touch_min"
+                android:text="@string/policies_select_all" />
+
+            <ImageButton
+                android:id="@+id/btnSelectionDelete"
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/policies_delete"
+                android:src="@drawable/ic_delete"
+                app:tint="@color/status_red_text" />
+
+            <ImageButton
+                android:id="@+id/btnSelectionCancel"
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/policies_selection_cancel"
+                android:src="@drawable/ic_close"
+                app:tint="@color/text_secondary" />
+
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/policyTools"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

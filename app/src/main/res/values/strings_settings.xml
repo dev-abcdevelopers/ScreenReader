@@ -214,6 +214,18 @@
     <string name="settings_advanced_exports_desc">Adds Excel and PDF export to a session\u2019s Actions sheet and to a policy\u2019s detail screen</string>
     <string name="settings_advanced_renewals_title">Renewal history</string>
     <string name="settings_advanced_renewals_desc">Shows renewal history capture sessions in Policies, and the renewal row on a policy</string>
+    <string name="settings_advanced_renewals_due_title">Renewals due</string>
+    <string name="settings_advanced_renewals_due_desc">Shows renewals due capture sessions in Policies, grouped by customer</string>
+    <string name="settings_autosave_title">Save sessions automatically</string>
+    <string name="settings_autosave_desc">Skip the review sheet and save every capture when it finishes</string>
+    <string name="settings_autosave_on">On</string>
+    <string name="settings_autosave_off">Off</string>
+    <string name="settings_notify_title">Turn on notifications?</string>
+    <string name="settings_notify_body">Auto-save closes a capture without showing you anything. A notification is the only thing that tells you it saved, and how many records landed.</string>
+    <string name="settings_notify_note">You can turn them off again in Android settings at any time.</string>
+    <string name="settings_notify_allow">Turn on</string>
+    <string name="settings_notify_skip">Not now</string>
+    <string name="settings_notify_blocked">Notifications are blocked for this app \u2014 turn them on in Android settings</string>
     <string name="settings_advanced_hide_title">Hide advanced settings</string>
     <string name="settings_advanced_hide_desc">Puts this section away; your choices above are kept</string>
     <string name="settings_advanced_steps_format">%1$d more tap(s) to unlock advanced settings</string>
@@ -232,4 +244,13 @@
     <string name="settings_renewal_range_15_desc">A fortnight of renewals</string>
     <string name="settings_renewal_range_30_desc">A month of renewals</string>
     <string name="settings_renewal_range_60_desc">Everything the app offers, and the slowest</string>
+    <string name="settings_renewal_due_range_title">Renewals due range</string>
+    <string name="settings_renewal_due_range_desc">How far ahead a renewals due capture reads</string>
+    <string name="settings_renewal_due_range_body">The Timeline filter on the Renewals Due customer view is set to this range at the start of every renewals due capture.</string>
+    <string name="settings_renewal_due_range_note">All reads the whole forward book in one pass, which is what a due date refresh wants.</string>
+    <string name="settings_renewal_due_range_today_desc">Only what falls due today</string>
+    <string name="settings_renewal_due_range_7_desc">The week ahead</string>
+    <string name="settings_renewal_due_range_15_desc">A fortnight ahead</string>
+    <string name="settings_renewal_due_range_30_desc">A month ahead</string>
+    <string name="settings_renewal_due_range_all_desc">Every renewal still to come</string>
 </resources>

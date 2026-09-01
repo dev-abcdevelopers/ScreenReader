@@ -19,6 +19,7 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.PolicyCompleteness
+import com.bliss.screenreader.utils.CompletenessLabels
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.ActivityPolicyDetailBinding
 import com.bliss.screenreader.databinding.PartialCaseContactBinding
@@ -921,45 +922,7 @@ class PolicyDetailActivity : AppCompatActivity() {
     }
 
     private fun BuildLabels(): PolicyCompleteness.LabelSet {
-        return PolicyCompleteness.LabelSet(
-            CardTitle = getString(R.string.detail_group_card),
-            PolicyDetailsTitle = getString(R.string.detail_group_policy_details),
-            CommissionsTitle = getString(R.string.detail_group_commissions),
-            KeyDatesTitle = getString(R.string.detail_group_key_dates),
-            CustomerTitle = getString(R.string.detail_group_customer),
-            PlanCode = getString(R.string.detail_plan_code),
-            PlanName = getString(R.string.detail_plan_name),
-            Status = getString(R.string.detail_status),
-            Premium = getString(R.string.detail_premium),
-            PremiumFrequency = getString(R.string.detail_premium_frequency),
-            AutoPay = getString(R.string.detail_auto_pay),
-            RenewalType = getString(R.string.detail_renewal_type),
-            RenewalDue = getString(R.string.detail_renewal_due),
-            SumAssured = getString(R.string.detail_sum_assured),
-            TermPpt = getString(R.string.detail_term_ppt),
-            CommissionType = getString(R.string.detail_commission_type),
-            CommissionPaid = getString(R.string.detail_commission_paid),
-            BonusCommission = getString(R.string.detail_bonus_commission),
-            CommissionPaymentDate = getString(R.string.detail_commission_payment_date),
-            CommissionPremiumDate = getString(R.string.detail_commission_premium_date),
-            Commenced = getString(R.string.detail_commenced),
-            PremiumsEnd = getString(R.string.detail_premiums_end),
-            Matures = getString(R.string.detail_matures),
-            Mobile = getString(R.string.detail_mobile),
-            Dob = getString(R.string.detail_dob),
-            Address = getString(R.string.detail_address),
-            Email = getString(R.string.detail_email),
-            Gender = getString(R.string.detail_gender),
-            Education = getString(R.string.detail_education),
-            Occupation = getString(R.string.detail_occupation),
-            MaritalStatus = getString(R.string.detail_marital_status),
-            AnnualIncome = getString(R.string.detail_annual_income),
-            FlagKyc = getString(R.string.detail_flag_kyc),
-            FlagNeft = getString(R.string.detail_flag_neft),
-            FlagNominee = getString(R.string.detail_flag_nominee),
-            FlagMobile = getString(R.string.detail_flag_mobile),
-            FlagAddress = getString(R.string.detail_flag_address)
-        )
+        return CompletenessLabels.From(ContextRef = this)
     }
 
     companion object {

@@ -170,6 +170,7 @@ class CaptureSessionAdapter(
         val CaptureType = ContextRef.getString(
             when {
                 SessionRef.Mode == CaptureMode.FUP -> R.string.sessions_type_renewals
+                SessionRef.Mode == CaptureMode.RENEWAL_DUE -> R.string.sessions_type_renewals_due
                 SessionRef.CapturePolicyDetails -> R.string.sessions_type_full
                 else -> R.string.sessions_type_fast
             }

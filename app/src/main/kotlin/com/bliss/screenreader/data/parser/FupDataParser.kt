@@ -18,8 +18,6 @@ object FupDataParser {
         RegexOption.IGNORE_CASE
     )
     private val CURRENCY_REGEX = Regex("₹\\s*[\\d,]+")
-    private const val CURRENCY_SYMBOL = "₹"
-    private val AMOUNT_TAIL_REGEX = Regex("^[\\d,]+(?:\\.\\d+)?(?:\\s*/.*)?$")
     private val HOLDER_NAME_REGEX = Regex("^[A-Za-z][A-Za-z.]*(?:\\s+[A-Za-z][A-Za-z.]*){0,4}$")
 
     private const val LABEL_PREMIUM = "Premium Amount"
@@ -81,27 +79,8 @@ object FupDataParser {
         return PremiumText.substring(0, SlashIndex).trim()
     }
 
-    private fun JoinSplitCurrency(CleanNodes: List<String>): List<String> {
-        if (CleanNodes.none { NodeText -> NodeText == CURRENCY_SYMBOL }) return CleanNodes
-
-        val ResultList = mutableListOf<String>()
-        var NodeIdx = 0
-        while (NodeIdx < CleanNodes.size) {
-            val NodeText = CleanNodes[NodeIdx]
-            val NextText = CleanNodes.getOrNull(NodeIdx + 1)
-            if (NodeText == CURRENCY_SYMBOL &&
-                NextText != null &&
-                AMOUNT_TAIL_REGEX.matches(NextText)
-            ) {
-                ResultList.add(CURRENCY_SYMBOL + NextText)
-                NodeIdx += 2
-                continue
-            }
-            ResultList.add(NodeText)
-            NodeIdx++
-        }
-        return ResultList
-    }
+    private fun JoinSplitCurrency(CleanNodes: List<String>): List<String> =
+        CurrencyNodes.Join(CleanNodes = CleanNodes)
 
     fun MergeRenewalRecord(ExistingRecord: FupPolicy, IncomingRecord: FupPolicy): FupPolicy {
         return ExistingRecord.copy(

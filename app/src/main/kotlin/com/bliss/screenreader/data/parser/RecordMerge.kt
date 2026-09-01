@@ -5,6 +5,7 @@ package com.bliss.screenreader.data.parser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.RenewalDuePolicy
 
 object RecordMerge {
 
@@ -239,6 +240,46 @@ object RecordMerge {
         )
 
         return MergeOutcome(Record = MergedItem, Changes = ChangeSink)
+    }
+
+    fun MergeRenewalDue(
+        ExistingItem: RenewalDuePolicy,
+        IncomingItem: RenewalDuePolicy
+    ): MergeOutcome<RenewalDuePolicy> {
+        val RecordKey = RenewalDueKey(RecordItem = ExistingItem)
+        val ChangeSink = mutableListOf<RecordFieldChange>()
+
+        fun Resolve(FieldName: String, ExistingValue: String, IncomingValue: String): String {
+            return ResolveField(
+                RecordKey = RecordKey,
+                FieldName = FieldName,
+                ExistingValue = ExistingValue,
+                IncomingValue = IncomingValue,
+                ChangeSink = ChangeSink
+            )
+        }
+
+        val MergedItem = ExistingItem.copy(
+            PlanName = Resolve("Plan name", ExistingItem.PlanName, IncomingItem.PlanName),
+            PlanCode = Resolve("Plan code", ExistingItem.PlanCode, IncomingItem.PlanCode),
+            HolderName = Resolve("Holder name", ExistingItem.HolderName, IncomingItem.HolderName),
+            PremiumAmount = Resolve(
+                "Premium amount", ExistingItem.PremiumAmount, IncomingItem.PremiumAmount
+            ),
+            PremiumFrequency = IncomingItem.PremiumFrequency.orEmpty().ifEmpty {
+                ExistingItem.PremiumFrequency.orEmpty()
+            },
+            DateLabel = Resolve("Date label", ExistingItem.DateLabel, IncomingItem.DateLabel),
+            DateValue = Resolve("Date", ExistingItem.DateValue, IncomingItem.DateValue),
+            UrgencyText = Resolve("Urgency", ExistingItem.UrgencyText, IncomingItem.UrgencyText),
+            AutoPay = Resolve("Auto pay", ExistingItem.AutoPay, IncomingItem.AutoPay)
+        )
+
+        return MergeOutcome(Record = MergedItem, Changes = ChangeSink)
+    }
+
+    fun RenewalDueKey(RecordItem: RenewalDuePolicy): String {
+        return RecordItem.PolicyNumber
     }
 
     fun RenewalKey(RecordItem: FupPolicy): String {

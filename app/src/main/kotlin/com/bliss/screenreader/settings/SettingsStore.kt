@@ -11,6 +11,7 @@ import com.bliss.screenreader.security.AuthManager
 import com.bliss.screenreader.security.SecurePrefs
 import com.bliss.screenreader.utils.HapticFeedback
 import com.bliss.screenreader.data.parser.RenewalDateRange
+import com.bliss.screenreader.data.parser.RenewalDueRange
 
 object SettingsStore {
     const val PREFS_NAME = "screenreader_settings"
@@ -18,6 +19,7 @@ object SettingsStore {
     private const val KEY_PACE = "pace_profile"
     private const val KEY_OFFLINE_WAIT_MS = "offline_wait_ms"
     private const val KEY_RENEWAL_RANGE_DAYS = "renewal_range_days"
+    private const val KEY_RENEWAL_DUE_RANGE_DAYS = "renewal_due_range_days"
     private const val KEY_ERROR_RETRY_LIMIT = "error_retry_limit"
     private const val KEY_ERROR_GIVEUP_LIMIT = "error_giveup_limit"
     private const val KEY_ERROR_SLOW_DOWN = "error_slow_down"
@@ -30,6 +32,8 @@ object SettingsStore {
     private const val KEY_ADVANCED_UNLOCKED = "advanced_unlocked"
     private const val KEY_SESSION_EXPORT = "session_export_visible"
     private const val KEY_RENEWAL_HISTORY = "renewal_history_visible"
+    private const val KEY_RENEWAL_DUE = "renewal_due_visible"
+    private const val KEY_AUTO_SAVE_SESSIONS = "auto_save_sessions"
 
     const val DEFAULT_OFFLINE_WAIT_MS = 120_000L
     const val DEFAULT_ERROR_RETRY_LIMIT = 3
@@ -105,6 +109,13 @@ object SettingsStore {
 
     fun SetRenewalRangeDays(ContextRef: Context, ValueVal: Int) {
         Prefs(ContextRef = ContextRef).edit { putInt(KEY_RENEWAL_RANGE_DAYS, ValueVal) }
+    }
+
+    fun RenewalDueRangeDays(ContextRef: Context): Int = Prefs(ContextRef = ContextRef)
+        .getInt(KEY_RENEWAL_DUE_RANGE_DAYS, RenewalDueRange.DEFAULT_SPAN_DAYS)
+
+    fun SetRenewalDueRangeDays(ContextRef: Context, ValueVal: Int) {
+        Prefs(ContextRef = ContextRef).edit { putInt(KEY_RENEWAL_DUE_RANGE_DAYS, ValueVal) }
     }
 
     fun ErrorRetryLimit(ContextRef: Context): Int =
@@ -193,6 +204,20 @@ object SettingsStore {
 
     fun SetRenewalHistoryVisible(ContextRef: Context, EnabledVal: Boolean) {
         Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_RENEWAL_HISTORY, EnabledVal) }
+    }
+
+    fun IsRenewalDueVisible(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_RENEWAL_DUE, false)
+
+    fun SetRenewalDueVisible(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_RENEWAL_DUE, EnabledVal) }
+    }
+
+    fun IsAutoSaveSessions(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_AUTO_SAVE_SESSIONS, false)
+
+    fun SetAutoSaveSessions(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_AUTO_SAVE_SESSIONS, EnabledVal) }
     }
 
     fun ApplyGlobals(ContextRef: Context) {

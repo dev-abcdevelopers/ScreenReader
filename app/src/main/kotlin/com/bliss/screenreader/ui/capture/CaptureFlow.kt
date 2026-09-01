@@ -2,15 +2,19 @@
 
 package com.bliss.screenreader.ui.capture
 
+import android.content.Context
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.PolicyResumeTarget
 import com.bliss.screenreader.data.model.PolicyResumeTrack
+import com.bliss.screenreader.data.model.CaptureSession
+import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.SheetCustomerResumeBinding
+import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.service.ScreenReaderService
 import com.bliss.screenreader.ui.toast.AppToast
@@ -254,6 +258,62 @@ object CaptureFlow {
         }
         ServiceInstance.FinishCaptureSession()
         return true
+    }
+
+    data class CommitOutcome(val SavedCount: Int, val GapCount: Int)
+
+    fun CommitPendingSession(ContextRef: Context, SessionObj: CaptureSession): CommitOutcome {
+        val AppContext = ContextRef.applicationContext
+        val SavedCount = try {
+            CaptureParsers.Commit(
+                ContextRef = AppContext,
+                SessionId = SessionObj.SessionId,
+                ModeVal = SessionObj.Mode,
+                Nodes = SessionObj.RawNodes,
+                PolicyRecords = SessionObj.PolicyRecords,
+                FupRecords = SessionObj.FupRecords,
+                RenewalDueRecords = SessionObj.RenewalDueRecords.orEmpty(),
+                CapturePolicyDetails = SessionObj.CapturePolicyDetails,
+                GapRecords = SessionObj.GapRecords
+            )
+        } catch (ExceptionObj: Exception) {
+            CaptureDiagnostics.LogForSession(
+                ContextObj = AppContext,
+                SessionId = SessionObj.SessionId,
+                EventName = "SESSION_COMMIT_FAILED",
+                MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
+                        "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            0
+        }
+
+        val CommitBreakdown = CaptureParsers.LastCommitResult
+        CaptureDiagnostics.LogForSession(
+            ContextObj = AppContext,
+            SessionId = SessionObj.SessionId,
+            EventName = "SESSION_COMMIT",
+            MessageText = "session=${SessionObj.SessionId} mode=${SessionObj.Mode.name} " +
+                    "saved=$SavedCount added=${CommitBreakdown.AddedCount} " +
+                    "updated=${CommitBreakdown.UpdatedCount} nodes=${SessionObj.NodeCount}"
+        )
+
+        if (SessionObj.GapRecords.isNotEmpty()) {
+            val GapNumberText = SessionObj.GapRecords.joinToString(",") { GapItem ->
+                GapItem.PolicyNumber
+            }
+            CaptureDiagnostics.LogForSession(
+                ContextObj = AppContext,
+                SessionId = SessionObj.SessionId,
+                EventName = "SESSION_GAPS",
+                MessageText = "session=${SessionObj.SessionId} " +
+                        "gaps=${SessionObj.GapRecords.size} policies=$GapNumberText"
+            )
+        }
+
+        return CommitOutcome(
+            SavedCount = SavedCount,
+            GapCount = SessionObj.GapRecords.size
+        )
     }
 
     fun ShowPendingReview(

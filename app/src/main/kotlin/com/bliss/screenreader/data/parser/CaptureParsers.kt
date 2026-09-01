@@ -9,6 +9,7 @@ import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.repository.PolicyRepository
 import java.util.Locale
@@ -35,6 +36,9 @@ object CaptureParsers {
             CaptureMode.POLICY -> PreviewPolicy(Nodes = Nodes)
             CaptureMode.PS -> PreviewPs(Nodes = Nodes)
             CaptureMode.FUP -> PreviewFup(Nodes = Nodes)
+            CaptureMode.RENEWAL_DUE -> PreviewRenewalDueRecords(
+                Records = RenewalDueParser.Parse(Nodes = Nodes)
+            )
             CaptureMode.CUSTOMER -> emptyList()
         }
     }
@@ -46,6 +50,7 @@ object CaptureParsers {
         Nodes: List<String>,
         PolicyRecords: List<CustomerPolicy> = emptyList(),
         FupRecords: List<FupPolicy> = emptyList(),
+        RenewalDueRecords: List<RenewalDuePolicy> = emptyList(),
         CapturePolicyDetails: Boolean = false,
         GapRecords: List<SessionGap> = emptyList()
     ): Int {
@@ -76,6 +81,12 @@ object CaptureParsers {
                 SessionId = SessionId,
                 Nodes = Nodes,
                 FupRecords = FupRecords
+            )
+
+            CaptureMode.RENEWAL_DUE -> CommitRenewalDue(
+                ContextRef = ContextRef,
+                SessionId = SessionId,
+                Records = RenewalDueRecords
             )
         }
     }
@@ -466,6 +477,98 @@ object CaptureParsers {
         if (FupItem.ModeOfPayment.isNotEmpty()) Parts.add(FupItem.ModeOfPayment)
         if (FupItem.Status.isNotEmpty()) Parts.add(FupItem.Status)
         return if (Parts.isEmpty()) "No renewal details matched" else Parts.joinToString(" · ")
+    }
+
+    fun PreviewRenewalDueRecords(Records: List<RenewalDuePolicy>): List<ParsedRecord> {
+        return Records.map { DueItem ->
+            val FieldCount = listOf(
+                DueItem.PolicyNumber, DueItem.PlanName, DueItem.HolderName,
+                DueItem.PremiumAmount, DueItem.DateValue, DueItem.AutoPay
+            ).count { it.isNotEmpty() }
+
+            ParsedRecord(
+                PolicyNumber = DueItem.PolicyNumber.ifEmpty { "Unknown policy" },
+                PrimaryLine = DueItem.HolderName.ifEmpty {
+                    DueItem.PlanName.ifEmpty { "No holder name" }
+                },
+                SecondaryLine = BuildRenewalDueSummary(DueItem = DueItem),
+                FieldCount = FieldCount,
+                Warning = when {
+                    DueItem.PolicyNumber.isEmpty() -> "No policy number found"
+                    DueItem.DateValue.isEmpty() -> "No renewal or grace date matched"
+                    DueItem.DateLabel.isEmpty() -> "The date is there but its label is not"
+                    else -> ""
+                },
+                MetaText = listOf(DueItem.PlanName, DueItem.UrgencyText)
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" \u00b7 "),
+                AmountText = DueItem.PremiumAmount,
+                DueText = DueItem.DateValue
+            )
+        }
+    }
+
+    private fun BuildRenewalDueSummary(DueItem: RenewalDuePolicy): String {
+        val Parts = mutableListOf<String>()
+        if (DueItem.PremiumAmount.isNotEmpty()) Parts.add(DueItem.PremiumAmount)
+        if (DueItem.DateValue.isNotEmpty()) {
+            val LabelText = DueItem.DateLabel.ifEmpty { "Date" }
+            Parts.add("$LabelText ${DueItem.DateValue}")
+        }
+        if (DueItem.AutoPay.isNotEmpty()) Parts.add("Auto pay ${DueItem.AutoPay}")
+        return if (Parts.isEmpty()) "No renewal due details matched" else Parts.joinToString(" \u00b7 ")
+    }
+
+    private fun CommitRenewalDue(
+        ContextRef: Context,
+        SessionId: String,
+        Records: List<RenewalDuePolicy>
+    ): Int {
+        val ParsedList = Records.filter { DueItem -> DueItem.PolicyNumber.isNotEmpty() }
+        if (ParsedList.isEmpty()) return 0
+
+        val ExistingList = PolicyRepository.GetRenewalDuePolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
+        ).toMutableList()
+
+        val ChangeLog = mutableListOf<RecordFieldChange>()
+        var AddedCount = 0
+        var UpdatedCount = 0
+
+        for (DueItem in ParsedList) {
+            val MatchIndex = ExistingList.indexOfFirst { ExistingItem ->
+                RecordMerge.RenewalDueKey(RecordItem = ExistingItem) ==
+                        RecordMerge.RenewalDueKey(RecordItem = DueItem)
+            }
+            if (MatchIndex >= 0) {
+                val MergeOutcomeVal = RecordMerge.MergeRenewalDue(
+                    ExistingItem = ExistingList[MatchIndex],
+                    IncomingItem = DueItem
+                )
+                if (MergeOutcomeVal.Record != ExistingList[MatchIndex]) UpdatedCount++
+                ExistingList[MatchIndex] = MergeOutcomeVal.Record
+                ChangeLog.addAll(MergeOutcomeVal.Changes)
+            } else {
+                ExistingList.add(AddedCount, DueItem)
+                AddedCount++
+            }
+        }
+
+        PolicyRepository.SaveFieldChanges(
+            ContextRef = ContextRef,
+            ModeVal = CaptureMode.RENEWAL_DUE,
+            SessionId = SessionId,
+            Changes = ChangeLog,
+            SourceName = ChangeSource.RENEWAL_CAPTURE
+        )
+        PolicyRepository.SaveRenewalDuePolicies(
+            ContextRef = ContextRef,
+            Policies = ExistingList,
+            SessionId = SessionId
+        )
+        LastCommitResult = CommitResult(AddedCount = AddedCount, UpdatedCount = UpdatedCount)
+        return AddedCount + UpdatedCount
     }
 
     private fun CommitFup(

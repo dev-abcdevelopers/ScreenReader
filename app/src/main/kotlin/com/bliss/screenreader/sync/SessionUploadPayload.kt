@@ -4,6 +4,7 @@ package com.bliss.screenreader.sync
 
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.model.SessionGap
@@ -42,6 +43,7 @@ data class SessionUploadPayload(
     val Session: UploadSessionInfo,
     val Policies: List<CustomerPolicy>,
     val Renewals: List<FupPolicy>,
+    val RenewalsDue: List<RenewalDuePolicy> = emptyList(),
     val Servicing: List<PsPolicy>,
     val Gaps: List<SessionGap>,
     val Changes: Map<String, List<RecordFieldChange>>,

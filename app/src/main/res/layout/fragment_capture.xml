@@ -91,6 +91,22 @@
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardModeRenewalDue"
+            style="@style/Widget.App.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/card_gap"
+            android:clickable="true"
+            android:focusable="true"
+            android:minHeight="@dimen/touch_min">
+
+            <include
+                android:id="@+id/rowModeRenewalDue"
+                layout="@layout/partial_mode_row" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardModeCustomer"
             style="@style/Widget.App.Card"
             android:layout_width="match_parent"

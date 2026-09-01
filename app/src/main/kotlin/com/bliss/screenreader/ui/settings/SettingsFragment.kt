@@ -4,10 +4,12 @@
 
 package com.bliss.screenreader.ui.settings
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -61,6 +63,7 @@ import com.bliss.screenreader.update.UpdateChecker
 import com.bliss.screenreader.update.UpdateInstaller
 import com.bliss.screenreader.update.UpdateVersion
 import com.bliss.screenreader.utils.AppLauncherUtils
+import com.bliss.screenreader.utils.CaptureNotifier
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
@@ -70,6 +73,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import androidx.core.view.isEmpty
 import com.bliss.screenreader.data.parser.RenewalDateRange
+import com.bliss.screenreader.data.parser.RenewalDueRange
 
 private const val ADVANCED_TAP_WINDOW_MS = 2500L
 
@@ -89,6 +93,17 @@ class SettingsFragment : Fragment() {
 
     private val MainHandler = Handler(Looper.getMainLooper())
     private val WorkerRef = Executors.newSingleThreadExecutor()
+
+    private var HasAskedForNotifications = false
+
+    private val NotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { GrantedVal ->
+        if (GrantedVal) return@registerForActivityResult
+        val ContextRef = context ?: return@registerForActivityResult
+        if (CaptureNotifier.AreNotificationsOn(ContextRef = ContextRef)) return@registerForActivityResult
+        ShowMessage(MessageText = getString(R.string.settings_notify_blocked))
+    }
 
     private val ImportPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -259,6 +274,20 @@ class SettingsFragment : Fragment() {
             SettingsStore.SetRenewalHistoryVisible(
                 ContextRef = ContextRef,
                 EnabledVal = !SettingsStore.IsRenewalHistoryVisible(ContextRef = ContextRef)
+            )
+            RenderAll()
+        }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_advanced_renewals_due_title),
+            DescText = getString(R.string.settings_advanced_renewals_due_desc),
+            IconRes = R.drawable.ic_calendar_repeat,
+            SwitchState = SettingsStore.IsRenewalDueVisible(ContextRef = ContextRef)
+        ) {
+            SettingsStore.SetRenewalDueVisible(
+                ContextRef = ContextRef,
+                EnabledVal = !SettingsStore.IsRenewalDueVisible(ContextRef = ContextRef)
             )
             RenderAll()
         }
@@ -459,6 +488,35 @@ class SettingsFragment : Fragment() {
             ShowChevron = true,
             IsEnabled = !IsRunning
         ) { ShowRenewalRangeSheet() }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_renewal_due_range_title),
+            DescText = getString(R.string.settings_renewal_due_range_desc),
+            ValueText = RenewalDueRange.LabelFor(
+                SpanDays = SettingsStore.RenewalDueRangeDays(ContextRef = ContextRef)
+            ),
+            IconRes = R.drawable.ic_calendar_repeat,
+            ShowChevron = true,
+            IsEnabled = !IsRunning
+        ) { ShowRenewalDueRangeSheet() }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_autosave_title),
+            DescText = getString(R.string.settings_autosave_desc),
+            IconRes = R.drawable.ic_check_circle,
+            SwitchState = SettingsStore.IsAutoSaveSessions(ContextRef = ContextRef),
+            IsEnabled = !IsRunning
+        ) {
+            val TurningOn = !SettingsStore.IsAutoSaveSessions(ContextRef = ContextRef)
+            SettingsStore.SetAutoSaveSessions(
+                ContextRef = ContextRef,
+                EnabledVal = TurningOn
+            )
+            RenderAll()
+            if (TurningOn) MaybePromptForNotifications()
+        }
 
         AddRow(
             ContainerRef = SectionRef,
@@ -940,6 +998,71 @@ class SettingsFragment : Fragment() {
         AppToast.Show(ContextRef = context, MessageText = MessageText, KindVal = KindVal)
     }
 
+    private fun MaybePromptForNotifications() {
+        val ContextRef = context ?: return
+        if (CaptureNotifier.AreNotificationsOn(ContextRef = ContextRef)) return
+
+        val SheetPair = DetailSheet(
+            TitleText = getString(R.string.settings_notify_title),
+            BodyText = getString(R.string.settings_notify_body)
+        ) ?: return
+        val SheetDialog = SheetPair.first
+        val SheetBinding = SheetPair.second
+
+        SheetBinding.tvDetailNote.visibility = View.VISIBLE
+        SheetBinding.tvDetailNote.text = getString(R.string.settings_notify_note)
+
+        SheetBinding.btnDetailPrimary.visibility = View.VISIBLE
+        SheetBinding.btnDetailPrimary.setText(R.string.settings_notify_allow)
+        SheetBinding.btnDetailPrimary.setOnClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            RequestNotificationPermission()
+        }
+
+        SheetBinding.btnDetailSecondary.visibility = View.VISIBLE
+        SheetBinding.btnDetailSecondary.setText(R.string.settings_notify_skip)
+        SheetBinding.btnDetailSecondary.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+
+        SheetDialog.show()
+    }
+
+    private fun RequestNotificationPermission() {
+        val ContextRef = context ?: return
+        val IsMissingRuntimeGrant =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        ContextRef,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+
+        // The system silently ignores a second request once the user has denied it
+        // for good, so only the first ask goes through the dialog.
+        if (IsMissingRuntimeGrant && !HasAskedForNotifications) {
+            HasAskedForNotifications = true
+            NotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        OpenAppNotificationSettings()
+    }
+
+    private fun OpenAppNotificationSettings() {
+        val ContextRef = context ?: return
+        val IntentObj = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, ContextRef.packageName)
+        val Opened = runCatching { startActivity(IntentObj) }.isSuccess
+        if (Opened) return
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.fromParts("package", ContextRef.packageName, null))
+            )
+        }
+    }
+
     private fun DetailSheet(
         TitleText: CharSequence,
         BodyText: CharSequence = ""
@@ -1051,6 +1174,33 @@ class SettingsFragment : Fragment() {
             SelectedIndex = if (StoredIndex < 0) Options.lastIndex else StoredIndex
         ) { PickedIndex ->
             SettingsStore.SetRenewalRangeDays(
+                ContextRef = ContextRef,
+                ValueVal = Options[PickedIndex]
+            )
+            RenderAll()
+        }
+    }
+
+    private fun ShowRenewalDueRangeSheet() {
+        val ContextRef = requireContext()
+        val Options = RenewalDueRange.SUPPORTED_SPAN_DAYS
+        val StoredDays = SettingsStore.RenewalDueRangeDays(ContextRef = ContextRef)
+        val StoredIndex = Options.indexOf(StoredDays)
+        ShowChoiceSheet(
+            TitleText = getString(R.string.settings_renewal_due_range_title),
+            BodyText = getString(R.string.settings_renewal_due_range_body),
+            NoteText = getString(R.string.settings_renewal_due_range_note),
+            Labels = Options.map { SpanVal -> RenewalDueRange.LabelFor(SpanDays = SpanVal) },
+            Descriptions = listOf(
+                getString(R.string.settings_renewal_due_range_today_desc),
+                getString(R.string.settings_renewal_due_range_7_desc),
+                getString(R.string.settings_renewal_due_range_15_desc),
+                getString(R.string.settings_renewal_due_range_30_desc),
+                getString(R.string.settings_renewal_due_range_all_desc)
+            ),
+            SelectedIndex = if (StoredIndex < 0) Options.lastIndex else StoredIndex
+        ) { PickedIndex ->
+            SettingsStore.SetRenewalDueRangeDays(
                 ContextRef = ContextRef,
                 ValueVal = Options[PickedIndex]
             )

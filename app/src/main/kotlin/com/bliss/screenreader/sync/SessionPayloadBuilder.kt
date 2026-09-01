@@ -90,6 +90,10 @@ object SessionPayloadBuilder {
                 ContextRef = AppContext,
                 SessionId = SessionId
             ),
+            RenewalsDue = PolicyRepository.GetRenewalDuePolicies(
+                ContextRef = AppContext,
+                SessionId = SessionId
+            ),
             Servicing = PolicyRepository.GetPsPolicies(
                 ContextRef = AppContext,
                 SessionId = SessionId

@@ -29,12 +29,21 @@ import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.data.model.RenewalDueKind
+import com.bliss.screenreader.data.model.RenewalDuePolicy
+import com.bliss.screenreader.data.model.PolicyCompleteness
+import com.bliss.screenreader.utils.CompletenessLabels
 import com.bliss.screenreader.data.model.PolicyResumeMark
 import com.bliss.screenreader.data.model.PolicyResumeTarget
 import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.FupDataParser
+import com.bliss.screenreader.data.parser.RenewalDueImport
 import com.bliss.screenreader.data.parser.RenewalDueProjection
 import com.bliss.screenreader.data.model.DueDateReport
+import com.bliss.screenreader.data.model.DueDateOutcome
+import com.bliss.screenreader.data.model.DueDateSkip
+import com.bliss.screenreader.data.model.DueDateSkipReason
+import com.bliss.screenreader.data.model.DueDateUpdate
 import com.bliss.screenreader.data.model.DueDateReportEntry
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
@@ -47,6 +56,8 @@ import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
 import com.bliss.screenreader.databinding.PartialDueDateRowBinding
 import com.bliss.screenreader.databinding.PartialDueReasonGroupBinding
 import com.bliss.screenreader.databinding.PartialDueStatBinding
+import com.bliss.screenreader.databinding.PartialDeletePolicyRowBinding
+import com.bliss.screenreader.databinding.SheetDeletePoliciesBinding
 import com.bliss.screenreader.databinding.SheetDuePreviewBinding
 import com.bliss.screenreader.databinding.SheetSessionActionsBinding
 import com.bliss.screenreader.databinding.SheetSessionPickerBinding
@@ -60,6 +71,8 @@ import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.sync.SessionUploader
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
+import com.bliss.screenreader.ui.adapter.PolicySwipeCallback
+import com.bliss.screenreader.ui.adapter.RenewalDueRowAdapter
 import com.bliss.screenreader.ui.adapter.RenewalRowAdapter
 import com.bliss.screenreader.ui.adapter.SessionStickyHeaderDecoration
 import com.bliss.screenreader.ui.adapter.SessionSwipeCallback
@@ -79,8 +92,16 @@ import java.util.Locale
 
 class PoliciesFragment : Fragment() {
 
+    private val DELETE_PREVIEW_LIMIT = 12
+    private val COMPLETE_PERCENT = 100
+    private val PARTIAL_PERCENT = 70
+
     private var ViewBindingObj: FragmentPoliciesBinding? = null
-    private val AdapterObj = PolicyRowAdapter { PolicyItem -> OpenDetail(PolicyItem = PolicyItem) }
+    private val AdapterObj = PolicyRowAdapter(
+        OnRowClick = { PolicyItem -> OpenDetail(PolicyItem = PolicyItem) },
+        OnDeleteClick = { PolicyItem -> ConfirmDeletePolicies(PolicyList = listOf(PolicyItem)) },
+        OnSelectionChanged = { RenderSelectionBar() }
+    )
     private val SessionAdapterObj = CaptureSessionAdapter(
         OnRowClick = { SessionRef -> OpenSession(SessionRef = SessionRef) },
         OnResumeClick = { SessionRef -> ResumeSession(SessionRef = SessionRef) },
@@ -88,12 +109,15 @@ class PoliciesFragment : Fragment() {
         OnShareLogClick = { SessionRef -> ShareSessionLog(SessionRef = SessionRef) }
     )
     private val SessionSwipeHelper = ItemTouchHelper(SessionSwipeCallback(SessionAdapterObj))
+    private val PolicySwipeHelper = ItemTouchHelper(PolicySwipeCallback(AdapterObj))
     private val SessionStickyObj = SessionStickyHeaderDecoration(SessionAdapterObj)
     private val RenewalAdapterObj = RenewalRowAdapter()
+    private val RenewalDueAdapterObj = RenewalDueRowAdapter()
     private var RowDividerObj: DividerItemDecoration? = null
 
     private var AllPolicies: List<CustomerPolicy> = emptyList()
     private var AllRenewals: List<FupPolicy> = emptyList()
+    private var AllRenewalsDue: List<RenewalDuePolicy> = emptyList()
     private var SessionList: List<PolicyRepository.CaptureSessionReference> = emptyList()
     private var UploadSheetBinding: SheetUploadProgressBinding? = null
     private var UploadPhaseIndex = 0
@@ -164,6 +188,21 @@ class PoliciesFragment : Fragment() {
             ShowSessionActionsSheet()
         }
 
+        BindingObj.btnSelectAll.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            AdapterObj.SelectAllVisible()
+        }
+
+        BindingObj.btnSelectionDelete.setOnClickListener { ViewRef ->
+            HapticFeedback.Reject(ViewRef = ViewRef)
+            ConfirmDeletePolicies(PolicyList = AdapterObj.SelectedPolicies())
+        }
+
+        BindingObj.btnSelectionCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            AdapterObj.EndSelection()
+        }
+
         BindingObj.emptyState.btnEmptyAction.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             (activity as? MainActivity)?.GoToCaptureTab()
@@ -173,6 +212,10 @@ class PoliciesFragment : Fragment() {
             viewLifecycleOwner,
             object : OnBackPressedCallback(false) {
                 override fun handleOnBackPressed() {
+                    if (AdapterObj.IsSelectionMode) {
+                        AdapterObj.EndSelection()
+                        return
+                    }
                     ShowSessions()
                 }
             }.also { CallbackRef ->
@@ -200,11 +243,19 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun LoadSessionRecords() {
-        if (SelectedSessionMode == CaptureMode.FUP) {
+        if (SelectedSessionMode == CaptureMode.RENEWAL_DUE) {
+            AllRenewalsDue = PolicyRepository.GetRenewalDuePolicies(
+                ContextRef = requireContext(),
+                SessionId = SelectedSessionId
+            )
+            AllRenewals = emptyList()
+            AllPolicies = emptyList()
+        } else if (SelectedSessionMode == CaptureMode.FUP) {
             AllRenewals = PolicyRepository.GetFupPolicies(
                 ContextRef = requireContext(),
                 SessionId = SelectedSessionId
             )
+            AllRenewalsDue = emptyList()
             AllPolicies = emptyList()
         } else {
             AllPolicies = PolicyRepository.GetCustomerPolicies(
@@ -212,6 +263,7 @@ class PoliciesFragment : Fragment() {
                 SessionId = SelectedSessionId
             )
             AllRenewals = emptyList()
+            AllRenewalsDue = emptyList()
         }
     }
 
@@ -283,7 +335,9 @@ class PoliciesFragment : Fragment() {
         if (SelectedSessionId.isEmpty() || SelectedSessionMode != CaptureMode.POLICY) return
 
         val RenewalSessions = PolicyRepository.GetSessionHistory(ContextRef = ActivityRef)
-            .filter { SessionRef -> SessionRef.Mode == CaptureMode.FUP }
+            .filter { SessionRef ->
+                SessionRef.Mode == CaptureMode.FUP || SessionRef.Mode == CaptureMode.RENEWAL_DUE
+            }
             .sortedByDescending { SessionRef -> SessionRef.SavedAt }
 
         if (RenewalSessions.isEmpty()) {
@@ -308,8 +362,10 @@ class PoliciesFragment : Fragment() {
                 SheetBinding.sessionPickContainer,
                 false
             )
-            RowBinding.tvSessionPickTitle.text = Mode.DescribeCount(
-                CountVal = RecordCount
+            RowBinding.tvSessionPickTitle.text = getString(
+                R.string.due_pick_row_format,
+                Mode.DisplayName,
+                Mode.DescribeCount(CountVal = RecordCount)
             )
             RowBinding.tvSessionPickMeta.text = getString(
                 R.string.capture_customer_session_format,
@@ -319,7 +375,7 @@ class PoliciesFragment : Fragment() {
             RowBinding.sessionPickCard.setOnClickListener { ViewRef ->
                 HapticFeedback.Tap(ViewRef = ViewRef)
                 SheetDialog.dismiss()
-                ApplyDueDatesFrom(RenewalSessionId = SessionId)
+                ApplyDueDatesFrom(RenewalSessionId = SessionId, RenewalModeVal = Mode)
             }
             SheetBinding.sessionPickContainer.addView(RowBinding.root)
         }
@@ -331,27 +387,48 @@ class PoliciesFragment : Fragment() {
         SheetDialog.show()
     }
 
-    private fun ApplyDueDatesFrom(RenewalSessionId: String) {
+    private fun ApplyDueDatesFrom(RenewalSessionId: String, RenewalModeVal: CaptureMode) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val ContextRef = ActivityRef.applicationContext
         if (SelectedSessionId.isEmpty()) return
 
-        val RenewalList = PolicyRepository.GetFupPolicies(
-            ContextRef = ContextRef,
-            SessionId = RenewalSessionId
-        )
-        if (RenewalList.isEmpty()) {
-            ShowSnack(
-                MessageVal = getString(R.string.due_no_sessions),
-                KindVal = AppToast.Kind.Warning
+        val SourceCount: Int
+        val OutcomeObj: DueDateOutcome
+        if (RenewalModeVal == CaptureMode.RENEWAL_DUE) {
+            val DueList = PolicyRepository.GetRenewalDuePolicies(
+                ContextRef = ContextRef,
+                SessionId = RenewalSessionId
             )
-            return
+            if (DueList.isEmpty()) {
+                ShowSnack(
+                    MessageVal = getString(R.string.due_no_sessions),
+                    KindVal = AppToast.Kind.Warning
+                )
+                return
+            }
+            SourceCount = DueList.size
+            OutcomeObj = RenewalDueImport.Apply(
+                Policies = AllPolicies,
+                DueRecords = DueList
+            )
+        } else {
+            val RenewalList = PolicyRepository.GetFupPolicies(
+                ContextRef = ContextRef,
+                SessionId = RenewalSessionId
+            )
+            if (RenewalList.isEmpty()) {
+                ShowSnack(
+                    MessageVal = getString(R.string.due_no_sessions),
+                    KindVal = AppToast.Kind.Warning
+                )
+                return
+            }
+            SourceCount = RenewalList.size
+            OutcomeObj = RenewalDueProjection.Apply(
+                Policies = AllPolicies,
+                Renewals = RenewalList
+            )
         }
-
-        val OutcomeObj = RenewalDueProjection.Apply(
-            Policies = AllPolicies,
-            Renewals = RenewalList
-        )
 
         if (OutcomeObj.MatchedCount == 0) {
             ShowSnack(
@@ -365,13 +442,13 @@ class PoliciesFragment : Fragment() {
             ActivityRef = ActivityRef,
             OutcomeObj = OutcomeObj,
             RenewalSessionId = RenewalSessionId,
-            RenewalCount = RenewalList.size
+            RenewalCount = SourceCount
         )
     }
 
     private fun ShowDuePreviewSheet(
         ActivityRef: androidx.appcompat.app.AppCompatActivity,
-        OutcomeObj: RenewalDueProjection.Outcome,
+        OutcomeObj: DueDateOutcome,
         RenewalSessionId: String,
         RenewalCount: Int
     ) {
@@ -419,8 +496,8 @@ class PoliciesFragment : Fragment() {
 
     private fun BindUpdatePreview(
         SheetBinding: SheetDuePreviewBinding,
-        OutcomeObj: RenewalDueProjection.Outcome,
-        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+        OutcomeObj: DueDateOutcome,
+        SkipGroups: List<Pair<DueDateSkipReason, List<DueDateSkip>>>
     ) {
         SheetBinding.tvDuePreviewTitle.text = getString(
             R.string.due_preview_title,
@@ -458,11 +535,11 @@ class PoliciesFragment : Fragment() {
 
     private fun BindEmptyPreview(
         SheetBinding: SheetDuePreviewBinding,
-        OutcomeObj: RenewalDueProjection.Outcome,
-        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+        OutcomeObj: DueDateOutcome,
+        SkipGroups: List<Pair<DueDateSkipReason, List<DueDateSkip>>>
     ) {
         val OnlyAlreadyUpdated = SkipGroups.size == 1 &&
-                SkipGroups.first().first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+                SkipGroups.first().first == DueDateSkipReason.ALREADY_CURRENT
 
         SheetBinding.tvDuePreviewTitle.visibility = View.GONE
         SheetBinding.tvDuePreviewHint.visibility = View.GONE
@@ -510,12 +587,14 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun GroupSkips(
-        SkipList: List<RenewalDueProjection.Skip>
-    ): List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>> {
+        SkipList: List<DueDateSkip>
+    ): List<Pair<DueDateSkipReason, List<DueDateSkip>>> {
         val OrderList = listOf(
-            RenewalDueProjection.SkipReason.ALREADY_CURRENT,
-            RenewalDueProjection.SkipReason.NO_FREQUENCY,
-            RenewalDueProjection.SkipReason.NO_RENEWAL_ROW
+            DueDateSkipReason.ALREADY_CURRENT,
+            DueDateSkipReason.GRACE_DATE,
+            DueDateSkipReason.NO_DUE_DATE,
+            DueDateSkipReason.NO_FREQUENCY,
+            DueDateSkipReason.NO_RENEWAL_ROW
         )
         return OrderList.mapNotNull { ReasonVal ->
             val GroupList = SkipList.filter { SkipItem -> SkipItem.Reason == ReasonVal }
@@ -525,13 +604,13 @@ class PoliciesFragment : Fragment() {
 
     private fun AddStatTiles(
         ContainerRef: ViewGroup,
-        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+        SkipGroups: List<Pair<DueDateSkipReason, List<DueDateSkip>>>
     ) {
         ContainerRef.removeAllViews()
         val ContextRef = ContainerRef.context
         for ((IndexVal, GroupPair) in SkipGroups.withIndex()) {
             val StatBinding = PartialDueStatBinding.inflate(layoutInflater, ContainerRef, false)
-            val IsGood = GroupPair.first == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+            val IsGood = GroupPair.first == DueDateSkipReason.ALREADY_CURRENT
             StatBinding.tvDueStatValue.text = GroupPair.second.size.toString()
             StatBinding.tvDueStatLabel.setText(StatLabelRes(ReasonVal = GroupPair.first))
             StatBinding.dueStatRoot.setBackgroundResource(
@@ -555,7 +634,7 @@ class PoliciesFragment : Fragment() {
 
     private fun AddSkipGroups(
         ContainerRef: ViewGroup,
-        SkipGroups: List<Pair<RenewalDueProjection.SkipReason, List<RenewalDueProjection.Skip>>>
+        SkipGroups: List<Pair<DueDateSkipReason, List<DueDateSkip>>>
     ) {
         for ((ReasonVal, SkipList) in SkipGroups) {
             val GroupBinding = PartialDueReasonGroupBinding.inflate(
@@ -563,7 +642,7 @@ class PoliciesFragment : Fragment() {
                 ContainerRef,
                 false
             )
-            val IsGood = ReasonVal == RenewalDueProjection.SkipReason.ALREADY_CURRENT
+            val IsGood = ReasonVal == DueDateSkipReason.ALREADY_CURRENT
             GroupBinding.tvDueReasonTitle.setText(StatLabelRes(ReasonVal = ReasonVal))
             GroupBinding.tvDueReasonCount.text = SkipList.size.toString()
             GroupBinding.tvDueReasonWhy.setText(SkipReasonText(ReasonVal = ReasonVal))
@@ -598,10 +677,12 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    private fun StatLabelRes(ReasonVal: RenewalDueProjection.SkipReason): Int = when (ReasonVal) {
-        RenewalDueProjection.SkipReason.ALREADY_CURRENT -> R.string.due_stat_updated
-        RenewalDueProjection.SkipReason.NO_FREQUENCY -> R.string.due_stat_frequency
-        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW -> R.string.due_stat_norow
+    private fun StatLabelRes(ReasonVal: DueDateSkipReason): Int = when (ReasonVal) {
+        DueDateSkipReason.ALREADY_CURRENT -> R.string.due_stat_updated
+        DueDateSkipReason.NO_FREQUENCY -> R.string.due_stat_frequency
+        DueDateSkipReason.NO_RENEWAL_ROW -> R.string.due_stat_norow
+        DueDateSkipReason.GRACE_DATE -> R.string.due_stat_grace
+        DueDateSkipReason.NO_DUE_DATE -> R.string.due_stat_nodue
     }
 
     private fun AddChangeSection(ContainerRef: ViewGroup, TitleRes: Int) {
@@ -616,7 +697,7 @@ class PoliciesFragment : Fragment() {
 
     private fun AddUpdateGroups(
         ContainerRef: ViewGroup,
-        UpdateList: List<RenewalDueProjection.Update>
+        UpdateList: List<DueDateUpdate>
     ) {
         AddDueDateGroups(
             ContainerRef = ContainerRef,
@@ -697,14 +778,16 @@ class PoliciesFragment : Fragment() {
         }
     }
 
-    private fun SkipReasonText(ReasonVal: RenewalDueProjection.SkipReason): Int = when (ReasonVal) {
-        RenewalDueProjection.SkipReason.ALREADY_CURRENT -> R.string.due_reason_current
-        RenewalDueProjection.SkipReason.NO_FREQUENCY -> R.string.due_reason_frequency
-        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW -> R.string.due_reason_norow
+    private fun SkipReasonText(ReasonVal: DueDateSkipReason): Int = when (ReasonVal) {
+        DueDateSkipReason.ALREADY_CURRENT -> R.string.due_reason_current
+        DueDateSkipReason.NO_FREQUENCY -> R.string.due_reason_frequency
+        DueDateSkipReason.NO_RENEWAL_ROW -> R.string.due_reason_norow
+        DueDateSkipReason.GRACE_DATE -> R.string.due_reason_grace
+        DueDateSkipReason.NO_DUE_DATE -> R.string.due_reason_nodue
     }
 
     private fun CommitDueDates(
-        OutcomeObj: RenewalDueProjection.Outcome,
+        OutcomeObj: DueDateOutcome,
         RenewalSessionId: String,
         RenewalCount: Int
     ) {
@@ -756,7 +839,7 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun BuildDueDateReport(
-        OutcomeObj: RenewalDueProjection.Outcome,
+        OutcomeObj: DueDateOutcome,
         RenewalSessionId: String
     ): DueDateReport {
         return DueDateReport(
@@ -823,9 +906,11 @@ class PoliciesFragment : Fragment() {
     private fun RenderList(ResetScroll: Boolean = false) {
         when {
             SelectedSessionId.isEmpty() -> RenderSessions()
+            SelectedSessionMode == CaptureMode.RENEWAL_DUE -> RenderRenewalsDue()
             SelectedSessionMode == CaptureMode.FUP -> RenderRenewals()
             else -> RenderPolicies()
         }
+        RenderSelectionBar()
         if (ResetScroll) ViewBindingObj?.rvPolicies?.scrollToPosition(0)
     }
 
@@ -834,8 +919,203 @@ class PoliciesFragment : Fragment() {
         if (BindingObj.rvPolicies.adapter !== TargetAdapter) {
             BindingObj.rvPolicies.adapter = TargetAdapter
         }
-        ApplyRowDivider(WantsDivider = TargetAdapter !== RenewalAdapterObj)
+        ApplyRowDivider(
+            WantsDivider = TargetAdapter !== RenewalAdapterObj &&
+                    TargetAdapter !== RenewalDueAdapterObj
+        )
+        ApplyPolicySwipe(WantsSwipe = TargetAdapter === AdapterObj)
         ApplyStickyHeader(WantsSticky = TargetAdapter === SessionAdapterObj)
+    }
+
+    private fun RenderSelectionBar() {
+        val BindingObj = ViewBindingObj ?: return
+        val IsActive = AdapterObj.IsSelectionMode && AdapterObj.SelectedCount() > 0
+        BindingObj.selectionBar.visibility = if (IsActive) View.VISIBLE else View.GONE
+        SessionBackCallback?.isEnabled = IsActive || SelectedSessionId.isNotEmpty()
+        if (!IsActive) return
+        BindingObj.tvSelectionCount.text = getString(
+            R.string.policies_selection_count,
+            AdapterObj.SelectedCount()
+        )
+    }
+
+    private fun ConfirmDeletePolicies(PolicyList: List<CustomerPolicy>) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val TargetList = PolicyList.filter { PolicyItem -> PolicyItem.PolicyNumber.isNotEmpty() }
+        if (TargetList.isEmpty() || SelectedSessionId.isEmpty()) return
+
+        val SheetBinding = SheetDeletePoliciesBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.tvDeleteBody.text = if (TargetList.size == 1) {
+            getString(R.string.policies_delete_body_one)
+        } else {
+            getString(R.string.policies_delete_body_many, TargetList.size)
+        }
+
+        val LabelSetObj = CompletenessLabels.From(ContextRef = ActivityRef)
+        for (PolicyItem in TargetList.take(DELETE_PREVIEW_LIMIT)) {
+            val RowBinding = PartialDeletePolicyRowBinding.inflate(
+                layoutInflater,
+                SheetBinding.deleteListContainer,
+                false
+            )
+            BindDeleteRow(
+                RowBinding = RowBinding,
+                PolicyItem = PolicyItem,
+                LabelSetObj = LabelSetObj
+            )
+            SheetBinding.deleteListContainer.addView(RowBinding.root)
+        }
+        val HiddenCount = TargetList.size - DELETE_PREVIEW_LIMIT
+        if (HiddenCount > 0) {
+            val MoreBinding = PartialDeletePolicyRowBinding.inflate(
+                layoutInflater,
+                SheetBinding.deleteListContainer,
+                false
+            )
+            MoreBinding.deleteRowHead.visibility = View.GONE
+            MoreBinding.deleteRowMeta.visibility = View.GONE
+            MoreBinding.tvDeleteRowDue.visibility = View.GONE
+            MoreBinding.tvDeleteRowName.text = getString(R.string.policies_delete_more, HiddenCount)
+            SheetBinding.deleteListContainer.addView(MoreBinding.root)
+        }
+
+        SheetBinding.btnDeleteConfirm.text = getString(
+            R.string.policies_delete_confirm,
+            TargetList.size
+        )
+        SheetBinding.btnDeleteConfirm.setOnClickListener { ViewRef ->
+            HapticFeedback.Reject(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            DeletePolicies(PolicyList = TargetList)
+        }
+        SheetBinding.btnDeleteCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.setOnShowListener {
+            val SheetView = SheetDialog.findViewById<View>(
+                com.google.android.material.R.id.design_bottom_sheet
+            ) ?: return@setOnShowListener
+            SheetView.layoutParams = SheetView.layoutParams.apply {
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            val BehaviourRef = BottomSheetBehavior.from(SheetView)
+            BehaviourRef.isFitToContents = false
+            BehaviourRef.skipCollapsed = true
+            BehaviourRef.expandedOffset = 0
+            BehaviourRef.state = BottomSheetBehavior.STATE_EXPANDED
+        }
+        SheetDialog.setOnDismissListener { AdapterObj.CloseOpenRow() }
+        SheetDialog.show()
+    }
+
+    private fun BindDeleteRow(
+        RowBinding: PartialDeletePolicyRowBinding,
+        PolicyItem: CustomerPolicy,
+        LabelSetObj: PolicyCompleteness.LabelSet
+    ) {
+        val ContextRef = RowBinding.root.context
+
+        RowBinding.tvDeleteRowNumber.text = PolicyItem.PolicyNumber
+        RowBinding.tvDeleteRowName.text = PolicyItem.HolderName.ifEmpty {
+            getString(R.string.status_unknown)
+        }
+
+        val StatusText = PolicyItem.NormalizedStatus
+        if (StatusText.isEmpty()) {
+            RowBinding.tvDeleteRowStatus.visibility = View.GONE
+        } else {
+            RowBinding.tvDeleteRowStatus.visibility = View.VISIBLE
+            RowBinding.tvDeleteRowStatus.text = StatusText
+            val BadgeRes = when {
+                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.drawable.bg_badge_lapsed
+                PolicyStatusRules.IsAttention(StatusText = StatusText) ->
+                    R.drawable.bg_badge_attention
+                else -> R.drawable.bg_badge_inforce
+            }
+            val BadgeColour = when {
+                PolicyStatusRules.IsAdverse(StatusText = StatusText) -> R.color.status_red_text
+                PolicyStatusRules.IsAttention(StatusText = StatusText) -> R.color.status_amber_text
+                else -> R.color.status_green_text
+            }
+            RowBinding.tvDeleteRowStatus.setBackgroundResource(BadgeRes)
+            RowBinding.tvDeleteRowStatus.setTextColor(
+                ContextCompat.getColor(ContextRef, BadgeColour)
+            )
+        }
+
+        RowBinding.tvDeleteRowDue.text = if (PolicyItem.RenewalDueDate.isBlank()) {
+            getString(R.string.policies_delete_no_due)
+        } else {
+            getString(R.string.policies_delete_due, PolicyItem.RenewalDueDate)
+        }
+
+        val SummaryObj = PolicyCompleteness.Describe(
+            PolicyItem = PolicyItem,
+            Labels = LabelSetObj
+        )
+        val PercentValue = SummaryObj.Percent
+        val FillColour = when {
+            PercentValue >= COMPLETE_PERCENT -> R.color.status_green_text
+            PercentValue >= PARTIAL_PERCENT -> R.color.status_amber_text
+            else -> R.color.status_red_text
+        }
+        RowBinding.pbDeleteRowFields.progress = PercentValue
+        RowBinding.pbDeleteRowFields.progressTintList = ContextCompat.getColorStateList(
+            ContextRef,
+            FillColour
+        )
+        RowBinding.pbDeleteRowFields.contentDescription = getString(
+            R.string.policies_delete_fields,
+            SummaryObj.CapturedCount,
+            SummaryObj.TotalCount
+        )
+        RowBinding.tvDeleteRowPercent.text =
+            getString(R.string.policies_delete_percent, PercentValue)
+        RowBinding.tvDeleteRowPercent.setTextColor(
+            ContextCompat.getColor(ContextRef, FillColour)
+        )
+    }
+
+    private fun DeletePolicies(PolicyList: List<CustomerPolicy>) {
+        val ContextRef = context?.applicationContext ?: return
+        if (SelectedSessionId.isEmpty()) return
+
+        val NumberList = PolicyList.map { PolicyItem -> PolicyItem.PolicyNumber }
+        val RemovedCount = PolicyRepository.DeletePoliciesFromSession(
+            ContextRef = ContextRef,
+            SessionId = SelectedSessionId,
+            PolicyNumbers = NumberList
+        )
+        if (RemovedCount <= 0) return
+
+        CaptureDiagnostics.LogForSession(
+            ContextObj = ContextRef,
+            SessionId = SelectedSessionId,
+            EventName = "POLICIES_DELETED",
+            MessageText = "removed=$RemovedCount policies=${NumberList.joinToString(",")}"
+        )
+
+        AdapterObj.EndSelection()
+        AdapterObj.CloseOpenRow()
+        LoadSessions()
+        LoadSessionRecords()
+        RenderList()
+        ShowSnack(
+            MessageVal = getString(R.string.policies_deleted_format, RemovedCount),
+            KindVal = AppToast.Kind.Success
+        )
+    }
+
+    private fun ApplyPolicySwipe(WantsSwipe: Boolean) {
+        val BindingObj = ViewBindingObj ?: return
+        PolicySwipeHelper.attachToRecyclerView(
+            if (WantsSwipe) BindingObj.rvPolicies else null
+        )
+        if (!WantsSwipe) AdapterObj.EndSelection()
     }
 
     private fun ApplyStickyHeader(WantsSticky: Boolean) {
@@ -895,6 +1175,114 @@ class PoliciesFragment : Fragment() {
             BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_inbox_empty)
             BindingObj.emptyState.tvEmptyTitle.setText(R.string.renewals_empty_title)
             BindingObj.emptyState.tvEmptyBody.setText(R.string.renewals_empty_body)
+            BindingObj.emptyState.btnEmptyAction.setText(R.string.policies_empty_action)
+            BindingObj.emptyState.btnEmptyAction.visibility = View.VISIBLE
+        }
+    }
+
+    private fun VisibleRenewalsDue(): List<RenewalDuePolicy> {
+        val QueryLower = SearchQuery.trim().lowercase(Locale.ROOT)
+        val FilteredList = AllRenewalsDue.filter { DueItem ->
+            val IsGrace = DueItem.Kind == RenewalDueKind.GRACE_EXPIRY
+            val MatchesStatus = when (StatusFilter) {
+                FILTER_INFORCE -> !IsGrace
+                FILTER_LAPSED -> IsGrace
+                else -> true
+            }
+            val MatchesQuery = QueryLower.isEmpty() ||
+                    DueItem.PolicyNumber.lowercase(Locale.ROOT).contains(QueryLower) ||
+                    DueItem.HolderName.lowercase(Locale.ROOT).contains(QueryLower)
+            MatchesStatus && MatchesQuery
+        }
+        return FilteredList.sortedWith(
+            compareBy<RenewalDuePolicy> { DueItem ->
+                DueItem.HolderName.trim().uppercase(Locale.ROOT)
+            }.thenBy { DueItem -> SortableDueDate(DueItem = DueItem) }
+        )
+    }
+
+    private fun SortableDueDate(DueItem: RenewalDuePolicy): Long {
+        val DateObj = RenewalDueProjection.ParseDate(RawText = DueItem.DateValue)
+            ?: return Long.MAX_VALUE
+        return DateObj.toEpochDay()
+    }
+
+    private fun RenewalDueSummaryText(VisibleList: List<RenewalDuePolicy>): String {
+        val CustomerCount = VisibleList
+            .map { DueItem -> DueItem.HolderName.trim().uppercase(Locale.ROOT) }
+            .toSet()
+            .size
+        val GraceCount = VisibleList.count { DueItem ->
+            DueItem.Kind == RenewalDueKind.GRACE_EXPIRY
+        }
+        val TotalRupees = VisibleList.sumOf { DueItem ->
+            AmountValue(PremiumText = DueItem.PremiumAmount)
+        }
+        if (TotalRupees <= 0L) {
+            return getString(
+                R.string.renewals_due_summary_no_amounts,
+                CustomerCount,
+                GraceCount
+            )
+        }
+        val AmountText = NumberFormat
+            .getInstance(Locale.forLanguageTag("en-IN"))
+            .format(TotalRupees)
+        return getString(
+            R.string.renewals_due_summary_format,
+            "₹$AmountText",
+            CustomerCount,
+            GraceCount
+        )
+    }
+
+    private fun BuildRenewalDueStatusChips() {
+        ApplyStatusChips(
+            ChipSpecs = listOf(
+                FILTER_ALL to getString(R.string.renewals_due_filter_all),
+                FILTER_INFORCE to getString(R.string.renewals_due_filter_due),
+                FILTER_LAPSED to getString(R.string.renewals_due_filter_grace)
+            )
+        )
+    }
+
+    private fun RenderRenewalsDue() {
+        val BindingObj = ViewBindingObj ?: return
+        BuildRenewalDueStatusChips()
+        val VisibleList = VisibleRenewalsDue()
+        BindListAdapter(TargetAdapter = RenewalDueAdapterObj)
+        RenewalDueAdapterObj.UpdateData(NewList = VisibleList)
+        BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_due_heading)
+        BindingObj.btnSessionsBack.visibility = View.VISIBLE
+        BindingObj.policyTools.visibility = View.VISIBLE
+        BindingObj.scrollStatus.visibility = View.VISIBLE
+        BindingObj.tilSearch.hint = getString(R.string.renewals_search_hint)
+        SessionBackCallback?.isEnabled = true
+
+        BindingObj.tvPolicyCount.text = getString(
+            R.string.renewals_count_format, VisibleList.size, AllRenewalsDue.size
+        )
+        BindingObj.tvListSummary.text = RenewalDueSummaryText(VisibleList = VisibleList)
+        BindingObj.tvListSummary.visibility =
+            if (AllRenewalsDue.isEmpty()) View.GONE else View.VISIBLE
+
+        val HasVisible = VisibleList.isNotEmpty()
+        BindingObj.emptyState.emptyStateRoot.visibility =
+            if (HasVisible) View.GONE else View.VISIBLE
+        ShowPdfAction = false
+        BindingObj.exportBar.visibility =
+            if (HasAnySessionAction()) View.VISIBLE else View.GONE
+        if (HasVisible) return
+
+        if (AllRenewalsDue.isNotEmpty()) {
+            BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_search)
+            BindingObj.emptyState.tvEmptyTitle.setText(R.string.policies_no_match_title)
+            BindingObj.emptyState.tvEmptyBody.setText(R.string.policies_no_match_body)
+            BindingObj.emptyState.btnEmptyAction.visibility = View.GONE
+        } else {
+            BindingObj.emptyState.ivEmptyIcon.setImageResource(R.drawable.ic_inbox_empty)
+            BindingObj.emptyState.tvEmptyTitle.setText(R.string.renewals_due_empty_title)
+            BindingObj.emptyState.tvEmptyBody.setText(R.string.renewals_due_empty_body)
             BindingObj.emptyState.btnEmptyAction.setText(R.string.policies_empty_action)
             BindingObj.emptyState.btnEmptyAction.visibility = View.VISIBLE
         }
@@ -971,10 +1359,12 @@ class PoliciesFragment : Fragment() {
 
     private fun LoadSessions() {
         val ShowRenewals = SettingsStore.IsRenewalHistoryVisible(ContextRef = requireContext())
+        val ShowRenewalsDue = SettingsStore.IsRenewalDueVisible(ContextRef = requireContext())
         SessionList = PolicyRepository.GetSessionHistory(ContextRef = requireContext())
             .filter { SessionRef ->
                 SessionRef.Mode == CaptureMode.POLICY ||
-                        (SessionRef.Mode == CaptureMode.FUP && ShowRenewals)
+                        (SessionRef.Mode == CaptureMode.FUP && ShowRenewals) ||
+                        (SessionRef.Mode == CaptureMode.RENEWAL_DUE && ShowRenewalsDue)
             }
             .sortedByDescending { SessionRef -> SessionRef.SavedAt }
     }
@@ -1379,10 +1769,13 @@ class PoliciesFragment : Fragment() {
 
     private fun ShowSessions() {
         SessionAdapterObj.CloseOpenRow()
+        AdapterObj.EndSelection()
+        AdapterObj.CloseOpenRow()
         SelectedSessionId = ""
         SelectedSessionMode = CaptureMode.POLICY
         AllPolicies = emptyList()
         AllRenewals = emptyList()
+        AllRenewalsDue = emptyList()
         LoadSessions()
         RenderList(ResetScroll = true)
     }

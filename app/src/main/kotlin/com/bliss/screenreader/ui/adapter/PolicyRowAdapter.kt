@@ -15,8 +15,16 @@ import com.bliss.screenreader.utils.HapticFeedback
 
 class PolicyRowAdapter(
     private var PolicyList: List<CustomerPolicy> = emptyList(),
-    private val OnRowClick: (CustomerPolicy) -> Unit = {}
+    private val OnRowClick: (CustomerPolicy) -> Unit = {},
+    private val OnDeleteClick: (CustomerPolicy) -> Unit = {},
+    private val OnSelectionChanged: () -> Unit = {}
 ) : RecyclerView.Adapter<PolicyRowAdapter.PolicyViewHolder>() {
+
+    private var OpenRowNumber: String = ""
+    private val SelectedNumbers = linkedSetOf<String>()
+
+    var IsSelectionMode: Boolean = false
+        private set
 
     class PolicyViewHolder(val BindingRef: ItemPolicyRowBinding) :
         RecyclerView.ViewHolder(BindingRef.root)
@@ -29,6 +37,77 @@ class PolicyRowAdapter(
     }
 
     override fun getItemCount(): Int = PolicyList.size
+
+    fun PolicyAt(PositionVal: Int): CustomerPolicy? = PolicyList.getOrNull(PositionVal)
+
+    fun OpenRow(PolicyNumber: String) {
+        if (IsSelectionMode) return
+        val PreviousNumber = OpenRowNumber
+        OpenRowNumber = PolicyNumber
+        NotifyRowChanged(PolicyNumber = PreviousNumber)
+        NotifyRowChanged(PolicyNumber = PolicyNumber)
+    }
+
+    fun CloseOpenRow() {
+        if (OpenRowNumber.isEmpty()) return
+        val PreviousNumber = OpenRowNumber
+        OpenRowNumber = ""
+        NotifyRowChanged(PolicyNumber = PreviousNumber)
+    }
+
+    fun IsRowOpen(PolicyNumber: String): Boolean = OpenRowNumber == PolicyNumber
+
+    private fun NotifyRowChanged(PolicyNumber: String) {
+        if (PolicyNumber.isEmpty()) return
+        val IndexVal = PolicyList.indexOfFirst { PolicyItem ->
+            PolicyItem.PolicyNumber == PolicyNumber
+        }
+        if (IndexVal >= 0) notifyItemChanged(IndexVal)
+    }
+
+    fun SelectedPolicyNumbers(): List<String> = SelectedNumbers.toList()
+
+    fun SelectedPolicies(): List<CustomerPolicy> = PolicyList.filter { PolicyItem ->
+        SelectedNumbers.contains(PolicyItem.PolicyNumber)
+    }
+
+    fun SelectedCount(): Int = SelectedNumbers.size
+
+    fun StartSelection(PolicyNumber: String) {
+        CloseOpenRow()
+        IsSelectionMode = true
+        SelectedNumbers.add(PolicyNumber)
+        notifyDataSetChanged()
+        OnSelectionChanged()
+    }
+
+    fun ToggleSelection(PolicyNumber: String) {
+        if (!SelectedNumbers.remove(PolicyNumber)) SelectedNumbers.add(PolicyNumber)
+        if (SelectedNumbers.isEmpty()) {
+            EndSelection()
+            return
+        }
+        NotifyRowChanged(PolicyNumber = PolicyNumber)
+        OnSelectionChanged()
+    }
+
+    fun SelectAllVisible() {
+        SelectedNumbers.addAll(
+            PolicyList
+                .map { PolicyItem -> PolicyItem.PolicyNumber }
+                .filter { NumberText -> NumberText.isNotEmpty() }
+        )
+        notifyDataSetChanged()
+        OnSelectionChanged()
+    }
+
+    fun EndSelection() {
+        if (!IsSelectionMode && SelectedNumbers.isEmpty()) return
+        IsSelectionMode = false
+        SelectedNumbers.clear()
+        notifyDataSetChanged()
+        OnSelectionChanged()
+    }
 
     override fun onBindViewHolder(holder: PolicyViewHolder, position: Int) {
         val PolicyItem = PolicyList[position]
@@ -59,9 +138,46 @@ class PolicyRowAdapter(
 
         BindStatus(BindingRef = BindingRef, PolicyItem = PolicyItem)
 
+        val IsSelected = SelectedNumbers.contains(PolicyItem.PolicyNumber)
+        BindingRef.cbPolicySelect.visibility =
+            if (IsSelectionMode) View.VISIBLE else View.GONE
+        BindingRef.cbPolicySelect.isChecked = IsSelected
+        BindingRef.rowRoot.isActivated = IsSelected
+
+        val RevealPx = if (!IsSelectionMode && IsRowOpen(PolicyNumber = PolicyItem.PolicyNumber)) {
+            BindingRef.root.resources.getDimensionPixelSize(R.dimen.policy_reveal_width).toFloat()
+        } else {
+            0f
+        }
+        BindingRef.rowRoot.translationX = RevealPx
+
+        BindingRef.btnPolicyDelete.setOnClickListener { ViewRef ->
+            HapticFeedback.Reject(ViewRef = ViewRef)
+            OnDeleteClick(PolicyItem)
+        }
+
         BindingRef.rowRoot.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
+            if (IsSelectionMode) {
+                ToggleSelection(PolicyNumber = PolicyItem.PolicyNumber)
+                return@setOnClickListener
+            }
+            if (OpenRowNumber.isNotEmpty()) {
+                CloseOpenRow()
+                return@setOnClickListener
+            }
             OnRowClick(PolicyItem)
+        }
+
+        BindingRef.rowRoot.setOnLongClickListener { ViewRef ->
+            if (PolicyItem.PolicyNumber.isEmpty()) return@setOnLongClickListener false
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            if (IsSelectionMode) {
+                ToggleSelection(PolicyNumber = PolicyItem.PolicyNumber)
+            } else {
+                StartSelection(PolicyNumber = PolicyItem.PolicyNumber)
+            }
+            true
         }
     }
 
@@ -94,7 +210,13 @@ class PolicyRowAdapter(
             PolicyDiffCallback(OldList = PolicyList, NewList = NewPolicies)
         )
         PolicyList = NewPolicies
+        val LiveNumbers = NewPolicies.map { PolicyItem -> PolicyItem.PolicyNumber }.toSet()
+        if (!LiveNumbers.contains(OpenRowNumber)) OpenRowNumber = ""
+        val HadSelection = SelectedNumbers.isNotEmpty()
+        SelectedNumbers.retainAll(LiveNumbers)
+        if (SelectedNumbers.isEmpty()) IsSelectionMode = false
         DiffResult.dispatchUpdatesTo(this)
+        if (HadSelection) OnSelectionChanged()
     }
 
     private class PolicyDiffCallback(

@@ -23,6 +23,8 @@
     <!-- Controls. 48dp is the minimum touch target. -->
     <dimen name="touch_min">48dp</dimen>
     <dimen name="session_reveal_width">96dp</dimen>
+    <dimen name="policy_reveal_width">64dp</dimen>
+    <dimen name="completeness_bar_height">4dp</dimen>
     <dimen name="session_group_header_height">40dp</dimen>
     <dimen name="icon_sm">18dp</dimen>
     <dimen name="icon_md">24dp</dimen>

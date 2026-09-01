@@ -3,6 +3,10 @@
 package com.bliss.screenreader.data.parser
 
 import com.bliss.screenreader.data.model.CustomerPolicy
+import com.bliss.screenreader.data.model.DueDateOutcome
+import com.bliss.screenreader.data.model.DueDateSkip
+import com.bliss.screenreader.data.model.DueDateSkipReason
+import com.bliss.screenreader.data.model.DueDateUpdate
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
 import java.time.LocalDate
@@ -11,42 +15,6 @@ import java.util.Locale
 object RenewalDueProjection {
 
     const val FIELD_NAME = "Renewal due date"
-
-    enum class SkipReason {
-        NO_RENEWAL_ROW,
-        NO_FREQUENCY,
-        ALREADY_CURRENT
-    }
-
-    data class Update(
-        val PolicyNumber: String,
-        val HolderName: String,
-        val PlanCode: String,
-        val OldDate: String,
-        val NewDate: String,
-        val PaidForDate: String,
-        val Frequency: String
-    )
-
-    data class Skip(
-        val PolicyNumber: String,
-        val HolderName: String,
-        val PlanCode: String,
-        val CurrentDate: String,
-        val Reason: SkipReason
-    )
-
-    data class Outcome(
-        val Policies: List<CustomerPolicy>,
-        val Changes: List<RecordFieldChange>,
-        val Updates: List<Update> = emptyList(),
-        val Skips: List<Skip> = emptyList(),
-        val MatchedCount: Int = 0,
-        val AnchoredCount: Int = 0,
-        val UpdatedCount: Int = 0,
-        val UnchangedCount: Int = 0,
-        val SkippedCount: Int = 0
-    )
 
     private val MONTH_LABELS = listOf(
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -172,15 +140,15 @@ object RenewalDueProjection {
     fun Apply(
         Policies: List<CustomerPolicy>,
         Renewals: List<FupPolicy>
-    ): Outcome {
+    ): DueDateOutcome {
         if (Policies.isEmpty() || Renewals.isEmpty()) {
-            return Outcome(Policies = Policies, Changes = emptyList())
+            return DueDateOutcome(Policies = Policies, Changes = emptyList())
         }
 
         val GroupedMap = GroupByPolicy(Renewals = Renewals)
         val ChangeList = mutableListOf<RecordFieldChange>()
-        val UpdateList = mutableListOf<Update>()
-        val SkipList = mutableListOf<Skip>()
+        val UpdateList = mutableListOf<DueDateUpdate>()
+        val SkipList = mutableListOf<DueDateSkip>()
         var MatchedCount = 0
         var AnchoredCount = 0
 
@@ -210,12 +178,12 @@ object RenewalDueProjection {
 
             if (SourceItem == null) {
                 SkipList.add(
-                    Skip(
+                    DueDateSkip(
                         PolicyNumber = KeyText,
                         HolderName = PolicyItem.HolderName,
                         PlanCode = PolicyItem.PlanCode,
                         CurrentDate = PolicyItem.RenewalDueDate,
-                        Reason = SkipReason.NO_FREQUENCY
+                        Reason = DueDateSkipReason.NO_FREQUENCY
                     )
                 )
                 return@map PolicyItem
@@ -226,12 +194,12 @@ object RenewalDueProjection {
             val ExistingObj = ParseDate(RawText = PolicyItem.RenewalDueDate)
             if (ExistingObj != null && !NextDueObj.isAfter(ExistingObj)) {
                 SkipList.add(
-                    Skip(
+                    DueDateSkip(
                         PolicyNumber = KeyText,
                         HolderName = PolicyItem.HolderName,
                         PlanCode = PolicyItem.PlanCode,
                         CurrentDate = PolicyItem.RenewalDueDate,
-                        Reason = SkipReason.ALREADY_CURRENT
+                        Reason = DueDateSkipReason.ALREADY_CURRENT
                     )
                 )
                 return@map PolicyItem
@@ -247,7 +215,7 @@ object RenewalDueProjection {
                 )
             )
             UpdateList.add(
-                Update(
+                DueDateUpdate(
                     PolicyNumber = KeyText,
                     HolderName = PolicyItem.HolderName,
                     PlanCode = PolicyItem.PlanCode,
@@ -263,7 +231,7 @@ object RenewalDueProjection {
             PolicyItem.copy(RenewalDueDate = NextDueText)
         }
 
-        return Outcome(
+        return DueDateOutcome(
             Policies = UpdatedPolicies,
             Changes = ChangeList,
             Updates = UpdateList,
@@ -272,10 +240,10 @@ object RenewalDueProjection {
             AnchoredCount = AnchoredCount,
             UpdatedCount = UpdateList.size,
             UnchangedCount = SkipList.count { SkipItem ->
-                SkipItem.Reason == SkipReason.ALREADY_CURRENT
+                SkipItem.Reason == DueDateSkipReason.ALREADY_CURRENT
             },
             SkippedCount = SkipList.count { SkipItem ->
-                SkipItem.Reason != SkipReason.ALREADY_CURRENT
+                SkipItem.Reason != DueDateSkipReason.ALREADY_CURRENT
             }
         )
     }

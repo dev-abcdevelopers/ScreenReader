@@ -172,6 +172,10 @@ object SessionBundleStore {
                 ContextRef = ContextRef,
                 SessionId = SessionId
             ),
+            RenewalsDue = PolicyRepository.GetRenewalDuePolicies(
+                ContextRef = ContextRef,
+                SessionId = SessionId
+            ),
             Servicing = PolicyRepository.GetPsPolicies(
                 ContextRef = ContextRef,
                 SessionId = SessionId
@@ -366,6 +370,7 @@ object SessionBundleStore {
             ),
             Policies = EntryRef.Policies.orEmpty(),
             Renewals = EntryRef.Renewals.orEmpty(),
+            RenewalsDue = EntryRef.RenewalsDue.orEmpty(),
             Servicing = EntryRef.Servicing.orEmpty(),
             Gaps = EntryRef.Gaps.orEmpty(),
             Changes = ChangeMap,

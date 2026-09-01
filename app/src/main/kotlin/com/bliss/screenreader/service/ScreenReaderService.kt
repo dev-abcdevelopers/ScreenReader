@@ -42,11 +42,14 @@ import com.bliss.screenreader.data.model.CustomerProfile
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.parser.CustomerProfileParser
 import com.bliss.screenreader.data.parser.RenewalDateRange
+import com.bliss.screenreader.data.parser.RenewalDueParser
+import com.bliss.screenreader.data.parser.RenewalDueRange
 import com.bliss.screenreader.data.parser.SheetOcrParser
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.ParsedRecord
 import com.bliss.screenreader.data.model.PolicyResumeMark
+import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.PolicyResumeTarget
 import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.CaptureParsers
@@ -149,6 +152,20 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val RENEWAL_AUTOMATION_RECOVERY_LIMIT = 3
         private const val RENEWAL_FAILURE_RETRY_MS = 5000L
         private const val RENEWAL_SECTION_ROW_TOLERANCE_RATIO = 0.06f
+        private const val RENEWAL_DUE_SECTION_HEADER = "Renewals Due"
+        private const val RENEWAL_DUE_CUSTOMER_TOGGLE = "Customer View"
+        private const val RENEWAL_DUE_POLICY_TOGGLE = "Policy View"
+        private const val RENEWAL_DUE_VIEW_ALL_LIMIT = 400
+        private const val RENEWAL_DUE_TOGGLE_RETRY_LIMIT = 4
+        private const val RENEWAL_DUE_RETURN_STALL_LIMIT = 3
+        private const val RENEWAL_DUE_TAP_RETRY_LIMIT = 4
+        private const val RENEWAL_DUE_SEEK_SCROLL_LIMIT = 40
+        private const val RENEWAL_DUE_SCROLL_DURATION_MS = 620L
+        private const val RENEWAL_DUE_SCROLL_START_RATIO = 0.74f
+        private const val RENEWAL_DUE_SCROLL_END_RATIO = 0.34f
+        private const val RENEWAL_DUE_SEEK_START_RATIO = 0.70f
+        private const val RENEWAL_DUE_SEEK_END_RATIO = 0.44f
+        private const val RENEWAL_DUE_SCROLL_SETTLE_MS = 1100L
         private const val CUSTOMER_NAVIGATION_DELAY_MS = 400L
         private const val MAX_BUBBLE_NAME_LENGTH = 16
 
@@ -503,6 +520,18 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private val RenewalKnownBadPages = linkedSetOf<Int>()
     private var RenewalKnownBadSpanDays = 0
     private var IsRenewalRangeSheetHidden = false
+    private var HasOpenedRenewalDueList = false
+    private var HasSwitchedToCustomerView = false
+    private var RenewalDueToggleAttempts = 0
+    private var RenewalDueRangeDays = RenewalDueRange.DEFAULT_SPAN_DAYS
+    private var RenewalDuePickedRangeLabel = ""
+    private var RenewalDueActiveCustomer = ""
+    private var RenewalDueReturnStalls = 0
+    private var RenewalDueTopResetDone = false
+    private val RenewalDueTapAttempts = linkedMapOf<String, Int>()
+    private var RenewalDueSeekScrolls = 0
+    private val VisitedRenewalDueCustomers = linkedSetOf<String>()
+    private val CapturedRenewalDueMap = linkedMapOf<String, RenewalDuePolicy>()
     private var BlankSinceAt = 0L
     private var BlankRecoveryAttempts = 0
     private var BlankRecoveryScheduled = false
@@ -829,6 +858,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun StoreCapturedSnapshot(PackageNameVal: String, NodeList: List<String>) {
+        if (CurrentMode == CaptureMode.RENEWAL_DUE) {
+            UpdateRenewalScreenState(VisibleNodes = NodeList)
+            CaptureRenewalDueSnapshot(PackageNameVal = PackageNameVal, VisibleNodes = NodeList)
+            return
+        }
         if (CurrentMode == CaptureMode.FUP) {
             UpdateRenewalScreenState(VisibleNodes = NodeList)
             CaptureRenewalSnapshot(PackageNameVal = PackageNameVal, VisibleNodes = NodeList)
@@ -1287,6 +1321,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         ErrorSlowDownEnabled = SettingsStore.IsErrorSlowDownOn(ContextRef = this)
         ContactOcrEnabled = SettingsStore.IsContactOcrOn(ContextRef = this)
         RenewalRangeDays = SettingsStore.RenewalRangeDays(ContextRef = this)
+        RenewalDueRangeDays = SettingsStore.RenewalDueRangeDays(ContextRef = this)
         AgentPackageName = AppLauncherUtils.ResolveAgentPackage(ContextRef = this)
     }
 
@@ -1348,6 +1383,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         StopPolicyDashboardAutomation(ResetStateVal = true)
         CapturedPolicyMap.clear()
         CapturedFupMap.clear()
+        CapturedRenewalDueMap.clear()
+        VisitedRenewalDueCustomers.clear()
+        RenewalDueTapAttempts.clear()
         LatestPolicyPageNumbers = emptyList()
         PolicyDetailQueue = emptyList()
         PolicyDetailQueueIndex = 0
@@ -1587,6 +1625,28 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 )
             }
 
+            CaptureMode.RENEWAL_DUE -> {
+                val StoredDue = PolicyRepository.GetRenewalDuePolicies(
+                    ContextRef = this,
+                    SessionId = CurrentSessionId
+                )
+                for (DueItem in StoredDue) {
+                    if (DueItem.PolicyNumber.isEmpty()) continue
+                    CapturedRenewalDueMap[DueItem.PolicyNumber] = DueItem
+                    if (DueItem.HolderName.isNotEmpty()) {
+                        VisitedRenewalDueCustomers.add(NormaliseCustomerKey(NameText = DueItem.HolderName))
+                    }
+                }
+                RebuildCapturedRenewalDueNodes()
+                DiagnosticInfo(
+                    EventName = "SESSION_RESUME",
+                    MessageText = "session=$CurrentSessionId mode=RENEWAL_DUE " +
+                            "seeded=${CapturedRenewalDueMap.size} " +
+                            "customers=${VisitedRenewalDueCustomers.size} " +
+                            "nodes=${CapturedNodes.size}"
+                )
+            }
+
             CaptureMode.PS -> {
                 DiagnosticInfo(
                     EventName = "SESSION_RESUME",
@@ -1638,6 +1698,12 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     CaptureParsers.PreviewFupRecords(Records = CapturedFupMap.values.toList())
                 }
 
+                CaptureMode.RENEWAL_DUE if CapturedRenewalDueMap.isNotEmpty() -> {
+                    CaptureParsers.PreviewRenewalDueRecords(
+                        Records = CapturedRenewalDueMap.values.toList()
+                    )
+                }
+
                 CaptureMode.CUSTOMER -> {
                     CaptureParsers.PreviewProfilePatches(
                         Patches = ProfilePatchMap.values.toList(),
@@ -1667,6 +1733,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     CapturedPolicyMap.values.toList()
                 },
                 FupRecords = CapturedFupMap.values.toList(),
+                RenewalDueRecords = CapturedRenewalDueMap.values.toList(),
                 GapRecords = SessionGapMap.values.toList(),
                 CapturePolicyDetails = if (TargetScope.IsActive) {
                     PolicyRepository.GetSessionReference(
@@ -1773,6 +1840,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         if (CurrentMode == CaptureMode.POLICY ||
             CurrentMode == CaptureMode.FUP ||
+            CurrentMode == CaptureMode.RENEWAL_DUE ||
             CurrentMode == CaptureMode.CUSTOMER
         ) {
             if (PackageNameVal != AppLauncherUtils.LIC_SUPER_APP_PACKAGE) return
@@ -1817,7 +1885,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return
         }
 
-        if (CurrentMode == CaptureMode.FUP) {
+        if (IsRenewalFamilyMode()) {
             if (PackageNameVal != AppLauncherUtils.LIC_SUPER_APP_PACKAGE) return
             HandleRenewalScreenAutomation(VisibleNodes = VisibleNodes)
             return
@@ -2492,6 +2560,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     NodeText.contains("renewal history", ignoreCase = true) ||
                             NodeText.equals("FUP", ignoreCase = true)
 
+                CaptureMode.RENEWAL_DUE ->
+                    NodeText.contains("renewals due", ignoreCase = true)
+
                 CaptureMode.POLICY -> false
 
                 CaptureMode.CUSTOMER -> false
@@ -2541,7 +2612,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun HomeNavTabLabel(): String {
-        return if (CurrentMode == CaptureMode.FUP) HOME_TAB_RENEWALS else HOME_TAB_CUSTOMERS
+        return if (IsRenewalFamilyMode()) HOME_TAB_RENEWALS else HOME_TAB_CUSTOMERS
     }
 
     private fun HandleAgentHomeScreen(RootNode: AccessibilityNodeInfo) {
@@ -4946,7 +5017,13 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         LatestRenewalVisibleNodes = VisibleNodes
         LatestRenewalVisibleSignature = VisibleNodes.joinToString(separator = "").hashCode()
 
-        if (!IsRenewalHistoryScreen(VisibleNodes = VisibleNodes)) {
+        val IsPagedListScreen = if (CurrentMode == CaptureMode.RENEWAL_DUE) {
+            IsRenewalsDueCustomerScreen(VisibleNodes = VisibleNodes) ||
+                    IsAllRenewalsDueScreen(VisibleNodes = VisibleNodes)
+        } else {
+            IsRenewalHistoryScreen(VisibleNodes = VisibleNodes)
+        }
+        if (!IsPagedListScreen) {
             IsRenewalPageSelectorVisible = false
             return
         }
@@ -4969,6 +5046,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun HandleRenewalScreenAutomation(VisibleNodes: List<String>) {
+        if (CurrentMode == CaptureMode.RENEWAL_DUE) {
+            HandleRenewalDueScreenAutomation(VisibleNodes = VisibleNodes)
+            return
+        }
+
         if (IsRenewalHistoryScreen(VisibleNodes = VisibleNodes)) {
             HasClickedHomeNavTab = true
             HasOpenedRenewalHistoryList = true
@@ -5005,7 +5087,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "recoveryCount=$RenewalAutomationFailureCount"
         )
         ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
-            RunRenewalAutomationStep()
+            if (CurrentMode == CaptureMode.RENEWAL_DUE) {
+                RunRenewalDueStep()
+            } else {
+                RunRenewalAutomationStep()
+            }
         }
     }
 
@@ -5058,7 +5144,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
 
         val ViewAllTapped = try {
-            TapRenewalHistoryViewAll(RootNode = RootNode)
+            TapSectionViewAll(RootNode = RootNode, HeaderText = "Renewal History")
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
@@ -5095,15 +5181,15 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
     }
 
-    private fun TapRenewalHistoryViewAll(RootNode: AccessibilityNodeInfo): Boolean {
+    private fun TapSectionViewAll(RootNode: AccessibilityNodeInfo, HeaderText: String): Boolean {
         val TextNodes = CollectVisibleTextNodes(RootNode = RootNode)
         val HeaderBounds = TextNodes.firstOrNull { NodeEntry ->
-            NodeEntry.first.trim().equals("Renewal History", ignoreCase = true)
+            NodeEntry.first.trim().equals(HeaderText, ignoreCase = true)
         }?.second
         if (HeaderBounds == null) {
             DiagnosticInfo(
                 EventName = "RENEWAL_VIEW_ALL_SEARCH",
-                MessageText = "RENEWAL HISTORY header is not on screen yet"
+                MessageText = "The $HeaderText header is not on screen yet"
             )
             return false
         }
@@ -5492,7 +5578,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         val HasEmptyMessage = VisibleNodes.any { NodeText ->
             NodeText.contains("no recent policy renewal", ignoreCase = true) ||
                     NodeText.contains("no data found", ignoreCase = true) ||
-                    NodeText.contains("no policies found", ignoreCase = true)
+                    NodeText.contains("no policies found", ignoreCase = true) ||
+                    NodeText.contains("no policies due as per", ignoreCase = true)
         }
         if (HasEmptyMessage) return true
 
@@ -6100,7 +6187,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         RenewalAutomationRunnable = null
 
-        val RecordCount = CapturedFupMap.size
+        val RecordCount = if (CurrentMode == CaptureMode.RENEWAL_DUE) {
+            CapturedRenewalDueMap.size
+        } else {
+            CapturedFupMap.size
+        }
         val SkippedText = RenewalSkippedPages.joinToString(separator = ", ")
         DiagnosticInfo(
             EventName = "RENEWAL_AUTOMATION_COMPLETE",
@@ -6108,17 +6199,18 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "page=$RenewalCurrentPage/$RenewalTotalPages " +
                     "skippedPages=${SkippedText.ifEmpty { "none" }}"
         )
+        val RecordNoun = CurrentMode.RecordNounPlural
         ShowServiceToast(
             MessageText = if (SkippedText.isEmpty()) {
-                "Captured $RecordCount renewal records"
+                "Captured $RecordCount $RecordNoun"
             } else {
-                "Captured $RecordCount renewal records; page $SkippedText would not load"
+                "Captured $RecordCount $RecordNoun; page $SkippedText would not load"
             },
             KindVal = if (SkippedText.isEmpty()) AppToast.Kind.Success else AppToast.Kind.Warning
         )
 
         MainHandler.postDelayed({
-            if (IsCapturing && CurrentMode == CaptureMode.FUP && IsRenewalAutomationComplete) {
+            if (IsCapturing && IsRenewalFamilyMode() && IsRenewalAutomationComplete) {
                 FinishCaptureSession()
             }
         }, RENEWAL_PAGE_LOAD_DELAY_MS)
@@ -6161,6 +6253,1165 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         RefreshBubble()
     }
 
+
+    private fun IsRenewalsDueListScreen(VisibleNodes: List<String>): Boolean {
+        if (IsRenewalsDashboardScreen(VisibleNodes = VisibleNodes)) return false
+        val HasTitle = VisibleNodes.any { NodeText ->
+            NodeText.trim().equals("Renewals Due", ignoreCase = true) ||
+                    NodeText.trim().equals("All Renewals Due", ignoreCase = true)
+        }
+        if (!HasTitle) return false
+        return VisibleNodes.any { NodeText ->
+            NodeText.contains(RENEWAL_DUE_CUSTOMER_TOGGLE, ignoreCase = true) ||
+                    NodeText.contains(RENEWAL_DUE_POLICY_TOGGLE, ignoreCase = true) ||
+                    NodeText.contains("Renewal Policies", ignoreCase = true)
+        }
+    }
+
+    private fun IsAllRenewalsDueScreen(VisibleNodes: List<String>): Boolean {
+        return VisibleNodes.any { NodeText ->
+            NodeText.trim().equals("All Renewals Due", ignoreCase = true)
+        }
+    }
+
+    private fun IsRenewalsDueCustomerScreen(VisibleNodes: List<String>): Boolean {
+        if (!IsRenewalsDueListScreen(VisibleNodes = VisibleNodes)) return false
+        if (IsAllRenewalsDueScreen(VisibleNodes = VisibleNodes)) return false
+        val HasPolicyViewChips = VisibleNodes.any { NodeText ->
+            NodeText.contains("Filter & Sort", ignoreCase = true) ||
+                    NodeText.contains("Campaign Eligible", ignoreCase = true) ||
+                    NodeText.contains("Special Revival", ignoreCase = true)
+        }
+        if (HasPolicyViewChips) return false
+        val HasCustomerGroups = VisibleNodes.any { NodeText ->
+            NodeText.contains("Renewal Policies", ignoreCase = true)
+        }
+        val HasTimelineChip = VisibleNodes.any { NodeText ->
+            RenewalDueRange.IsRangeLabel(TextValue = NodeText)
+        }
+        return HasCustomerGroups || HasTimelineChip
+    }
+
+    private fun NormaliseCustomerKey(NameText: String): String {
+        return NameText.trim().uppercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+    }
+
+    private fun CurrentRenewalDueRangeLabel(): String {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return ""
+        return try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+                .firstOrNull { NodeEntry ->
+                    RenewalDueRange.SpanDays(TextValue = NodeEntry.first) != null
+                }?.first.orEmpty()
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun CaptureRenewalDueSnapshot(PackageNameVal: String, VisibleNodes: List<String>) {
+        if (PackageNameVal != AppLauncherUtils.LIC_SUPER_APP_PACKAGE) return
+        if (!IsRenewalsDueListScreen(VisibleNodes = VisibleNodes)) return
+
+        val HolderName = if (IsAllRenewalsDueScreen(VisibleNodes = VisibleNodes)) {
+            RenewalDueActiveCustomer
+        } else {
+            ""
+        }
+
+        val ParsedList = try {
+            if (HolderName.isNotEmpty()) {
+                RenewalDueParser.Parse(Nodes = VisibleNodes, HolderName = HolderName)
+            } else {
+                ParseCustomerViewRenewalDue(VisibleNodes = VisibleNodes)
+            }
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_PARSE_ERROR",
+                MessageText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            emptyList()
+        }
+        if (ParsedList.isEmpty()) return
+
+        var NewCount = 0
+        for (IncomingRecord in ParsedList) {
+            if (IncomingRecord.PolicyNumber.isEmpty()) continue
+            val KeyText = RecordMerge.RenewalDueKey(RecordItem = IncomingRecord)
+            val ExistingRecord = CapturedRenewalDueMap[KeyText]
+            if (ExistingRecord == null) {
+                CapturedRenewalDueMap[KeyText] = IncomingRecord
+                NewCount++
+            } else {
+                CapturedRenewalDueMap[KeyText] = RecordMerge.MergeRenewalDue(
+                    ExistingItem = ExistingRecord,
+                    IncomingItem = IncomingRecord
+                ).Record
+            }
+        }
+
+        if (NewCount > 0) {
+            RebuildCapturedRenewalDueNodes()
+            DiagnosticInfo(
+                EventName = "RENEWALS_DUE_CAPTURED",
+                MessageText = "new=$NewCount total=${CapturedRenewalDueMap.size} " +
+                        "customer=[${HolderName.ifEmpty { "list" }}] " +
+                        "page=$RenewalCurrentPage/$RenewalTotalPages"
+            )
+        }
+    }
+
+    private fun ParseCustomerViewRenewalDue(VisibleNodes: List<String>): List<RenewalDuePolicy> {
+        val GroupList = RenewalDueParser.ReadCustomerGroups(Nodes = VisibleNodes)
+        if (GroupList.isEmpty()) return emptyList()
+
+        val SingleNames = GroupList
+            .filter { GroupItem -> GroupItem.PolicyCount == 1 }
+            .map { GroupItem -> GroupItem.HolderName }
+        if (SingleNames.isEmpty()) return emptyList()
+
+        val ResultList = mutableListOf<RenewalDuePolicy>()
+        for (NameText in SingleNames) {
+            val SliceNodes = SliceCustomerBlock(VisibleNodes = VisibleNodes, HolderName = NameText)
+            if (SliceNodes.isEmpty()) continue
+            val ParsedList = RenewalDueParser.Parse(Nodes = SliceNodes, HolderName = NameText)
+            if (ParsedList.size != 1) continue
+            ResultList.addAll(ParsedList)
+            VisitedRenewalDueCustomers.add(NormaliseCustomerKey(NameText = NameText))
+        }
+        return ResultList
+    }
+
+    private fun SliceCustomerBlock(
+        VisibleNodes: List<String>,
+        HolderName: String
+    ): List<String> {
+        val StartIndex = VisibleNodes.indexOfFirst { NodeText ->
+            NodeText.trim().equals(HolderName, ignoreCase = true)
+        }
+        if (StartIndex < 0) return emptyList()
+
+        var EndIndex = VisibleNodes.size
+        for (NodeIdx in (StartIndex + 1) until VisibleNodes.size) {
+            if (RenewalDueParser.IsPlausibleCustomerName(TextValue = VisibleNodes[NodeIdx]) &&
+                !VisibleNodes[NodeIdx].trim().equals(HolderName, ignoreCase = true)
+            ) {
+                EndIndex = NodeIdx
+                break
+            }
+        }
+        return VisibleNodes.subList(StartIndex, EndIndex)
+    }
+
+    private fun RebuildCapturedRenewalDueNodes() {
+        CapturedNodes.clear()
+        for (DueItem in CapturedRenewalDueMap.values) {
+            if (DueItem.PolicyNumber.isNotEmpty()) CapturedNodes.add(DueItem.PolicyNumber)
+            if (DueItem.HolderName.isNotEmpty()) CapturedNodes.add(DueItem.HolderName)
+            if (DueItem.PlanName.isNotEmpty()) CapturedNodes.add(DueItem.PlanName)
+            if (DueItem.PremiumAmount.isNotEmpty()) CapturedNodes.add(DueItem.PremiumAmount)
+            if (DueItem.DateLabel.isNotEmpty()) CapturedNodes.add(DueItem.DateLabel)
+            if (DueItem.DateValue.isNotEmpty()) CapturedNodes.add(DueItem.DateValue)
+            if (DueItem.AutoPay.isNotEmpty()) CapturedNodes.add(DueItem.AutoPay)
+        }
+    }
+
+    private fun HandleRenewalDueScreenAutomation(VisibleNodes: List<String>) {
+        if (IsRenewalsDueListScreen(VisibleNodes = VisibleNodes)) {
+            HasClickedHomeNavTab = true
+            HasOpenedRenewalDueList = true
+            HomeNavClickAttempts = 0
+            HomeNavLastAttemptAt = 0L
+            StartRenewalAutomation()
+            return
+        }
+
+        if (IsRenewalsDashboardScreen(VisibleNodes = VisibleNodes)) {
+            HasClickedHomeNavTab = true
+            HomeNavClickAttempts = 0
+            HomeNavLastAttemptAt = 0L
+            StartRenewalAutomation()
+            return
+        }
+    }
+
+    private fun RunRenewalDueStep() {
+        val VisibleNodes = LatestRenewalVisibleNodes
+
+        if (IsAllRenewalsDueScreen(VisibleNodes = VisibleNodes)) {
+            RenewalUnknownScreenCount = 0
+            WalkAllRenewalsDuePage()
+            return
+        }
+
+        if (IsRenewalsDueListScreen(VisibleNodes = VisibleNodes)) {
+            RenewalUnknownScreenCount = 0
+            HasOpenedRenewalDueList = true
+            if (!IsRenewalsDueCustomerScreen(VisibleNodes = VisibleNodes)) {
+                SwitchToRenewalDueCustomerView()
+                return
+            }
+            HasSwitchedToCustomerView = true
+            RenewalDueToggleAttempts = 0
+            if (!HasSelectedRenewalDateRange || HasRenewalDueRangeDrifted()) {
+                OpenRenewalDueRangeDropdown()
+                return
+            }
+            WalkRenewalDueCustomerList()
+            return
+        }
+
+        if (IsRenewalsDashboardScreen(VisibleNodes = VisibleNodes)) {
+            RenewalUnknownScreenCount = 0
+            OpenRenewalsDueFromDashboard()
+            return
+        }
+
+        RenewalUnknownScreenCount++
+        if (RenewalUnknownScreenCount > RENEWAL_DASHBOARD_SCROLL_LIMIT) {
+            FailRenewalAutomation("Neither the Renewals Dashboard nor the Renewals Due list was visible")
+            return
+        }
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_SCREEN_WAIT",
+            MessageText = "attempt=$RenewalUnknownScreenCount nodes=${VisibleNodes.size}"
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun OpenRenewalsDueFromDashboard() {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        val TapAccepted = try {
+            TapSectionViewAll(RootNode = RootNode, HeaderText = RENEWAL_DUE_SECTION_HEADER)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+        if (TapAccepted) {
+            HasOpenedRenewalDueList = true
+            RenewalDashboardScrollCount = 0
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_VIEW_ALL_CLICKED",
+                MessageText = "Waiting for the Renewals Due page to load"
+            )
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        RenewalDashboardScrollCount++
+        if (RenewalDashboardScrollCount > RENEWAL_DASHBOARD_SCROLL_LIMIT) {
+            FailRenewalAutomation("Could not reach the RENEWALS DUE section")
+            return
+        }
+        val ScrollAccepted = ScrollActiveWindow(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        )
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_DASHBOARD_SCROLL",
+            MessageText = "attempt=$RenewalDashboardScrollCount accepted=$ScrollAccepted"
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun SwitchToRenewalDueCustomerView() {
+        RenewalDueToggleAttempts++
+        if (RenewalDueToggleAttempts > RENEWAL_DUE_TOGGLE_RETRY_LIMIT) {
+            FailRenewalAutomation("Could not switch the Renewals Due list to Customer View")
+            return
+        }
+
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        val TapAccepted = try {
+            val ToggleEntry = CollectVisibleTextNodes(RootNode = RootNode).firstOrNull { NodeEntry ->
+                NodeEntry.first.trim().equals(RENEWAL_DUE_CUSTOMER_TOGGLE, ignoreCase = true)
+            }
+            if (ToggleEntry == null) {
+                false
+            } else {
+                PerformTapGesture(
+                    XPos = ToggleEntry.second.centerX().toFloat(),
+                    YPos = ToggleEntry.second.centerY().toFloat()
+                )
+            }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_VIEW",
+            MessageText = "attempt=$RenewalDueToggleAttempts accepted=$TapAccepted"
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun OpenRenewalDueRangeDropdown() {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        RenewalDropdownBaselineTexts = LatestRenewalVisibleNodes.toSet()
+        RenewalDropdownScrollPasses = 0
+        RenewalDropdownSeenOptions = emptySet()
+        RenewalChipBounds = null
+
+        val TapAccepted = try {
+            val ChipEntry = CollectVisibleTextNodes(RootNode = RootNode).firstOrNull { NodeEntry ->
+                RenewalDueRange.IsRangeLabel(TextValue = NodeEntry.first)
+            }
+            if (ChipEntry == null) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_DUE_RANGE_CHIP",
+                    MessageText = "No Timeline chip matched on the Customer View"
+                )
+                false
+            } else {
+                RenewalChipBounds = Rect(ChipEntry.second)
+                val Accepted = PerformTapGesture(
+                    XPos = ChipEntry.second.centerX().toFloat(),
+                    YPos = ChipEntry.second.centerY().toFloat()
+                )
+                DiagnosticInfo(
+                    EventName = "RENEWAL_DUE_RANGE_CHIP",
+                    MessageText = "text=[${ChipEntry.first}] bounds=${ChipEntry.second} " +
+                            "accepted=$Accepted"
+                )
+                Accepted
+            }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        if (!TapAccepted) {
+            RenewalDropdownAttempts++
+            if (RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_DUE_RANGE_SKIPPED",
+                    MessageText = "Giving up on the Timeline chip; using whatever range is showing"
+                )
+                HasSelectedRenewalDateRange = true
+                ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+                    RunRenewalDueStep()
+                }
+                return
+            }
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        ScheduleRenewalAction(DelayMs = RENEWAL_DROPDOWN_OPEN_DELAY_MS) {
+            SelectRenewalDueRangeOption()
+        }
+    }
+
+    private fun SelectRenewalDueRangeOption() {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+                SelectRenewalDueRangeOption()
+            }
+            return
+        }
+
+        val OptionEntries = try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        val ChipCentreY = RenewalChipBounds?.centerY()
+        val RangeOptions = OptionEntries.mapNotNull { NodeEntry ->
+            val SpanDays = RenewalDueRange.SpanDays(TextValue = NodeEntry.first)
+            when {
+                SpanDays == null -> null
+                ChipCentreY != null && NodeEntry.second.centerY() <= ChipCentreY -> null
+                else -> RenewalRangeOption(
+                    TextValue = NodeEntry.first,
+                    BoundsObj = NodeEntry.second,
+                    SpanDays = SpanDays
+                )
+            }
+        }
+
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_OPTIONS",
+            MessageText = "candidates=${RangeOptions.size} " +
+                    "labels=[${RangeOptions.joinToString(separator = " | ") { it.TextValue }}] " +
+                    "scrollPasses=$RenewalDropdownScrollPasses"
+        )
+
+        if (RangeOptions.isEmpty()) {
+            RenewalDropdownAttempts++
+            if (RenewalDropdownAttempts >= RENEWAL_DROPDOWN_RETRY_LIMIT) {
+                IsRenewalRangeSheetHidden = true
+                DiagnosticWarning(
+                    EventName = "RENEWAL_DUE_RANGE_HIDDEN",
+                    MessageText = "The Timeline sheet is not in the tree; trying OCR"
+                )
+                StartRenewalDueRangeOcr()
+                return
+            }
+            ScheduleRenewalAction(DelayMs = RENEWAL_DROPDOWN_OPEN_DELAY_MS) {
+                SelectRenewalDueRangeOption()
+            }
+            return
+        }
+
+        val TargetSpan = RenewalDueRange.ChooseSpanDays(
+            AvailableSpans = RangeOptions.map { OptionRef -> OptionRef.SpanDays },
+            TargetDays = RenewalDueRangeDays
+        )
+        val ChosenOption = RangeOptions
+            .filter { OptionRef -> OptionRef.SpanDays == TargetSpan }
+            .minByOrNull { OptionRef -> OptionRef.BoundsObj.centerY() }
+            ?: RangeOptions.first()
+
+        val TapAccepted = PerformTapGesture(
+            XPos = ChosenOption.BoundsObj.centerX().toFloat(),
+            YPos = ChosenOption.BoundsObj.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_SELECTED",
+            MessageText = "picked=[${ChosenOption.TextValue}] span=${ChosenOption.SpanDays} " +
+                    "wanted=$RenewalDueRangeDays target=$TargetSpan accepted=$TapAccepted"
+        )
+
+        if (!TapAccepted) {
+            RenewalDropdownAttempts++
+            ScheduleRenewalAction(DelayMs = RENEWAL_DROPDOWN_OPEN_DELAY_MS) {
+                SelectRenewalDueRangeOption()
+            }
+            return
+        }
+
+        RenewalDuePickedRangeLabel = ChosenOption.TextValue
+        HasSelectedRenewalDateRange = true
+        RenewalDropdownAttempts = 0
+        RenewalScrollStallCount = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun StartRenewalDueRangeOcr() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            RenewalRangeOcrCount >= RENEWAL_RANGE_OCR_LIMIT
+        ) {
+            HoldForManualRenewalDueRange(ReasonText = "no OCR available for the Timeline sheet")
+            return
+        }
+        RenewalRangeOcrCount++
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_OCR_START",
+            MessageText = "attempt=$RenewalRangeOcrCount"
+        )
+        try {
+            CustomerSheetOcr.ReadSheetBoxes(
+                ServiceRef = this,
+                ExecutorRef = OcrExecutor,
+                TopFraction = RENEWAL_RANGE_OCR_TOP_FRACTION
+            ) { OutcomeVal ->
+                MainHandler.post { FinishRenewalDueRangeOcr(OutcomeVal = OutcomeVal) }
+            }
+        } catch (ExceptionObj: Exception) {
+            HoldForManualRenewalDueRange(
+                ReasonText = "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+        }
+    }
+
+    private fun FinishRenewalDueRangeOcr(OutcomeVal: CustomerSheetOcr.BoxOutcome) {
+        if (!IsCapturing || CurrentMode != CaptureMode.RENEWAL_DUE) return
+        if (OutcomeVal is CustomerSheetOcr.BoxOutcome.Failed) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_RANGE_OCR_FAILED",
+                MessageText = "reason=[${OutcomeVal.Reason}]"
+            )
+            HoldForManualRenewalDueRange(ReasonText = OutcomeVal.Reason)
+            return
+        }
+
+        val BoxItems = (OutcomeVal as CustomerSheetOcr.BoxOutcome.Boxes).Items
+        val RangeBoxes = BoxItems.mapNotNull { BoxItem ->
+            val SpanDays = RenewalDueRange.SpanDays(TextValue = BoxItem.TextValue)
+            if (SpanDays == null) null else BoxItem to SpanDays
+        }
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_OCR_READ",
+            MessageText = "lines=${BoxItems.size} ranges=" +
+                    RangeBoxes.joinToString(separator = ",") { Entry -> Entry.first.TextValue }
+                        .ifEmpty { "none" }
+        )
+        if (RangeBoxes.isEmpty()) {
+            HoldForManualRenewalDueRange(
+                ReasonText = "the Timeline sheet had no readable range labels"
+            )
+            return
+        }
+
+        val TargetSpan = RenewalDueRange.ChooseSpanDays(
+            AvailableSpans = RangeBoxes.map { PairRef -> PairRef.second },
+            TargetDays = RenewalDueRangeDays
+        )
+        val ChosenBox = RangeBoxes
+            .filter { PairRef -> TargetSpan == null || PairRef.second == TargetSpan }
+            .minByOrNull { PairRef -> PairRef.first.Bounds.centerY() }
+            ?: RangeBoxes.first()
+
+        val TapY = ChosenBox.first.Bounds.centerY().toFloat()
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        if (TapY <= ScreenHeight * RENEWAL_RANGE_OCR_TOP_FRACTION) {
+            HoldForManualRenewalDueRange(ReasonText = "the OCR match was outside the sheet area")
+            return
+        }
+
+        val TapAccepted = PerformTapGesture(
+            XPos = ChosenBox.first.Bounds.centerX().toFloat(),
+            YPos = TapY
+        )
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_OCR_PICK",
+            MessageText = "picked=[${ChosenBox.first.TextValue}] span=${ChosenBox.second} " +
+                    "wanted=$RenewalDueRangeDays target=$TargetSpan accepted=$TapAccepted"
+        )
+        if (!TapAccepted) {
+            HoldForManualRenewalDueRange(ReasonText = "the Timeline tap was refused")
+            return
+        }
+
+        RenewalDuePickedRangeLabel = ChosenBox.first.TextValue
+        HasSelectedRenewalDateRange = true
+        RenewalDropdownAttempts = 0
+        RenewalScrollStallCount = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun HoldForManualRenewalDueRange(ReasonText: String) {
+        IsRenewalRangeSheetHidden = true
+        RenewalManualWaitCount = 0
+        RenewalRangeBaselineLabel = CurrentRenewalDueRangeLabel()
+        DiagnosticWarning(
+            EventName = "RENEWAL_DUE_RANGE_MANUAL",
+            MessageText = "reason=[$ReasonText] showing=[" +
+                    RenewalRangeBaselineLabel.ifEmpty { "unknown" } + "]; waiting for you to pick one"
+        )
+        ShowServiceToast(
+            MessageText = "Pick the Timeline range yourself — capture continues after that",
+            KindVal = AppToast.Kind.Warning
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            WaitForManualRenewalDueRange()
+        }
+    }
+
+    private fun WaitForManualRenewalDueRange() {
+        val CurrentLabel = CurrentRenewalDueRangeLabel()
+        val LabelChanged = CurrentLabel.isNotEmpty() &&
+                !CurrentLabel.equals(RenewalRangeBaselineLabel, ignoreCase = true)
+        val ListReady = RenewalTotalPages > 0 || RenewalCurrentPage > 0
+
+        if (LabelChanged || (ListReady && RenewalManualWaitCount >= 2)) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_RANGE_MANUAL_DONE",
+                MessageText = "showing=[$CurrentLabel] waits=$RenewalManualWaitCount"
+            )
+            RenewalDuePickedRangeLabel = CurrentLabel
+            HasSelectedRenewalDateRange = true
+            RenewalDropdownAttempts = 0
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        RenewalManualWaitCount++
+        if (RenewalManualWaitCount > RENEWAL_MANUAL_RANGE_WAIT_LIMIT) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_RANGE_MANUAL_TIMEOUT",
+                MessageText = "Nobody picked a range; continuing with whatever is showing"
+            )
+            HasSelectedRenewalDateRange = true
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            WaitForManualRenewalDueRange()
+        }
+    }
+
+    private fun HasRenewalDueRangeDrifted(): Boolean {
+        if (RenewalDuePickedRangeLabel.isEmpty()) return false
+        val WantedSpan = RenewalDueRange.SpanDays(TextValue = RenewalDuePickedRangeLabel)
+            ?: return false
+        val ShowingLabel = LatestRenewalVisibleNodes.firstOrNull { NodeText ->
+            RenewalDueRange.IsRangeLabel(TextValue = NodeText)
+        } ?: return false
+        val ShowingSpan = RenewalDueRange.SpanDays(TextValue = ShowingLabel) ?: return false
+        if (ShowingSpan == WantedSpan) return false
+
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_RANGE_LOST",
+            MessageText = "picked=[$RenewalDuePickedRangeLabel] showing=[$ShowingLabel]; " +
+                    "re-selecting before carrying on"
+        )
+        HasSelectedRenewalDateRange = false
+        RenewalDropdownAttempts = 0
+        RenewalRangeOcrCount = 0
+        RenewalScrollStallCount = 0
+        RenewalDueTopResetDone = false
+        RenewalDueSeekScrolls = 0
+        return true
+    }
+
+    private fun WalkRenewalDueCustomerList() {
+        val VisibleNodes = LatestRenewalVisibleNodes
+        RenewalDueActiveCustomer = ""
+
+        val PendingGroup = RenewalDueParser
+            .ReadCustomerGroups(Nodes = VisibleNodes)
+            .firstOrNull { GroupItem ->
+                GroupItem.PolicyCount > 1 &&
+                        GroupItem.HasViewAll &&
+                        !VisitedRenewalDueCustomers.contains(
+                            NormaliseCustomerKey(NameText = GroupItem.HolderName)
+                        )
+            }
+
+        if (PendingGroup != null) {
+            OpenRenewalDueCustomer(GroupRef = PendingGroup)
+            return
+        }
+
+        val BeforeScrollMark = RenewalDueScreenMark()
+        val ScrollAccepted = ScrollRenewalDueList()
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_LIST_SCROLL",
+            MessageText = "page=$RenewalCurrentPage/$RenewalTotalPages accepted=$ScrollAccepted " +
+                    "captured=${CapturedRenewalDueMap.size} " +
+                    "visited=${VisitedRenewalDueCustomers.size}"
+        )
+
+        ScheduleRenewalAction(DelayMs = RENEWAL_DUE_SCROLL_SETTLE_MS) {
+            val ListMoved = ScrollAccepted && RenewalDueScreenMark() != BeforeScrollMark
+            if (ListMoved) RenewalScrollStallCount = 0 else RenewalScrollStallCount++
+            if (RenewalScrollStallCount >= RENEWAL_SCROLL_STALL_LIMIT) {
+                BeginNextRenewalDuePage()
+            } else {
+                ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+                    RunRenewalDueStep()
+                }
+            }
+        }
+    }
+
+    private fun OpenRenewalDueCustomer(GroupRef: RenewalDueParser.CustomerGroup) {
+        if (CapturedRenewalDueMap.size > RENEWAL_DUE_VIEW_ALL_LIMIT) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_CUSTOMER_LIMIT",
+                MessageText = "captured=${CapturedRenewalDueMap.size}; stopping the customer walk"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            ScheduleRenewalAction(DelayMs = RENEWAL_SCROLL_SETTLE_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        val TapOutcome = try {
+            TapCustomerViewAll(RootNode = RootNode, HolderName = GroupRef.HolderName)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        val CustomerKey = NormaliseCustomerKey(NameText = GroupRef.HolderName)
+
+        // The group list comes from the whole node tree, but only what is painted
+        // can be tapped, so a customer further down the page has to be scrolled to
+        // first. That is not a refusal and must not spend a tap attempt.
+        if (TapOutcome == ViewAllOutcome.OFF_SCREEN) {
+            SeekRenewalDueCustomer(GroupRef = GroupRef, CustomerKey = CustomerKey)
+            return
+        }
+
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_ENTER",
+            MessageText = "customer=[${GroupRef.HolderName}] policies=${GroupRef.PolicyCount} " +
+                    "outcome=$TapOutcome seekScrolls=$RenewalDueSeekScrolls " +
+                    "visited=${VisitedRenewalDueCustomers.size}"
+        )
+
+        if (TapOutcome != ViewAllOutcome.TAPPED) {
+            val AttemptCount = (RenewalDueTapAttempts[CustomerKey] ?: 0) + 1
+            RenewalDueTapAttempts[CustomerKey] = AttemptCount
+            if (AttemptCount >= RENEWAL_DUE_TAP_RETRY_LIMIT) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_DUE_CUSTOMER_GIVEN_UP",
+                    MessageText = "customer=[${GroupRef.HolderName}] policies=${GroupRef.PolicyCount} " +
+                            "refused $AttemptCount times; moving on without their extra policies"
+                )
+                VisitedRenewalDueCustomers.add(CustomerKey)
+                RenewalDueSeekScrolls = 0
+            }
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        RenewalDueTapAttempts.remove(CustomerKey)
+        RenewalDueActiveCustomer = GroupRef.HolderName
+        VisitedRenewalDueCustomers.add(CustomerKey)
+        RenewalScrollStallCount = 0
+        RenewalDueSeekScrolls = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun RenewalDueScreenMark(): Int {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: return 0
+        return try {
+            val NodeEntries = CollectVisibleTextNodes(RootNode = RootNode)
+            var MarkValue = NodeEntries.size
+            for (NodeEntry in NodeEntries) {
+                MarkValue = MarkValue * 31 + NodeEntry.first.hashCode()
+                MarkValue = MarkValue * 31 + NodeEntry.second.top
+            }
+            MarkValue
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun ScrollRenewalDueList(
+        ForwardVal: Boolean = true,
+        SmallStep: Boolean = false
+    ): Boolean {
+        CollapseBubbleForGesture()
+        val DisplayMetricsObj = resources.displayMetrics
+        val StartRatio = if (SmallStep) {
+            RENEWAL_DUE_SEEK_START_RATIO
+        } else {
+            RENEWAL_DUE_SCROLL_START_RATIO
+        }
+        val EndRatio = if (SmallStep) {
+            RENEWAL_DUE_SEEK_END_RATIO
+        } else {
+            RENEWAL_DUE_SCROLL_END_RATIO
+        }
+
+        val StartXVal = DisplayMetricsObj.widthPixels * 0.5f
+        val LowerYVal = DisplayMetricsObj.heightPixels * StartRatio
+        val UpperYVal = DisplayMetricsObj.heightPixels * EndRatio
+        val StartYVal = if (ForwardVal) LowerYVal else UpperYVal
+        val EndYVal = if (ForwardVal) UpperYVal else LowerYVal
+
+        val ScrollPath = Path().apply {
+            moveTo(StartXVal, StartYVal)
+            lineTo(StartXVal, EndYVal)
+        }
+        val GestureObj = GestureDescription.Builder()
+            .addStroke(
+                GestureDescription.StrokeDescription(
+                    ScrollPath,
+                    0,
+                    Paced(BaseMs = RENEWAL_DUE_SCROLL_DURATION_MS)
+                )
+            )
+            .build()
+
+        return try {
+            dispatchGesture(GestureObj, null, null)
+        } catch (ExceptionObj: Exception) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_SCROLL_ERROR",
+                MessageText = "direction=${if (ForwardVal) "down" else "up"} " +
+                        "${ExceptionObj.javaClass.simpleName}: ${ExceptionObj.message.orEmpty()}"
+            )
+            false
+        }
+    }
+
+    private fun SeekRenewalDueCustomer(
+        GroupRef: RenewalDueParser.CustomerGroup,
+        CustomerKey: String
+    ) {
+        RenewalDueSeekScrolls++
+        if (RenewalDueSeekScrolls > RENEWAL_DUE_SEEK_SCROLL_LIMIT) {
+            DiagnosticWarning(
+                EventName = "RENEWAL_DUE_CUSTOMER_GIVEN_UP",
+                MessageText = "customer=[${GroupRef.HolderName}] policies=${GroupRef.PolicyCount} " +
+                        "never came on screen in $RenewalDueSeekScrolls scrolls; moving on"
+            )
+            VisitedRenewalDueCustomers.add(CustomerKey)
+            RenewalDueSeekScrolls = 0
+            ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+
+        val BeforeScrollMark = RenewalDueScreenMark()
+        val ScrollAccepted = ScrollRenewalDueList(SmallStep = true)
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_SEEK",
+            MessageText = "customer=[${GroupRef.HolderName}] scroll=$RenewalDueSeekScrolls " +
+                    "accepted=$ScrollAccepted captured=${CapturedRenewalDueMap.size}"
+        )
+
+        ScheduleRenewalAction(DelayMs = RENEWAL_DUE_SCROLL_SETTLE_MS) {
+            val ListMoved = RenewalDueScreenMark() != BeforeScrollMark
+            if (!ListMoved) {
+                DiagnosticWarning(
+                    EventName = "RENEWAL_DUE_CUSTOMER_GIVEN_UP",
+                    MessageText = "customer=[${GroupRef.HolderName}] is past the end of the " +
+                            "list and never came on screen; moving on"
+                )
+                VisitedRenewalDueCustomers.add(CustomerKey)
+                RenewalDueSeekScrolls = 0
+            }
+            RunRenewalDueStep()
+        }
+    }
+
+    private enum class ViewAllOutcome {
+        TAPPED,
+        OFF_SCREEN,
+        REFUSED
+    }
+
+    private fun TapCustomerViewAll(
+        RootNode: AccessibilityNodeInfo,
+        HolderName: String
+    ): ViewAllOutcome {
+        val TextNodes = CollectVisibleTextNodes(RootNode = RootNode)
+        val NameBounds = TextNodes.firstOrNull { NodeEntry ->
+            NodeEntry.first.trim().equals(HolderName, ignoreCase = true)
+        }?.second
+        if (NameBounds == null) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_VIEW_ALL_OFFSCREEN",
+                MessageText = "customer=[$HolderName] is in the tree but not among the " +
+                        "${TextNodes.size} on-screen nodes; scrolling to them"
+            )
+            return ViewAllOutcome.OFF_SCREEN
+        }
+
+        val ViewAllCandidates = TextNodes.filter { NodeEntry ->
+            NodeEntry.first.trim().replace(Regex("\\s+"), " ")
+                .equals("View All", ignoreCase = true)
+        }
+        val ViewAllEntry = ViewAllCandidates
+            .filter { NodeEntry -> NodeEntry.second.centerY() > NameBounds.centerY() }
+            .minByOrNull { NodeEntry -> NodeEntry.second.centerY() }
+        if (ViewAllEntry == null) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_VIEW_ALL_OFFSCREEN",
+                MessageText = "customer=[$HolderName] nameY=${NameBounds.centerY()} " +
+                        "candidates=${ViewAllCandidates.size} none of them below the name; " +
+                        "scrolling to bring the row fully on screen"
+            )
+            return ViewAllOutcome.OFF_SCREEN
+        }
+
+        val TapAccepted = PerformTapGesture(
+            XPos = ViewAllEntry.second.centerX().toFloat(),
+            YPos = ViewAllEntry.second.centerY().toFloat()
+        )
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_VIEW_ALL_TAP",
+            MessageText = "customer=[$HolderName] nameY=${NameBounds.centerY()} " +
+                    "bounds=${ViewAllEntry.second} accepted=$TapAccepted"
+        )
+        return if (TapAccepted) ViewAllOutcome.TAPPED else ViewAllOutcome.REFUSED
+    }
+
+    private fun WalkAllRenewalsDuePage() {
+        val BeforeScrollMark = RenewalDueScreenMark()
+        val ScrollAccepted = ScrollRenewalDueList()
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_SCROLL",
+            MessageText = "customer=[$RenewalDueActiveCustomer] " +
+                    "page=$RenewalCurrentPage/$RenewalTotalPages accepted=$ScrollAccepted " +
+                    "captured=${CapturedRenewalDueMap.size}"
+        )
+
+        ScheduleRenewalAction(DelayMs = RENEWAL_DUE_SCROLL_SETTLE_MS) {
+            val ListMoved = ScrollAccepted && RenewalDueScreenMark() != BeforeScrollMark
+            if (ListMoved) RenewalScrollStallCount = 0 else RenewalScrollStallCount++
+            if (RenewalScrollStallCount >= RENEWAL_SCROLL_STALL_LIMIT) {
+                LeaveRenewalDueCustomer()
+            } else {
+                ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+                    RunRenewalDueStep()
+                }
+            }
+        }
+    }
+
+    private fun LeaveRenewalDueCustomer() {
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_RETURN",
+            MessageText = "customer=[$RenewalDueActiveCustomer] " +
+                    "captured=${CapturedRenewalDueMap.size} " +
+                    "visited=${VisitedRenewalDueCustomers.size}"
+        )
+        RenewalDueActiveCustomer = ""
+        RenewalScrollStallCount = 0
+        RenewalDueSeekScrolls = 0
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            ResumeRenewalDueCustomerList()
+        }
+    }
+
+    private fun ResumeRenewalDueCustomerList() {
+        val VisibleNodes = LatestRenewalVisibleNodes
+        if (IsAllRenewalsDueScreen(VisibleNodes = VisibleNodes)) {
+            RenewalDueReturnStalls++
+            if (RenewalDueReturnStalls > RENEWAL_DUE_RETURN_STALL_LIMIT) {
+                FailRenewalAutomation("Could not get back to the Renewals Due customer list")
+                return
+            }
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+                ResumeRenewalDueCustomerList()
+            }
+            return
+        }
+
+        RenewalDueReturnStalls = 0
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_CUSTOMER_RESUME",
+            MessageText = "page=$RenewalCurrentPage/$RenewalTotalPages " +
+                    "visited=${VisitedRenewalDueCustomers.size}"
+        )
+        ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+            RunRenewalDueStep()
+        }
+    }
+
+    private fun BeginNextRenewalDuePage() {
+        RenewalScrollStallCount = 0
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_PAGE_END",
+            MessageText = "page=$RenewalCurrentPage total=$RenewalTotalPages " +
+                    "selectorVisible=$IsRenewalPageSelectorVisible " +
+                    "captured=${CapturedRenewalDueMap.size}"
+        )
+
+        val PendingOnThisPage = RenewalDueParser
+            .ReadCustomerGroups(Nodes = LatestRenewalVisibleNodes)
+            .any { GroupItem ->
+                GroupItem.PolicyCount > 1 &&
+                        !VisitedRenewalDueCustomers.contains(
+                            NormaliseCustomerKey(NameText = GroupItem.HolderName)
+                        )
+            }
+        if (PendingOnThisPage && !RenewalDueTopResetDone) {
+            RenewalDueTopResetDone = true
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_LIST_REWIND",
+                MessageText = "Unvisited customers are still on this page; scrolling back to the top"
+            )
+            ScrollRenewalDueList(ForwardVal = false)
+            ScheduleRenewalAction(DelayMs = RENEWAL_DUE_SCROLL_SETTLE_MS) {
+                RunRenewalDueStep()
+            }
+            return
+        }
+        RenewalDueTopResetDone = false
+
+        if (RenewalCurrentPage > 0 &&
+            RenewalTotalPages > 0 &&
+            RenewalCurrentPage >= RenewalTotalPages
+        ) {
+            CompleteRenewalAutomation()
+            return
+        }
+
+        if (RenewalTotalPages <= 0 &&
+            IsRenewalHistoryEmpty(VisibleNodes = LatestRenewalVisibleNodes)
+        ) {
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_LIST_EMPTY",
+                MessageText = "No renewals are due for the selected range"
+            )
+            CompleteRenewalAutomation()
+            return
+        }
+
+        RenewalReturnToTopCount = 0
+        RenewalPageRetryCount = 0
+        ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+            OpenRenewalDuePageSelector()
+        }
+    }
+
+    private fun OpenRenewalDuePageSelector() {
+        val TargetPage = RenewalCurrentPage + 1
+        if (RenewalTotalPages in 1..<TargetPage) {
+            CompleteRenewalAutomation()
+            return
+        }
+        RenewalExpectedPage = TargetPage
+
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            RetryRenewalDuePageNavigation("Renewals Due page selector root is unavailable")
+            return
+        }
+
+        val SelectorClicked: Boolean
+        val SelectorAdvanced: Boolean
+        try {
+            SelectorClicked = ClickPolicyPageSelector(
+                RootNode = RootNode,
+                CurrentPage = RenewalCurrentPage
+            )
+            SelectorAdvanced = !SelectorClicked && AdvancePolicyPageSelector(
+                RootNode = RootNode,
+                CurrentPage = RenewalCurrentPage
+            )
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        if (SelectorClicked) {
+            ScheduleRenewalAction(DelayMs = POLICY_PAGE_SELECTOR_DELAY_MS) {
+                SelectNextRenewalDuePage()
+            }
+        } else if (SelectorAdvanced) {
+            WaitForRenewalDuePageLoad()
+        } else {
+            RetryRenewalDuePageNavigation("Could not open the Renewals Due page selector")
+        }
+    }
+
+    private fun SelectNextRenewalDuePage() {
+        val RootNode = FindReadableRoot(
+            ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
+        ) ?: run {
+            RetryRenewalDuePageNavigation("Renewals Due page options are unavailable")
+            return
+        }
+
+        val OptionClicked = try {
+            ClickPolicyPageOption(RootNode = RootNode, PageNumber = RenewalExpectedPage)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+
+        if (!OptionClicked) {
+            RetryRenewalDuePageNavigation("Could not select Renewals Due page $RenewalExpectedPage")
+            return
+        }
+
+        DiagnosticInfo(
+            EventName = "RENEWAL_DUE_PAGE_SELECTED",
+            MessageText = "selected=$RenewalExpectedPage; waiting for the list to load"
+        )
+        WaitForRenewalDuePageLoad()
+    }
+
+    private fun WaitForRenewalDuePageLoad() {
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            if (!IsRenewalPageSelectorVisible || RenewalCurrentPage != RenewalExpectedPage) {
+                RenewalPageRetryCount++
+                DiagnosticInfo(
+                    EventName = "RENEWAL_DUE_PAGE_WAIT",
+                    MessageText = "expected=$RenewalExpectedPage actual=$RenewalCurrentPage " +
+                            "selectorVisible=$IsRenewalPageSelectorVisible " +
+                            "attempt=$RenewalPageRetryCount"
+                )
+                if (RenewalPageRetryCount >= RENEWAL_PAGE_RETRY_LIMIT) {
+                    DiagnosticWarning(
+                        EventName = "RENEWAL_DUE_PAGE_SKIPPED",
+                        MessageText = "page=$RenewalExpectedPage never loaded; finishing"
+                    )
+                    CompleteRenewalAutomation()
+                } else {
+                    WaitForRenewalDuePageLoad()
+                }
+                return@ScheduleRenewalAction
+            }
+
+            RenewalPageRetryCount = 0
+            RenewalScrollStallCount = 0
+            RenewalAutomationFailureCount = 0
+            DiagnosticInfo(
+                EventName = "RENEWAL_DUE_PAGE_LOADED",
+                MessageText = "page=$RenewalCurrentPage total=$RenewalTotalPages " +
+                        "captured=${CapturedRenewalDueMap.size}"
+            )
+            ScheduleRenewalAction(DelayMs = RENEWAL_NAVIGATION_DELAY_MS) {
+                RunRenewalDueStep()
+            }
+        }
+    }
+
+    private fun RetryRenewalDuePageNavigation(ReasonText: String) {
+        RenewalPageRetryCount++
+        Log.w(LOG_TAG, "$ReasonText (attempt $RenewalPageRetryCount)")
+        DiagnosticWarning(
+            EventName = "RENEWAL_DUE_NAVIGATION_RETRY",
+            MessageText = "$ReasonText; attempt=$RenewalPageRetryCount " +
+                    "page=$RenewalCurrentPage expected=$RenewalExpectedPage"
+        )
+        if (RenewalPageRetryCount >= RENEWAL_PAGE_RETRY_LIMIT) {
+            CompleteRenewalAutomation()
+            return
+        }
+        ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS) {
+            OpenRenewalDuePageSelector()
+        }
+    }
+
     private fun StopRenewalAutomation(ResetStateVal: Boolean) {
         RenewalAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
         RenewalAutomationRunnable = null
@@ -6201,9 +7452,23 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             LatestRenewalVisibleSignature = 0
             LatestRenewalVisibleNodes = emptyList()
             IsRenewalPageSelectorVisible = false
+            HasOpenedRenewalDueList = false
+            HasSwitchedToCustomerView = false
+            RenewalDueToggleAttempts = 0
+            RenewalDuePickedRangeLabel = ""
+            RenewalDueActiveCustomer = ""
+            RenewalDueReturnStalls = 0
+            RenewalDueTopResetDone = false
+            RenewalDueSeekScrolls = 0
+            VisitedRenewalDueCustomers.clear()
+            RenewalDueTapAttempts.clear()
             RenewalAutomationRetryAfter = 0L
             RenewalAutomationFailureCount = 0
         }
+    }
+
+    private fun IsRenewalFamilyMode(): Boolean {
+        return CurrentMode == CaptureMode.FUP || CurrentMode == CaptureMode.RENEWAL_DUE
     }
 
     private fun ScheduleRenewalAction(DelayMs: Long, ActionRef: () -> Unit) {
@@ -6214,7 +7479,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         WrappedRunnable = Runnable {
             if (!IsRenewalAutomationRunning ||
                 !IsCapturing ||
-                CurrentMode != CaptureMode.FUP
+                !IsRenewalFamilyMode()
             ) {
                 return@Runnable
             }
@@ -7030,6 +8295,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
     private fun CurrentRecordCount(): Int = when (CurrentMode) {
         CaptureMode.CUSTOMER -> ProfilePatchMap.size
+        CaptureMode.RENEWAL_DUE -> CapturedRenewalDueMap.size
         else -> LatestRecords.size
     }
 
@@ -7852,6 +9118,13 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 if (!IsRenewalAutomationRunning) return
                 ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS + ErrorPaceExtraMs) {
                     RunRenewalAutomationStep()
+                }
+            }
+
+            CaptureMode.RENEWAL_DUE -> {
+                if (!IsRenewalAutomationRunning) return
+                ScheduleRenewalAction(DelayMs = RENEWAL_PAGE_LOAD_DELAY_MS + ErrorPaceExtraMs) {
+                    RunRenewalDueStep()
                 }
             }
 

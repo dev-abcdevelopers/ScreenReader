@@ -11,6 +11,10 @@ import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.DueDateReport
+import com.bliss.screenreader.data.model.DueDateOutcome
+import com.bliss.screenreader.data.model.DueDateSkip
+import com.bliss.screenreader.data.model.DueDateSkipReason
+import com.bliss.screenreader.data.model.DueDateUpdate
 import com.bliss.screenreader.data.model.DueDateReportEntry
 import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.parser.RenewalDueProjection
@@ -396,14 +400,18 @@ class ChangesActivity : AppCompatActivity() {
     }
 
     private fun ReasonTitleRes(ReasonName: String): Int = when (ReasonName) {
-        RenewalDueProjection.SkipReason.ALREADY_CURRENT.name -> R.string.due_stat_updated
-        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW.name -> R.string.due_stat_norow
+        DueDateSkipReason.ALREADY_CURRENT.name -> R.string.due_stat_updated
+        DueDateSkipReason.NO_RENEWAL_ROW.name -> R.string.due_stat_norow
+        DueDateSkipReason.GRACE_DATE.name -> R.string.due_stat_grace
+        DueDateSkipReason.NO_DUE_DATE.name -> R.string.due_stat_nodue
         else -> R.string.due_stat_frequency
     }
 
     private fun ReasonBodyRes(ReasonName: String): Int = when (ReasonName) {
-        RenewalDueProjection.SkipReason.ALREADY_CURRENT.name -> R.string.due_reason_current
-        RenewalDueProjection.SkipReason.NO_RENEWAL_ROW.name -> R.string.due_reason_norow
+        DueDateSkipReason.ALREADY_CURRENT.name -> R.string.due_reason_current
+        DueDateSkipReason.NO_RENEWAL_ROW.name -> R.string.due_reason_norow
+        DueDateSkipReason.GRACE_DATE.name -> R.string.due_reason_grace
+        DueDateSkipReason.NO_DUE_DATE.name -> R.string.due_reason_nodue
         else -> R.string.due_reason_frequency
     }
 
