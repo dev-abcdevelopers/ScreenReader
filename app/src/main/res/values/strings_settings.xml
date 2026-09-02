@@ -90,6 +90,9 @@
     <string name="settings_install_title">Install unknown apps</string>
     <string name="settings_install_desc_on">Updates can install from here</string>
     <string name="settings_install_desc_off">Needed to install an update from here</string>
+    <string name="settings_notify_row_title">Notifications</string>
+    <string name="settings_notify_desc_on">Session results appear in your notification shade</string>
+    <string name="settings_notify_desc_off">Auto-saved sessions will finish without telling you</string>
     <string name="settings_contact_title">Contact sheet reading</string>
     <string name="settings_contact_desc_format">Android %1$s</string>
     <string name="settings_permission_supported">Supported</string>

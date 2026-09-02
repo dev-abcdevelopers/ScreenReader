@@ -99,6 +99,7 @@ class SettingsFragment : Fragment() {
     private val NotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { GrantedVal ->
+        RenderAll()
         if (GrantedVal) return@registerForActivityResult
         val ContextRef = context ?: return@registerForActivityResult
         if (CaptureNotifier.AreNotificationsOn(ContextRef = ContextRef)) return@registerForActivityResult
@@ -642,6 +643,7 @@ class SettingsFragment : Fragment() {
         val ContextRef = requireContext()
         val ServiceOn = ScreenReaderService.IsServiceRunning()
         val BatteryOk = !AppLauncherUtils.IsBatteryOptimized(ContextRef = ContextRef)
+        val NotifyOn = CaptureNotifier.AreNotificationsOn(ContextRef = ContextRef)
         val InstallOk = UpdateInstaller.CanInstallPackages(ContextRef = ContextRef)
         val OcrSupported = CustomerSheetOcr.IsSupported()
         val AllClear = ServiceOn && BatteryOk && InstallOk && OcrSupported
@@ -680,6 +682,18 @@ class SettingsFragment : Fragment() {
             IconRes = R.drawable.ic_battery,
             IconTintRes = if (BatteryOk) R.color.status_green_text else R.color.status_red_text
         ) { AppLauncherUtils.RequestBatteryOptimizationExemption(ContextRef = ContextRef) }
+
+        AddRow(
+            ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_notify_row_title),
+            DescText = getString(
+                if (NotifyOn) R.string.settings_notify_desc_on
+                else R.string.settings_notify_desc_off
+            ),
+            IconRes = R.drawable.ic_bell,
+            IconTintRes = if (NotifyOn) R.color.status_green_text else R.color.status_amber_text,
+            SwitchState = NotifyOn
+        ) { ToggleNotifications(IsOnNow = NotifyOn) }
 
         AddRow(
             ContainerRef = SectionRef,
@@ -1028,6 +1042,14 @@ class SettingsFragment : Fragment() {
         }
 
         SheetDialog.show()
+    }
+
+    private fun ToggleNotifications(IsOnNow: Boolean) {
+        if (IsOnNow) {
+            OpenAppNotificationSettings()
+            return
+        }
+        RequestNotificationPermission()
     }
 
     private fun RequestNotificationPermission() {
