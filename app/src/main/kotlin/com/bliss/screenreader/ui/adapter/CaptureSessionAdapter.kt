@@ -5,14 +5,15 @@ package com.bliss.screenreader.ui.adapter
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.bliss.screenreader.R
-import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.ItemCaptureSessionBinding
 import com.bliss.screenreader.databinding.ItemSessionDateHeaderBinding
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.SessionLabels
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -23,7 +24,8 @@ class CaptureSessionAdapter(
     private val OnRowClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
     private val OnResumeClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
     private val OnDeleteClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
-    private val OnShareLogClick: (PolicyRepository.CaptureSessionReference) -> Unit = {}
+    private val OnShareLogClick: (PolicyRepository.CaptureSessionReference) -> Unit = {},
+    private val OnRenameRequest: (PolicyRepository.CaptureSessionReference) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     sealed class RowItem {
@@ -167,18 +169,14 @@ class CaptureSessionAdapter(
         val BindingRef = HolderRef.BindingRef
         val ContextRef = BindingRef.root.context
 
-        val CaptureType = ContextRef.getString(
-            when {
-                SessionRef.Mode == CaptureMode.FUP -> R.string.sessions_type_renewals
-                SessionRef.Mode == CaptureMode.RENEWAL_DUE -> R.string.sessions_type_renewals_due
-                SessionRef.CapturePolicyDetails -> R.string.sessions_type_full
-                else -> R.string.sessions_type_fast
-            }
-        )
-        BindingRef.tvSessionTitle.text = ContextRef.getString(
-            R.string.sessions_title_mode_format,
-            SessionRef.Mode.DescribeCount(CountVal = SessionRef.RecordCount),
-            CaptureType
+        val LabelRef = SessionLabels.Of(ContextRef = ContextRef, SessionRef = SessionRef)
+        BindingRef.tvSessionTitle.text = LabelRef.TitleText
+        BindingRef.tvSessionCapsule.text = LabelRef.CapsuleText
+        BindingRef.tvSessionCapsule.visibility =
+            if (LabelRef.HasCapsule) View.VISIBLE else View.GONE
+        BindingRef.sessionRowRoot.contentDescription = SessionLabels.RowDescription(
+            ContextRef = ContextRef,
+            LabelRef = LabelRef
         )
         BindingRef.tvSessionDate.text = if (SessionRef.LastResumedAt > 0L) {
             ContextRef.getString(
@@ -205,6 +203,12 @@ class CaptureSessionAdapter(
             } else {
                 OnRowClick(SessionRef)
             }
+        }
+        BindingRef.sessionRowRoot.setOnLongClickListener { ViewRef ->
+            HapticFeedback.Confirm(ViewRef = ViewRef)
+            CloseOpenRow()
+            OnRenameRequest(SessionRef)
+            true
         }
         BindingRef.btnSessionResume.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)

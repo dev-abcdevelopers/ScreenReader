@@ -365,6 +365,103 @@
             android:textColor="@color/text_faint" />
 
         <LinearLayout
+            android:id="@+id/rowActionRename"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_edit"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sessions_rename"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvActionRenameDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:text="@string/sessions_rename_desc"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/rowActionNameHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_history"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sessions_name_history"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvActionNameHistoryDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/rowActionShareLog"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

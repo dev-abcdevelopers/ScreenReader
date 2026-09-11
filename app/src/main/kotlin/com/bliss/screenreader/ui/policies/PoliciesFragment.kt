@@ -33,6 +33,7 @@ import com.bliss.screenreader.data.model.RenewalDueKind
 import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.PolicyCompleteness
 import com.bliss.screenreader.utils.CompletenessLabels
+import com.bliss.screenreader.utils.SessionLabels
 import com.bliss.screenreader.data.model.PolicyResumeMark
 import com.bliss.screenreader.data.model.PolicyResumeTarget
 import com.bliss.screenreader.data.model.PolicyResumeTrack
@@ -47,6 +48,7 @@ import com.bliss.screenreader.data.model.DueDateUpdate
 import com.bliss.screenreader.data.model.DueDateReportEntry
 import com.bliss.screenreader.data.repository.PolicyRepository
 import com.bliss.screenreader.databinding.FragmentPoliciesBinding
+import com.bliss.screenreader.databinding.ItemSessionNameEntryBinding
 import com.bliss.screenreader.databinding.ItemSessionPickBinding
 import com.bliss.screenreader.databinding.SheetAgencyCodeBinding
 import com.bliss.screenreader.databinding.SheetPolicyCaptureModeBinding
@@ -60,7 +62,9 @@ import com.bliss.screenreader.databinding.PartialDeletePolicyRowBinding
 import com.bliss.screenreader.databinding.SheetDeletePoliciesBinding
 import com.bliss.screenreader.databinding.SheetDuePreviewBinding
 import com.bliss.screenreader.databinding.SheetSessionActionsBinding
+import com.bliss.screenreader.databinding.SheetSessionNameHistoryBinding
 import com.bliss.screenreader.databinding.SheetSessionPickerBinding
+import com.bliss.screenreader.databinding.SheetSessionRenameBinding
 import com.bliss.screenreader.databinding.SheetSettingsDetailBinding
 import com.bliss.screenreader.databinding.SheetUploadProgressBinding
 import com.bliss.screenreader.export.ExcelExporter
@@ -106,7 +110,8 @@ class PoliciesFragment : Fragment() {
         OnRowClick = { SessionRef -> OpenSession(SessionRef = SessionRef) },
         OnResumeClick = { SessionRef -> ResumeSession(SessionRef = SessionRef) },
         OnDeleteClick = { SessionRef -> ConfirmDeleteSession(SessionRef = SessionRef) },
-        OnShareLogClick = { SessionRef -> ShareSessionLog(SessionRef = SessionRef) }
+        OnShareLogClick = { SessionRef -> ShareSessionLog(SessionRef = SessionRef) },
+        OnRenameRequest = { SessionRef -> ShowRenameSheet(SessionRef = SessionRef) }
     )
     private val SessionSwipeHelper = ItemTouchHelper(SessionSwipeCallback(SessionAdapterObj))
     private val PolicySwipeHelper = ItemTouchHelper(PolicySwipeCallback(AdapterObj))
@@ -362,10 +367,14 @@ class PoliciesFragment : Fragment() {
                 SheetBinding.sessionPickContainer,
                 false
             )
-            RowBinding.tvSessionPickTitle.text = getString(
-                R.string.due_pick_row_format,
-                Mode.DisplayName,
-                Mode.DescribeCount(CountVal = RecordCount)
+            RowBinding.tvSessionPickTitle.text = SessionLabels.NameOrFallback(
+                ContextRef = ActivityRef,
+                SessionId = SessionId,
+                FallbackText = getString(
+                    R.string.due_pick_row_format,
+                    Mode.DisplayName,
+                    Mode.DescribeCount(CountVal = RecordCount)
+                )
             )
             RowBinding.tvSessionPickMeta.text = getString(
                 R.string.capture_customer_session_format,
@@ -1144,7 +1153,8 @@ class PoliciesFragment : Fragment() {
         val VisibleList = VisibleRenewals()
         BindListAdapter(TargetAdapter = RenewalAdapterObj)
         RenewalAdapterObj.UpdateData(NewRenewals = VisibleList)
-        BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_heading)
+        BindingObj.tvPoliciesHeading.text =
+            SessionHeadingText(DefaultResId = R.string.sessions_renewals_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.scrollStatus.visibility = View.VISIBLE
@@ -1252,7 +1262,8 @@ class PoliciesFragment : Fragment() {
         val VisibleList = VisibleRenewalsDue()
         BindListAdapter(TargetAdapter = RenewalDueAdapterObj)
         RenewalDueAdapterObj.UpdateData(NewList = VisibleList)
-        BindingObj.tvPoliciesHeading.setText(R.string.sessions_renewals_due_heading)
+        BindingObj.tvPoliciesHeading.text =
+            SessionHeadingText(DefaultResId = R.string.sessions_renewals_due_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.scrollStatus.visibility = View.VISIBLE
@@ -1318,7 +1329,8 @@ class PoliciesFragment : Fragment() {
         val VisibleList = VisiblePolicies()
         BindListAdapter(TargetAdapter = AdapterObj)
         AdapterObj.UpdateData(NewPolicies = VisibleList)
-        BindingObj.tvPoliciesHeading.setText(R.string.sessions_policies_heading)
+        BindingObj.tvPoliciesHeading.text =
+            SessionHeadingText(DefaultResId = R.string.sessions_policies_heading)
         BindingObj.btnSessionsBack.visibility = View.VISIBLE
         BindingObj.policyTools.visibility = View.VISIBLE
         BindingObj.scrollStatus.visibility = View.VISIBLE
@@ -1687,6 +1699,175 @@ class PoliciesFragment : Fragment() {
     }
 
 
+    private fun SessionHeadingText(DefaultResId: Int): String {
+        if (SelectedSessionId.isEmpty()) return getString(DefaultResId)
+        return SessionLabels.NameOrFallback(
+            ContextRef = requireContext(),
+            SessionId = SelectedSessionId,
+            FallbackText = getString(DefaultResId)
+        )
+    }
+
+    private fun ShowRenameSheet(SessionRef: PolicyRepository.CaptureSessionReference) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val OriginalText = SessionLabels.OriginalTitle(
+            ContextRef = ActivityRef,
+            SessionRef = SessionRef
+        )
+        val CurrentName = PolicyRepository.GetSessionName(
+            ContextRef = ActivityRef,
+            SessionId = SessionRef.SessionId
+        )
+
+        val SheetBinding = SheetSessionRenameBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.etSessionName.setText(CurrentName)
+        SheetBinding.etSessionName.setSelection(CurrentName.length)
+        SheetBinding.tvSessionNameOriginal.text = getString(
+            R.string.sessions_rename_original_format,
+            OriginalText
+        )
+        SheetBinding.btnSessionNameRestore.visibility =
+            if (CurrentName.isEmpty()) View.GONE else View.VISIBLE
+
+        SheetBinding.btnSessionNameSave.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ApplySessionName(
+                SessionRef = SessionRef,
+                NameText = SheetBinding.etSessionName.text?.toString().orEmpty(),
+                OriginalText = OriginalText
+            )
+        }
+        SheetBinding.btnSessionNameRestore.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ApplySessionName(
+                SessionRef = SessionRef,
+                NameText = "",
+                OriginalText = OriginalText
+            )
+        }
+        SheetBinding.btnSessionNameCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun ShowNameHistorySheet(SessionRef: PolicyRepository.CaptureSessionReference) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val HistoryList = PolicyRepository.GetSessionNameHistory(
+            ContextRef = ActivityRef,
+            SessionId = SessionRef.SessionId
+        )
+        if (HistoryList.isEmpty()) return
+
+        val OriginalText = SessionLabels.OriginalTitle(
+            ContextRef = ActivityRef,
+            SessionRef = SessionRef
+        )
+        val CurrentName = HistoryList.last().ToText
+
+        val SheetBinding = SheetSessionNameHistoryBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+
+        SheetBinding.tvNameHistoryCurrent.text = CurrentName.ifEmpty { OriginalText }
+        SheetBinding.btnNameHistoryRestore.visibility =
+            if (CurrentName.isEmpty()) View.GONE else View.VISIBLE
+
+        val StampFormatter = SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault())
+        for ((IndexVal, EntryRef) in HistoryList.withIndex().reversed()) {
+            val RowBinding = ItemSessionNameEntryBinding.inflate(
+                layoutInflater,
+                SheetBinding.nameHistoryContainer,
+                false
+            )
+            val IsCurrent = IndexVal == HistoryList.size - 1
+            val CanReapply = !IsCurrent && !EntryRef.IsRestore
+
+            RowBinding.tvNameEntryTitle.text = if (EntryRef.IsRestore) {
+                getString(R.string.sessions_name_history_restore_entry)
+            } else {
+                EntryRef.ToText
+            }
+            RowBinding.tvNameEntryWas.text = getString(
+                R.string.sessions_name_history_was_format,
+                EntryRef.FromText.ifEmpty { OriginalText }
+            )
+            RowBinding.tvNameEntryStamp.text = StampFormatter.format(Date(EntryRef.StampAt))
+            RowBinding.tvNameEntryBadge.text = getString(
+                if (IsCurrent) {
+                    R.string.sessions_name_history_current
+                } else {
+                    R.string.sessions_name_history_reapply
+                }
+            )
+            RowBinding.tvNameEntryBadge.visibility =
+                if (IsCurrent || CanReapply) View.VISIBLE else View.GONE
+            RowBinding.nameEntryCard.isClickable = CanReapply
+            RowBinding.nameEntryCard.isFocusable = CanReapply
+            if (CanReapply) {
+                RowBinding.nameEntryCard.setOnClickListener { ViewRef ->
+                    HapticFeedback.Tap(ViewRef = ViewRef)
+                    SheetDialog.dismiss()
+                    ApplySessionName(
+                        SessionRef = SessionRef,
+                        NameText = EntryRef.ToText,
+                        OriginalText = OriginalText
+                    )
+                }
+            }
+            SheetBinding.nameHistoryContainer.addView(RowBinding.root)
+        }
+
+        SheetBinding.btnNameHistoryRestore.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            ApplySessionName(
+                SessionRef = SessionRef,
+                NameText = "",
+                OriginalText = OriginalText
+            )
+        }
+        SheetBinding.btnNameHistoryClose.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+        }
+        SheetDialog.show()
+    }
+
+    private fun ApplySessionName(
+        SessionRef: PolicyRepository.CaptureSessionReference,
+        NameText: String,
+        OriginalText: String
+    ) {
+        val ContextRef = context ?: return
+        val Changed = PolicyRepository.SetSessionName(
+            ContextRef = ContextRef,
+            SessionId = SessionRef.SessionId,
+            NameText = NameText,
+            FallbackLabel = OriginalText
+        )
+        SessionAdapterObj.CloseOpenRow()
+        if (!Changed) return
+
+        RenderList()
+        ShowSnack(
+            MessageVal = getString(
+                if (NameText.isBlank()) {
+                    R.string.sessions_rename_restored
+                } else {
+                    R.string.sessions_rename_done
+                }
+            ),
+            KindVal = AppToast.Kind.Success
+        )
+    }
+
     private fun ConfirmClearSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
         val ContextRef = context ?: return
         AlertDialog.Builder(ContextRef)
@@ -1727,7 +1908,7 @@ class PoliciesFragment : Fragment() {
             .setMessage(
                 getString(
                     R.string.sessions_delete_body,
-                    SessionRef.Mode.DescribeCount(CountVal = SessionRef.RecordCount)
+                    SessionLabels.TitleOf(ContextRef = ContextRef, SessionRef = SessionRef)
                 )
             )
             .setPositiveButton(R.string.sessions_delete_confirm) { _, _ ->
@@ -1826,9 +2007,29 @@ class PoliciesFragment : Fragment() {
         )
         SheetBinding.tvActionDeleteDesc.text = getString(
             R.string.action_delete_desc,
-            SelectedSessionMode.DescribeCount(
-                CountVal = SessionRef?.RecordCount ?: AllPolicies.size
+            SessionLabels.NameOrFallback(
+                ContextRef = requireContext(),
+                SessionId = SelectedSessionId,
+                FallbackText = SelectedSessionMode.DescribeCount(
+                    CountVal = SessionRef?.RecordCount ?: AllPolicies.size
+                )
             )
+        )
+        val NameHistoryList = if (SessionRef == null) {
+            emptyList()
+        } else {
+            PolicyRepository.GetSessionNameHistory(
+                ContextRef = requireContext(),
+                SessionId = SessionRef.SessionId
+            )
+        }
+        SheetBinding.rowActionRename.visibility =
+            if (SessionRef != null) View.VISIBLE else View.GONE
+        SheetBinding.rowActionNameHistory.visibility =
+            if (SessionRef != null && NameHistoryList.isNotEmpty()) View.VISIBLE else View.GONE
+        SheetBinding.tvActionNameHistoryDesc.text = getString(
+            R.string.sessions_name_history_desc,
+            NameHistoryList.size
         )
 
         SheetBinding.labelActionsServer.visibility = SheetBinding.rowActionUpload.visibility
@@ -1844,6 +2045,8 @@ class PoliciesFragment : Fragment() {
         )
         SheetBinding.labelActionsSession.visibility = SectionVisibility(
             RowViews = listOf(
+                SheetBinding.rowActionRename,
+                SheetBinding.rowActionNameHistory,
                 SheetBinding.rowActionShareLog,
                 SheetBinding.rowActionClearLog,
                 SheetBinding.rowActionDelete
@@ -1879,6 +2082,16 @@ class PoliciesFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             ExportPdf()
+        }
+        SheetBinding.rowActionRename.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            if (SessionRef != null) ShowRenameSheet(SessionRef = SessionRef)
+        }
+        SheetBinding.rowActionNameHistory.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            if (SessionRef != null) ShowNameHistorySheet(SessionRef = SessionRef)
         }
         SheetBinding.rowActionShareLog.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)

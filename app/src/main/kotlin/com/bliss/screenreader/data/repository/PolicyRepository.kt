@@ -16,6 +16,8 @@ import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
 import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.SessionGap
+import com.bliss.screenreader.data.model.SessionNameEntry
+import com.bliss.screenreader.data.model.SessionNameRules
 import com.bliss.screenreader.security.SecurePrefs
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -41,6 +43,7 @@ object PolicyRepository {
     private const val VISITED_KEY_PREFIX = "capture_visited_customers"
     private const val RESUME_KEY_PREFIX = "capture_resume"
     private const val RENEWAL_SKIP_KEY_PREFIX = "capture_renewal_skips"
+    private const val NAME_KEY_PREFIX = "capture_session_name"
     private const val KEY_LAST_AGENCY_CODE = "last_agency_code"
     private const val KEY_AGENCY_CODES = "agency_code_list"
 
@@ -320,7 +323,8 @@ object PolicyRepository {
         Gaps: List<SessionGap>,
         Changes: Map<CaptureMode, List<RecordFieldChange>>,
         VisitedCustomers: List<String>,
-        AgencyCode: String
+        AgencyCode: String,
+        NameHistory: List<SessionNameEntry> = emptyList()
     ) {
         val SessionId = SessionRef.SessionId
         if (SessionId.isBlank()) return
@@ -369,6 +373,12 @@ object PolicyRepository {
             }
             if (AgencyCode.isNotBlank()) {
                 putString(AgencyStorageKey(SessionId = SessionId), AgencyCode)
+            }
+            if (NameHistory.isNotEmpty()) {
+                putString(
+                    NameStorageKey(SessionId = SessionId),
+                    GsonInstance.toJson(NameHistory)
+                )
             }
             putString(LatestSessionKey(ModeVal = SessionRef.Mode), SessionId)
         }
@@ -497,6 +507,7 @@ object PolicyRepository {
             remove(AgencyStorageKey(SessionId = SessionId))
             remove(VisitedStorageKey(SessionId = SessionId))
             remove(DueReportStorageKey(SessionId = SessionId))
+            remove(NameStorageKey(SessionId = SessionId))
             for (TrackVal in PolicyResumeTrack.All) {
                 remove(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal))
             }
@@ -701,6 +712,80 @@ object PolicyRepository {
 
     private fun VisitedStorageKey(SessionId: String): String {
         return "${VISITED_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
+    }
+
+    fun GetSessionNameHistory(
+        ContextRef: Context,
+        SessionId: String
+    ): List<SessionNameEntry> {
+        if (SessionId.isBlank()) return emptyList()
+        val StoredJson = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+            .getString(NameStorageKey(SessionId = SessionId), null)
+            ?: return emptyList()
+        val HistoryType = object : TypeToken<List<SessionNameEntry>>() {}.type
+        val HistoryList: List<SessionNameEntry> = try {
+            GsonInstance.fromJson(StoredJson, HistoryType) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return HistoryList
+    }
+
+    fun GetSessionName(ContextRef: Context, SessionId: String): String {
+        return SessionNameRules.CurrentName(
+            HistoryList = GetSessionNameHistory(ContextRef = ContextRef, SessionId = SessionId)
+        )
+    }
+
+    fun SetSessionName(
+        ContextRef: Context,
+        SessionId: String,
+        NameText: String,
+        FallbackLabel: String
+    ): Boolean {
+        if (SessionId.isBlank()) return false
+        val UpdatedList = SessionNameRules.Append(
+            HistoryList = GetSessionNameHistory(ContextRef = ContextRef, SessionId = SessionId),
+            NameText = NameText,
+            FallbackLabel = FallbackLabel,
+            StampVal = System.currentTimeMillis()
+        ) ?: return false
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(NameStorageKey(SessionId = SessionId), GsonInstance.toJson(UpdatedList))
+        }
+        return true
+    }
+
+    fun RestoreSessionName(
+        ContextRef: Context,
+        SessionId: String,
+        FallbackLabel: String
+    ): Boolean {
+        return SetSessionName(
+            ContextRef = ContextRef,
+            SessionId = SessionId,
+            NameText = "",
+            FallbackLabel = FallbackLabel
+        )
+    }
+
+    fun ReplaceSessionNameHistory(
+        ContextRef: Context,
+        SessionId: String,
+        Entries: List<SessionNameEntry>
+    ) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            if (Entries.isEmpty()) {
+                remove(NameStorageKey(SessionId = SessionId))
+            } else {
+                putString(NameStorageKey(SessionId = SessionId), GsonInstance.toJson(Entries))
+            }
+        }
+    }
+
+    private fun NameStorageKey(SessionId: String): String {
+        return "${NAME_KEY_PREFIX}_${SafeSessionId(SessionId = SessionId)}"
     }
 
     fun GetAgencyCode(ContextRef: Context, SessionId: String): String {

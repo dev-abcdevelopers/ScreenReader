@@ -135,6 +135,26 @@
     <string name="sessions_empty_title">No capture sessions yet</string>
     <string name="sessions_empty_body">Each saved capture will appear here as a separate group.</string>
 
+    <string name="sessions_row_description_format">%1$s, %2$s</string>
+    <string name="sessions_rename">Rename list</string>
+    <string name="sessions_rename_desc">Show your own name for this list</string>
+    <string name="sessions_rename_title">Rename this list</string>
+    <string name="sessions_rename_body">Only the name shown in the app changes. The capture, its ID and its records stay exactly as they are.</string>
+    <string name="sessions_rename_hint">List name</string>
+    <string name="sessions_rename_original_format">Original name: %1$s</string>
+    <string name="sessions_rename_save">Save name</string>
+    <string name="sessions_rename_restore">Restore original name</string>
+    <string name="sessions_rename_done">List renamed</string>
+    <string name="sessions_rename_restored">Original name restored</string>
+    <string name="sessions_name_history">Name change history</string>
+    <string name="sessions_name_history_desc">%1$d recorded so far</string>
+    <string name="sessions_name_history_title">Name history</string>
+    <string name="sessions_name_history_was_format">was %1$s</string>
+    <string name="sessions_name_history_restore_entry">Original name restored</string>
+    <string name="sessions_name_history_current">Current</string>
+    <string name="sessions_name_history_original">Original</string>
+    <string name="sessions_name_history_reapply">Use this name again</string>
+
     <!-- Policy detail -->
     <string name="detail_premium">Premium</string>
     <string name="detail_sum_assured">Sum assured</string>

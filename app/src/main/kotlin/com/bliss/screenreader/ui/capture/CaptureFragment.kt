@@ -29,6 +29,7 @@ import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.utils.AppLauncherUtils
 import com.bliss.screenreader.utils.CaptureNotifier
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.SessionLabels
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -382,8 +383,12 @@ class CaptureFragment : Fragment() {
                 SheetBinding.sessionPickContainer,
                 false
             )
-            RowBinding.tvSessionPickTitle.text = SessionRef.Mode.DescribeCount(
-                CountVal = SessionRef.RecordCount
+            RowBinding.tvSessionPickTitle.text = SessionLabels.NameOrFallback(
+                ContextRef = ActivityRef,
+                SessionId = SessionRef.SessionId,
+                FallbackText = SessionRef.Mode.DescribeCount(
+                    CountVal = SessionRef.RecordCount
+                )
             )
             RowBinding.tvSessionPickMeta.text = getString(
                 R.string.capture_customer_session_format,

@@ -188,7 +188,11 @@ object SessionBundleStore {
             VisitedCustomers = PolicyRepository.GetVisitedCustomers(
                 ContextRef = ContextRef,
                 SessionId = SessionId
-            ).sorted()
+            ).sorted(),
+            NameHistory = PolicyRepository.GetSessionNameHistory(
+                ContextRef = ContextRef,
+                SessionId = SessionId
+            )
         )
     }
 
@@ -375,7 +379,8 @@ object SessionBundleStore {
             Gaps = EntryRef.Gaps.orEmpty(),
             Changes = ChangeMap,
             VisitedCustomers = EntryRef.VisitedCustomers.orEmpty(),
-            AgencyCode = EntryRef.AgencyCode
+            AgencyCode = EntryRef.AgencyCode,
+            NameHistory = EntryRef.NameHistory.orEmpty()
         )
 
         CaptureDiagnostics.LogForSession(
