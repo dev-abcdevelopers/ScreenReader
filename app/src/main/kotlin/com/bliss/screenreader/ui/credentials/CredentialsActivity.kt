@@ -12,6 +12,7 @@ import com.bliss.screenreader.databinding.PartialSettingsChoiceRowBinding
 import com.bliss.screenreader.databinding.PartialSettingsRowBinding
 import com.bliss.screenreader.databinding.SheetSettingsDetailBinding
 import com.bliss.screenreader.security.CredentialStore
+import com.bliss.screenreader.ui.PadForKeyboard
 import com.bliss.screenreader.ui.SetupEdgeToEdge
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -220,6 +221,7 @@ class CredentialsActivity : AppCompatActivity() {
         val SheetBinding = SheetSettingsDetailBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(this)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.PadForKeyboard(RootView = SheetBinding.root)
         SheetBinding.tvDetailTitle.setText(R.string.credentials_method_title)
         SheetBinding.tvDetailBody.visibility = View.VISIBLE
         SheetBinding.tvDetailBody.setText(R.string.credentials_method_body)

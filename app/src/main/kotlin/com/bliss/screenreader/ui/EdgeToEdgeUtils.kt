@@ -3,11 +3,13 @@
 package com.bliss.screenreader.ui
 
 import android.view.View
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.google.android.material.bottomsheet.BottomSheetDialog
 
 fun ComponentActivity.SetupEdgeToEdge(RootView: View, AppBarView: View? = null, BottomView: View? = null) {
     enableEdgeToEdge()
@@ -28,4 +30,18 @@ fun ComponentActivity.SetupEdgeToEdge(RootView: View, AppBarView: View? = null, 
 
         WindowInsetsObj
     }
+}
+
+fun BottomSheetDialog.PadForKeyboard(RootView: View) {
+    window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    val BasePadding = RootView.paddingBottom
+    ViewCompat.setOnApplyWindowInsetsListener(RootView) { ViewRef, WindowInsetsObj ->
+        val ImeBottom = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        val BarBottom = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+        val SheetBottom = (ViewRef.parent as? View)?.paddingBottom ?: 0
+        val ExtraBottom = (maxOf(ImeBottom, BarBottom) - SheetBottom).coerceAtLeast(0)
+        ViewRef.updatePadding(bottom = BasePadding + ExtraBottom)
+        WindowInsetsObj
+    }
+    ViewCompat.requestApplyInsets(RootView)
 }

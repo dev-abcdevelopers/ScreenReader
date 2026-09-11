@@ -55,6 +55,7 @@ import com.bliss.screenreader.settings.PaceProfile
 import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.sync.SessionBundleStore
 import com.bliss.screenreader.sync.SessionUploader
+import com.bliss.screenreader.ui.PadForKeyboard
 import com.bliss.screenreader.ui.credentials.CredentialsActivity
 import com.bliss.screenreader.ui.raw.RawCaptureActivity
 import com.bliss.screenreader.ui.toast.AppToast
@@ -1093,6 +1094,7 @@ class SettingsFragment : Fragment() {
         val SheetBinding = SheetSettingsDetailBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.PadForKeyboard(RootView = SheetBinding.root)
         SheetBinding.tvDetailTitle.text = TitleText
         if (BodyText.isNotEmpty()) {
             SheetBinding.tvDetailBody.visibility = View.VISIBLE
@@ -1525,6 +1527,7 @@ class SettingsFragment : Fragment() {
         val SheetBinding = SheetAgencyCodeBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.PadForKeyboard(RootView = SheetBinding.root)
 
         val KnownList = PolicyRepository.ListAgencyCodes(ContextRef = ContextRef)
         val DefaultCode = PolicyRepository.GetDefaultAgencyCode(ContextRef = ContextRef)

@@ -9,44 +9,59 @@
     android:paddingEnd="@dimen/screen_margin"
     android:paddingBottom="@dimen/space_lg">
 
-    <TextView
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/sessions_rename_title"
-        android:textAppearance="@style/TextAppearance.App.Heading" />
+        android:maxHeight="360dp"
+        android:scrollbars="none">
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_xs"
-        android:layout_marginBottom="@dimen/space_md"
-        android:text="@string/sessions_rename_body"
-        android:textAppearance="@style/TextAppearance.App.Caption" />
-
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/tilSessionName"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/sessions_rename_hint">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/etSessionName"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:imeOptions="actionDone"
-            android:inputType="textCapWords"
-            android:maxLength="40"
-            android:maxLines="1" />
+            android:orientation="vertical">
 
-    </com.google.android.material.textfield.TextInputLayout>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/sessions_rename_title"
+                android:textAppearance="@style/TextAppearance.App.Heading" />
 
-    <TextView
-        android:id="@+id/tvSessionNameOriginal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_sm"
-        android:textAppearance="@style/TextAppearance.App.Caption" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs"
+                android:layout_marginBottom="@dimen/space_md"
+                android:text="@string/sessions_rename_body"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilSessionName"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/sessions_rename_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etSessionName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="textCapWords"
+                    android:maxLength="40"
+                    android:maxLines="1" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tvSessionNameOriginal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        </LinearLayout>
+
+    </ScrollView>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnSessionNameSave"

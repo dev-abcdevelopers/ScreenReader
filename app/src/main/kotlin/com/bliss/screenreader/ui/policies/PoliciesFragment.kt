@@ -73,6 +73,7 @@ import com.bliss.screenreader.service.CaptureDiagnostics
 import com.bliss.screenreader.service.CaptureSessionState
 import com.bliss.screenreader.settings.SettingsStore
 import com.bliss.screenreader.sync.SessionUploader
+import com.bliss.screenreader.ui.PadForKeyboard
 import com.bliss.screenreader.ui.adapter.CaptureSessionAdapter
 import com.bliss.screenreader.ui.adapter.PolicyRowAdapter
 import com.bliss.screenreader.ui.adapter.PolicySwipeCallback
@@ -1722,6 +1723,12 @@ class PoliciesFragment : Fragment() {
         val SheetBinding = SheetSessionRenameBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.PadForKeyboard(RootView = SheetBinding.root)
+        SheetDialog.setOnShowListener {
+            SheetDialog.behavior.skipCollapsed = true
+            SheetDialog.behavior.isDraggable = false
+            SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        }
 
         SheetBinding.etSessionName.setText(CurrentName)
         SheetBinding.etSessionName.setSelection(CurrentName.length)
@@ -2518,6 +2525,7 @@ class PoliciesFragment : Fragment() {
         val SheetBinding = SheetSettingsDetailBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.PadForKeyboard(RootView = SheetBinding.root)
 
         SheetBinding.tvDetailTitle.setText(R.string.export_agency_pick_title)
         SheetBinding.tvDetailBody.visibility = View.VISIBLE
