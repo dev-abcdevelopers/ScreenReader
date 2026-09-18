@@ -86,6 +86,13 @@ object CaptureDiagnostics {
                 appendLine("Reader package: ${ContextObj.packageName}")
                 appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
                 appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+                val MetricsObj = ContextObj.resources.displayMetrics
+                appendLine(
+                    "Screen: ${MetricsObj.widthPixels}x${MetricsObj.heightPixels} px " +
+                            "density=${MetricsObj.density} (${MetricsObj.densityDpi}dpi) " +
+                            "${(MetricsObj.widthPixels / MetricsObj.density).toInt()}x" +
+                            "${(MetricsObj.heightPixels / MetricsObj.density).toInt()} dp"
+                )
                 appendLine(SEPARATOR)
             }
             runCatching {

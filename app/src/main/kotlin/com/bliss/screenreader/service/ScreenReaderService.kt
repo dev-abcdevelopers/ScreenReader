@@ -227,6 +227,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val CUSTOMER_PAGE_OPTION_VIEWPORT_RATIO = 0.24f
         private const val CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP = 80f
         private const val CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT = 6
+        private const val MAX_PAGE_LIST_DUMPS = 3
+        private const val MAX_PAGE_LIST_DUMP_NODES = 24
+        private const val MAX_PAGE_LIST_ANCESTORS = 8
         private const val CUSTOMER_SHEET_OCR_MIN_MS = 600L
         private const val SHEET_STALE_TREE_LIMIT = 6
         private const val CUSTOMER_REOPEN_LIMIT = 1
@@ -364,6 +367,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var CustomerPageOptionPendingOffset = 0
     private var CustomerPageOptionDeadTaps = 0
     private var CustomerPageOptionSignature = ""
+    private var CustomerPageListDumpCount = 0
+    private var CustomerPageListBaselineDumped = false
     private var CustomerOpenAttempts = 0
     private var CustomerStepAttempts = 0
     private var CustomerAutomationFailureCount = 0
@@ -9799,13 +9804,226 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         return maxOf(MinimumPx, minOf(AssumedPx, ToScreenBottom))
     }
 
+    private fun IsSuperAppReadable(): Boolean {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return false
+        RecycleNode(NodeRef = RootNode)
+        return true
+    }
+
+    private fun CustomerCallBoundsAt(TapXPos: Float, TapYPos: Float): Rect? {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return null
+        return try {
+            CollectVisibleTextNodes(RootNode = RootNode)
+                .filter { NodePair ->
+                    NodePair.first.trim().startsWith(CUSTOMER_CALL_LABEL, true)
+                }
+                .map { NodePair -> NodePair.second }
+                .firstOrNull { BoundsObj ->
+                    TapXPos >= BoundsObj.left && TapXPos <= BoundsObj.right &&
+                            TapYPos >= BoundsObj.top && TapYPos <= BoundsObj.bottom
+                }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun DumpCustomerPageList(
+        ChipBounds: Rect,
+        ReasonText: String,
+        BaselineVal: Boolean = false
+    ) {
+        if (BaselineVal && CustomerPageListBaselineDumped) return
+        if (!BaselineVal && CustomerPageListDumpCount >= MAX_PAGE_LIST_DUMPS) return
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+            ?: return
+        if (BaselineVal) {
+            CustomerPageListBaselineDumped = true
+        } else {
+            CustomerPageListDumpCount++
+        }
+        try {
+            val MetricsObj = resources.displayMetrics
+            val OptionLines = mutableListOf<String>()
+            CollectCustomerPageOptionDump(
+                TargetNode = RootNode,
+                ChipBounds = ChipBounds,
+                ResultList = OptionLines,
+                DepthVal = 0
+            )
+            val AncestryLines = mutableListOf<String>()
+            FindCustomerPageOptionAncestry(
+                TargetNode = RootNode,
+                ChipBounds = ChipBounds,
+                ResultList = AncestryLines,
+                DepthVal = 0
+            )
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_LIST_DUMP",
+                MessageText = "reason=$ReasonText target=$TargetCustomerPage chip=$ChipBounds " +
+                        "screen=${MetricsObj.widthPixels}x${MetricsObj.heightPixels} " +
+                        "density=${MetricsObj.density} " +
+                        "viewport=${CustomerPageOptionViewportPx(ChipBounds = ChipBounds)} " +
+                        "deadOffset=$CustomerPageOptionDeadOffset " +
+                        "options=${OptionLines.size} " +
+                        OptionLines.joinToString(" || ") +
+                        " ## ancestry=${AncestryLines.size} " +
+                        AncestryLines.joinToString(" || ")
+            )
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Page list dump failed", ExceptionObj)
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun CollectCustomerPageOptionDump(
+        TargetNode: AccessibilityNodeInfo?,
+        ChipBounds: Rect,
+        ResultList: MutableList<String>,
+        DepthVal: Int
+    ) {
+        if (TargetNode == null || DepthVal > MAX_SHEET_DUMP_DEPTH) return
+        if (ResultList.size >= MAX_PAGE_LIST_DUMP_NODES) return
+        try {
+            val NodeText = NodeTextValue(NodeRef = TargetNode).trim()
+            if (CUSTOMER_PAGE_OPTION_REGEX.matches(NodeText)) {
+                val BoundsObj = Rect()
+                TargetNode.getBoundsInScreen(BoundsObj)
+                if (IsCustomerPageOptionBounds(
+                        OptionBounds = BoundsObj,
+                        ChipBounds = ChipBounds
+                    )
+                ) {
+                    ResultList.add(
+                        "$NodeText@$BoundsObj off=${BoundsObj.top - ChipBounds.bottom} " +
+                                "tapOff=${BoundsObj.centerY() - ChipBounds.bottom} " +
+                                "visible=${TargetNode.isVisibleToUser}"
+                    )
+                }
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = try {
+                    TargetNode.getChild(ChildIndex)
+                } catch (_: Exception) {
+                    null
+                }
+                CollectCustomerPageOptionDump(
+                    TargetNode = ChildNode,
+                    ChipBounds = ChipBounds,
+                    ResultList = ResultList,
+                    DepthVal = DepthVal + 1
+                )
+                RecycleNode(NodeRef = ChildNode)
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while dumping the page list", ExceptionObj)
+        }
+    }
+
+    private fun FindCustomerPageOptionAncestry(
+        TargetNode: AccessibilityNodeInfo?,
+        ChipBounds: Rect,
+        ResultList: MutableList<String>,
+        DepthVal: Int
+    ): Boolean {
+        if (TargetNode == null || DepthVal > MAX_SHEET_DUMP_DEPTH) return false
+        if (ResultList.isNotEmpty()) return true
+        try {
+            val NodeText = NodeTextValue(NodeRef = TargetNode).trim()
+            if (CUSTOMER_PAGE_OPTION_REGEX.matches(NodeText)) {
+                val BoundsObj = Rect()
+                TargetNode.getBoundsInScreen(BoundsObj)
+                if (IsCustomerPageOptionBounds(
+                        OptionBounds = BoundsObj,
+                        ChipBounds = ChipBounds
+                    )
+                ) {
+                    ResultList.add(
+                        "from option $NodeText@$BoundsObj " +
+                                "[${TargetNode.className}] visible=${TargetNode.isVisibleToUser}"
+                    )
+                    DescribeCustomerPageAncestors(
+                        StartNode = TargetNode,
+                        ResultList = ResultList
+                    )
+                    return true
+                }
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = try {
+                    TargetNode.getChild(ChildIndex)
+                } catch (_: Exception) {
+                    null
+                }
+                val FoundVal = FindCustomerPageOptionAncestry(
+                    TargetNode = ChildNode,
+                    ChipBounds = ChipBounds,
+                    ResultList = ResultList,
+                    DepthVal = DepthVal + 1
+                )
+                RecycleNode(NodeRef = ChildNode)
+                if (FoundVal) return true
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while dumping the page list", ExceptionObj)
+        }
+        return false
+    }
+
+    private fun DescribeCustomerPageAncestors(
+        StartNode: AccessibilityNodeInfo,
+        ResultList: MutableList<String>
+    ) {
+        var CurrentNode: AccessibilityNodeInfo? = try {
+            StartNode.parent
+        } catch (_: Exception) {
+            null
+        }
+        var LevelVal = 1
+        while (LevelVal <= MAX_PAGE_LIST_ANCESTORS) {
+            val NodeRef = CurrentNode ?: return
+            val ParentNode = try {
+                val BoundsObj = Rect()
+                NodeRef.getBoundsInScreen(BoundsObj)
+                ResultList.add(
+                    "^$LevelVal [${NodeRef.className}] $BoundsObj h=${BoundsObj.height()} " +
+                            "scroll=${NodeRef.isScrollable} " +
+                            "visible=${NodeRef.isVisibleToUser} " +
+                            "children=${NodeRef.childCount}"
+                )
+                NodeRef.parent
+            } catch (_: Exception) {
+                null
+            }
+            RecycleNode(NodeRef = NodeRef)
+            CurrentNode = ParentNode
+            LevelVal++
+        }
+        RecycleNode(NodeRef = CurrentNode)
+    }
+
+    private fun CustomerPageOptionTapOffset(OptionBounds: Rect, ChipBounds: Rect): Int {
+        return OptionBounds.centerY() - ChipBounds.bottom
+    }
+
+    private fun IsCustomerPageOptionDrawn(OptionBounds: Rect, ChipBounds: Rect): Boolean {
+        return OptionBounds.bottom - ChipBounds.bottom <=
+                CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
+    }
+
     private fun IsCustomerPageOptionReachable(OptionBounds: Rect, ChipBounds: Rect): Boolean {
         val OffsetPx = CustomerPageOptionOffset(
             OptionBounds = OptionBounds,
             ChipBounds = ChipBounds
         )
         if (CustomerPageOptionDeadOffset in 1..OffsetPx) return false
-        return OffsetPx <= CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
+        val TapOffsetPx = CustomerPageOptionTapOffset(
+            OptionBounds = OptionBounds,
+            ChipBounds = ChipBounds
+        )
+        return TapOffsetPx <= CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
     }
 
     private fun LongestConsecutiveRun(ValueList: List<Int>): Int {
@@ -9868,6 +10086,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             )
             return
         }
+        DumpCustomerPageList(
+            ChipBounds = ChipBounds,
+            ReasonText = "list-open",
+            BaselineVal = true
+        )
         val OptionLabels = setOf(
             TargetCustomerPage.toString().padStart(2, '0'),
             TargetCustomerPage.toString()
@@ -9880,6 +10103,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         if (OptionBounds == null ||
             !IsCustomerPageOptionReachable(OptionBounds = OptionBounds, ChipBounds = ChipBounds)
         ) {
+            DumpCustomerPageList(ChipBounds = ChipBounds, ReasonText = "unreachable")
             val UnreachableOffset = OptionBounds?.let { BoundsObj ->
                 CustomerPageOptionOffset(OptionBounds = BoundsObj, ChipBounds = ChipBounds)
             }
@@ -9930,11 +10154,37 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             OptionBounds = OptionBounds,
             ChipBounds = ChipBounds
         )
+        val TapXPos = OptionBounds.centerX().toFloat()
+        val TapYPos = OptionBounds.centerY().toFloat()
+        val TapOutsidePopup = CustomerPageOptionTapOffset(
+            OptionBounds = OptionBounds,
+            ChipBounds = ChipBounds
+        ) > ViewportPx
+        val CallBoundsHit = if (TapOutsidePopup) {
+            CustomerCallBoundsAt(TapXPos = TapXPos, TapYPos = TapYPos)
+        } else {
+            null
+        }
+        if (CallBoundsHit != null) {
+            if (CustomerPageOptionDeadOffset == 0 || OffsetPx < CustomerPageOptionDeadOffset) {
+                CustomerPageOptionDeadOffset = OffsetPx
+            }
+            CustomerPageOptionPendingOffset = 0
+            DumpCustomerPageList(ChipBounds = ChipBounds, ReasonText = "call-guard")
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_BLOCKED",
+                MessageText = "target=$TargetCustomerPage tap=($TapXPos, $TapYPos) " +
+                        "offset=${OffsetPx}px falls outside the ${ViewportPx}px popup and onto " +
+                        "$CUSTOMER_CALL_LABEL at $CallBoundsHit; refusing the tap. " +
+                        "reachable<$CustomerPageOptionDeadOffset"
+            )
+            RetryCustomerPageNavigation(
+                ReasonText = "option $TargetCustomerPage would have hit $CUSTOMER_CALL_LABEL"
+            )
+            return
+        }
         CustomerPageOptionPendingOffset = OffsetPx
-        val TapAccepted = PerformTapGesture(
-            XPos = OptionBounds.centerX().toFloat(),
-            YPos = OptionBounds.centerY().toFloat()
-        )
+        val TapAccepted = PerformTapGesture(XPos = TapXPos, YPos = TapYPos)
         DiagnosticInfo(
             EventName = "CUSTOMER_PAGE_OPTION",
             MessageText = "target=$TargetCustomerPage bounds=$OptionBounds offset=$OffsetPx " +
@@ -9990,10 +10240,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         val ViewportPx = CustomerPageOptionViewportPx(ChipBounds = ChipBounds)
         val DrawnNodes = OptionNodes.filter { NodePair ->
-            CustomerPageOptionOffset(
+            IsCustomerPageOptionDrawn(
                 OptionBounds = NodePair.second,
                 ChipBounds = ChipBounds
-            ) <= ViewportPx
+            )
         }
         if (DrawnNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
 
@@ -10062,26 +10312,37 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         val ChipBounds = CustomerPageChipRect
         if (PendingOffset > 0 &&
             ChipBounds != null &&
-            CustomerPageOptionDeadTaps < CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT &&
-            IsCustomerPageListOpen(OptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds))
+            CustomerPageOptionDeadTaps < CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT
         ) {
-            CustomerPageOptionDeadTaps++
-            if (CustomerPageOptionDeadOffset == 0 ||
-                PendingOffset < CustomerPageOptionDeadOffset
-            ) {
-                CustomerPageOptionDeadOffset = PendingOffset
+            val AppStillReadable = IsSuperAppReadable()
+            val ListStillOpen = AppStillReadable &&
+                    IsCustomerPageListOpen(
+                        OptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds)
+                    )
+            if (!AppStillReadable || ListStillOpen) {
+                CustomerPageOptionDeadTaps++
+                if (CustomerPageOptionDeadOffset == 0 ||
+                    PendingOffset < CustomerPageOptionDeadOffset
+                ) {
+                    CustomerPageOptionDeadOffset = PendingOffset
+                }
+                DiagnosticWarning(
+                    EventName = "CUSTOMER_PAGE_OPTION_DEAD",
+                    MessageText = "target=$TargetCustomerPage offset=${PendingOffset}px " +
+                            (if (AppStillReadable) {
+                                "changed nothing and the option list is still open"
+                            } else {
+                                "landed outside the popup and pulled another app to the front"
+                            }) +
+                            "; the list draws fewer rows than the tree reports. " +
+                            "reachable<${CustomerPageOptionDeadOffset}px " +
+                            "attempt=$CustomerPageOptionDeadTaps"
+                )
+                ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                    SelectNextCustomerPage()
+                }
+                return
             }
-            DiagnosticWarning(
-                EventName = "CUSTOMER_PAGE_OPTION_DEAD",
-                MessageText = "target=$TargetCustomerPage offset=${PendingOffset}px changed " +
-                        "nothing and the option list is still open; the list draws fewer rows " +
-                        "than the tree reports. reachable<${CustomerPageOptionDeadOffset}px " +
-                        "attempt=$CustomerPageOptionDeadTaps"
-            )
-            ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
-                SelectNextCustomerPage()
-            }
-            return
         }
         RetryCustomerPageNavigation(
             ReasonText = "expected page $TargetCustomerPage, saw ${PageInfo?.first}"
@@ -11204,6 +11465,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         CustomerPageWaitCount = 0
         CustomerPageChipRect = null
         CustomerPageOptionDeadOffset = 0
+        CustomerPageListDumpCount = 0
+        CustomerPageListBaselineDumped = false
         CustomerPageOptionPendingOffset = 0
         CustomerPageOptionDeadTaps = 0
         CustomerPageOptionSignature = ""
