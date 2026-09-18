@@ -227,6 +227,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val CUSTOMER_PAGE_OPTION_VIEWPORT_RATIO = 0.24f
         private const val CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP = 80f
         private const val CUSTOMER_PAGE_OPTION_DEAD_TAP_LIMIT = 6
+        private const val CUSTOMER_PAGE_CHIP_MIN_HEIGHT_DP = 8f
+        private const val CUSTOMER_PAGE_CHIP_MIN_HEIGHT_DIVISOR = 3
+        private const val CUSTOMER_PAGE_OPTION_STALL_LIMIT = 3
+        private const val CUSTOMER_PAGE_OPTION_SETTLE_MS = 900L
         private const val MAX_PAGE_LIST_DUMPS = 3
         private const val MAX_PAGE_LIST_DUMP_NODES = 24
         private const val MAX_PAGE_LIST_ANCESTORS = 8
@@ -369,6 +373,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var CustomerPageOptionSignature = ""
     private var CustomerPageListDumpCount = 0
     private var CustomerPageListBaselineDumped = false
+    private var CustomerPageOptionListRect: Rect? = null
+    private var CustomerPageChipFullHeight = 0
+    private var CustomerPageChipRevealAttempts = 0
     private var CustomerOpenAttempts = 0
     private var CustomerStepAttempts = 0
     private var CustomerAutomationFailureCount = 0
@@ -9714,7 +9721,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
             ?: return false
         return try {
-            CustomerPageChipBounds(RootNode = RootNode) != null
+            CustomerPageChipBounds(RootNode = RootNode)
+                ?.let { BoundsObj -> IsCustomerPageChipUsable(ChipBounds = BoundsObj) }
+                ?: false
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
@@ -9725,6 +9734,12 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         return Labels.any { LabelText ->
             TrimmedText == LabelText || TrimmedText.startsWith("$LabelText ")
         }
+    }
+
+    private fun IsCustomerPageChipUsable(ChipBounds: Rect): Boolean {
+        val FloorPx = (CUSTOMER_PAGE_CHIP_MIN_HEIGHT_DP * resources.displayMetrics.density).toInt()
+        val SharePx = CustomerPageChipFullHeight / CUSTOMER_PAGE_CHIP_MIN_HEIGHT_DIVISOR
+        return ChipBounds.height() >= maxOf(FloorPx, SharePx)
     }
 
     private fun CustomerPageChipBounds(RootNode: AccessibilityNodeInfo): Rect? {
@@ -9742,6 +9757,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             }
             .minByOrNull { NodePair -> NodePair.second.top }
             ?.second
+            ?.also { BoundsObj ->
+                if (BoundsObj.height() > CustomerPageChipFullHeight) {
+                    CustomerPageChipFullHeight = BoundsObj.height()
+                }
+            }
     }
 
     private fun OpenCustomerPageSelector() {
@@ -9759,6 +9779,27 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             RetryCustomerPageNavigation(ReasonText = "page chip not visible")
             return
         }
+        if (!IsCustomerPageChipUsable(ChipBounds = ChipBounds)) {
+            CustomerPageChipRevealAttempts++
+            if (CustomerPageChipRevealAttempts > CUSTOMER_RETURN_TO_TOP_LIMIT) {
+                FailCustomerAutomation(
+                    ReasonText = "page chip stayed clipped at $ChipBounds"
+                )
+                return
+            }
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_CHIP_CLIPPED",
+                MessageText = "bounds=$ChipBounds height=${ChipBounds.height()} of " +
+                        "$CustomerPageChipFullHeight; scrolling back instead of tapping it " +
+                        "attempt=$CustomerPageChipRevealAttempts"
+            )
+            PerformPolicyScroll(ForwardVal = false, PreferAccessibilityAction = false)
+            ScheduleCustomerAction(DelayMs = CUSTOMER_SCROLL_SETTLE_MS) {
+                OpenCustomerPageSelector()
+            }
+            return
+        }
+        CustomerPageChipRevealAttempts = 0
         CustomerPageChipRect = Rect(ChipBounds)
         val OpenOptionNodes = CustomerPageOptionNodes(ChipBounds = ChipBounds)
         val OpenOptionCount = OpenOptionNodes.size
@@ -9796,6 +9837,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun CustomerPageOptionViewportPx(ChipBounds: Rect): Int {
+        val ListRect = CustomerPageOptionListRect
+        if (ListRect != null && ListRect.bottom > ChipBounds.bottom) {
+            return ListRect.bottom - ChipBounds.bottom
+        }
         val DisplayMetricsObj = resources.displayMetrics
         val AssumedPx =
             (DisplayMetricsObj.heightPixels * CUSTOMER_PAGE_OPTION_VIEWPORT_RATIO).toInt()
@@ -9824,6 +9869,115 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     TapXPos >= BoundsObj.left && TapXPos <= BoundsObj.right &&
                             TapYPos >= BoundsObj.top && TapYPos <= BoundsObj.bottom
                 }
+        } finally {
+            RecycleNode(NodeRef = RootNode)
+        }
+    }
+
+    private fun ScrollableAncestorBounds(
+        StartNode: AccessibilityNodeInfo,
+        ChipBounds: Rect
+    ): Rect? {
+        val ScreenHeight = resources.displayMetrics.heightPixels
+        var CurrentNode: AccessibilityNodeInfo? = try {
+            StartNode.parent
+        } catch (_: Exception) {
+            null
+        }
+        var FoundBounds: Rect? = null
+        var LevelVal = 1
+        while (LevelVal <= MAX_PAGE_LIST_ANCESTORS) {
+            val NodeRef = CurrentNode ?: break
+            val ParentNode = try {
+                val BoundsObj = Rect()
+                NodeRef.getBoundsInScreen(BoundsObj)
+                if (NodeRef.isScrollable &&
+                    BoundsObj.height() in 1 until ScreenHeight &&
+                    BoundsObj.top >= ChipBounds.top &&
+                    BoundsObj.bottom > ChipBounds.bottom &&
+                    abs(BoundsObj.centerX() - ChipBounds.centerX()) <= ChipBounds.width()
+                ) {
+                    FoundBounds = Rect(BoundsObj)
+                }
+                NodeRef.parent
+            } catch (_: Exception) {
+                null
+            }
+            RecycleNode(NodeRef = NodeRef)
+            CurrentNode = ParentNode
+            LevelVal++
+            if (FoundBounds != null) break
+        }
+        RecycleNode(NodeRef = CurrentNode)
+        return FoundBounds
+    }
+
+    private fun FindCustomerPageOptionContainer(
+        TargetNode: AccessibilityNodeInfo?,
+        ChipBounds: Rect,
+        ResultList: MutableList<Rect>,
+        DepthVal: Int
+    ): Boolean {
+        if (TargetNode == null || DepthVal > MAX_SHEET_DUMP_DEPTH) return false
+        if (ResultList.isNotEmpty()) return true
+        try {
+            val NodeText = NodeTextValue(NodeRef = TargetNode).trim()
+            if (CUSTOMER_PAGE_OPTION_REGEX.matches(NodeText)) {
+                val BoundsObj = Rect()
+                TargetNode.getBoundsInScreen(BoundsObj)
+                if (IsCustomerPageOptionBounds(
+                        OptionBounds = BoundsObj,
+                        ChipBounds = ChipBounds
+                    )
+                ) {
+                    val ContainerBounds = ScrollableAncestorBounds(
+                        StartNode = TargetNode,
+                        ChipBounds = ChipBounds
+                    )
+                    if (ContainerBounds != null) {
+                        ResultList.add(ContainerBounds)
+                        return true
+                    }
+                }
+            }
+            for (ChildIndex in 0 until TargetNode.childCount) {
+                val ChildNode = try {
+                    TargetNode.getChild(ChildIndex)
+                } catch (_: Exception) {
+                    null
+                }
+                val FoundVal = FindCustomerPageOptionContainer(
+                    TargetNode = ChildNode,
+                    ChipBounds = ChipBounds,
+                    ResultList = ResultList,
+                    DepthVal = DepthVal + 1
+                )
+                RecycleNode(NodeRef = ChildNode)
+                if (FoundVal) return true
+            }
+        } catch (ExceptionObj: Exception) {
+            Log.v(LOG_TAG, "Node became stale while measuring the page list", ExceptionObj)
+        }
+        return false
+    }
+
+    private fun RefreshCustomerPageOptionListRect(ChipBounds: Rect) {
+        val RootNode = FindReadableRoot(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+        if (RootNode == null) {
+            CustomerPageOptionListRect = null
+        CustomerPageChipFullHeight = 0
+        CustomerPageChipRevealAttempts = 0
+            return
+        }
+        CustomerPageOptionListRect = try {
+            val ResultList = mutableListOf<Rect>()
+            FindCustomerPageOptionContainer(
+                TargetNode = RootNode,
+                ChipBounds = ChipBounds,
+                ResultList = ResultList,
+                DepthVal = 0
+            )
+            ResultList.firstOrNull()
         } finally {
             RecycleNode(NodeRef = RootNode)
         }
@@ -9865,6 +10019,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                         "screen=${MetricsObj.widthPixels}x${MetricsObj.heightPixels} " +
                         "density=${MetricsObj.density} " +
                         "viewport=${CustomerPageOptionViewportPx(ChipBounds = ChipBounds)} " +
+                        "listRect=$CustomerPageOptionListRect " +
                         "deadOffset=$CustomerPageOptionDeadOffset " +
                         "options=${OptionLines.size} " +
                         OptionLines.joinToString(" || ") +
@@ -10086,6 +10241,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             )
             return
         }
+        RefreshCustomerPageOptionListRect(ChipBounds = ChipBounds)
         DumpCustomerPageList(
             ChipBounds = ChipBounds,
             ReasonText = "list-open",
@@ -10117,7 +10273,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     ForwardVal = ScrollForward
                 )
             ) {
-                ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_OPTION_SETTLE_MS) {
                     SelectNextCustomerPage()
                 }
                 return
@@ -10138,6 +10294,14 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                         "option $TargetCustomerPage sits ${UnreachableOffset}px below the " +
                                 "chip, past the ${ViewportPx}px the list actually draws"
                     }
+                )
+                return
+            }
+            if (CustomerPageOptionListRect != null) {
+                RetryCustomerPageNavigation(
+                    ReasonText = "option $TargetCustomerPage sits ${UnreachableOffset}px below " +
+                            "the chip, past the measured ${ViewportPx}px popup " +
+                            "$CustomerPageOptionListRect"
                 )
                 return
             }
@@ -10247,8 +10411,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
         if (DrawnNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
 
-        val ColumnBounds = Rect()
-        for (NodePair in DrawnNodes) ColumnBounds.union(NodePair.second)
+        val ColumnBounds = CustomerPageOptionListRect?.let { RectRef -> Rect(RectRef) } ?: Rect()
+        if (ColumnBounds.isEmpty) {
+            for (NodePair in DrawnNodes) ColumnBounds.union(NodePair.second)
+        }
         if (ColumnBounds.isEmpty) return false
 
         val CurrentSignature = DrawnNodes
@@ -10261,7 +10427,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             PolicySelectorScrollStalls = 0
             CustomerPageOptionSignature = CurrentSignature
         }
-        if (PolicySelectorScrollStalls >= POLICY_SCROLL_STALL_LIMIT) {
+        if (PolicySelectorScrollStalls >= CUSTOMER_PAGE_OPTION_STALL_LIMIT) {
             DiagnosticWarning(
                 EventName = "CUSTOMER_PAGE_OPTION_STALLED",
                 MessageText = "target=$TargetCustomerPage drawn=${DrawnNodes.size} " +
@@ -10338,7 +10504,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                             "reachable<${CustomerPageOptionDeadOffset}px " +
                             "attempt=$CustomerPageOptionDeadTaps"
                 )
-                ScheduleCustomerAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_OPTION_SETTLE_MS) {
                     SelectNextCustomerPage()
                 }
                 return
@@ -11467,6 +11633,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         CustomerPageOptionDeadOffset = 0
         CustomerPageListDumpCount = 0
         CustomerPageListBaselineDumped = false
+        CustomerPageOptionListRect = null
         CustomerPageOptionPendingOffset = 0
         CustomerPageOptionDeadTaps = 0
         CustomerPageOptionSignature = ""
