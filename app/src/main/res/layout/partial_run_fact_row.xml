@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/runFactRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:baselineAligned="false"
+    android:gravity="top"
+    android:orientation="horizontal"
+    android:paddingTop="@dimen/space_xs"
+    android:paddingBottom="@dimen/space_xs">
+
+    <TextView
+        android:id="@+id/tvRunFactLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="0.42"
+        android:textAllCaps="true"
+        android:textAppearance="@style/TextAppearance.App.Caption"
+        android:textColor="@color/text_faint" />
+
+    <TextView
+        android:id="@+id/tvRunFactValue"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_sm"
+        android:layout_weight="0.58"
+        android:fontFeatureSettings="tnum"
+        android:textAppearance="@style/TextAppearance.App.Body" />
+
+</LinearLayout>

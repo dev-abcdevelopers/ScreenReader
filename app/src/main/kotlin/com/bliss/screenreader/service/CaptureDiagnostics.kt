@@ -103,6 +103,14 @@ object CaptureDiagnostics {
     }
 
     fun Log(ContextObj: Context, EventName: String, MessageText: String) {
+        try {
+            RunSummaryTally.Note(
+                ContextObj = ContextObj,
+                EventName = EventName,
+                MessageText = MessageText
+            )
+        } catch (_: Exception) {
+        }
         WriteLine(
             ContextObj = ContextObj,
             CleanSessionId = ActiveSessionId,

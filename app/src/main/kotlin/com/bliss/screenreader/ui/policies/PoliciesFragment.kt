@@ -84,6 +84,7 @@ import com.bliss.screenreader.ui.adapter.SessionSwipeCallback
 import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.ui.changes.ChangesActivity
+import com.bliss.screenreader.ui.runs.RunHistoryActivity
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
@@ -901,6 +902,13 @@ class PoliciesFragment : Fragment() {
         if (SelectedSessionId.isEmpty()) return
         val IntentObj = Intent(requireContext(), ChangesActivity::class.java)
         IntentObj.putExtra(ChangesActivity.EXTRA_SESSION_ID, SelectedSessionId)
+        startActivity(IntentObj)
+    }
+
+    private fun OpenRunHistory() {
+        if (SelectedSessionId.isEmpty()) return
+        val IntentObj = Intent(requireContext(), RunHistoryActivity::class.java)
+        IntentObj.putExtra(RunHistoryActivity.EXTRA_SESSION_ID, SelectedSessionId)
         startActivity(IntentObj)
     }
 
@@ -2002,6 +2010,14 @@ class PoliciesFragment : Fragment() {
         SheetBinding.rowActionExcel.visibility = if (ShowExports) View.VISIBLE else View.GONE
         SheetBinding.rowActionPdf.visibility =
             if (ShowExports && ShowPdfAction) View.VISIBLE else View.GONE
+        SheetBinding.rowActionRunHistory.visibility =
+            if (SettingsStore.IsRunSummaryVisible(ContextRef = requireContext()) &&
+                SessionRef != null
+            ) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
         SheetBinding.rowActionShareLog.visibility =
             if (HasLogs && SessionRef != null) View.VISIBLE else View.GONE
         SheetBinding.rowActionClearLog.visibility =
@@ -2054,6 +2070,7 @@ class PoliciesFragment : Fragment() {
             RowViews = listOf(
                 SheetBinding.rowActionRename,
                 SheetBinding.rowActionNameHistory,
+                SheetBinding.rowActionRunHistory,
                 SheetBinding.rowActionShareLog,
                 SheetBinding.rowActionClearLog,
                 SheetBinding.rowActionDelete
@@ -2079,6 +2096,11 @@ class PoliciesFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             OpenChanges()
+        }
+        SheetBinding.rowActionRunHistory.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            OpenRunHistory()
         }
         SheetBinding.rowActionExcel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)

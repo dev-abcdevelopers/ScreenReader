@@ -61,6 +61,11 @@
             android:parentActivityName=".ui.main.MainActivity" />
 
         <activity
+            android:name=".ui.runs.RunHistoryActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.main.MainActivity" />
+
+        <activity
             android:name=".ui.raw.RawCaptureActivity"
             android:exported="false"
             android:label="@string/title_raw_capture" />

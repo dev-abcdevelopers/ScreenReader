@@ -14,6 +14,7 @@ import com.bliss.screenreader.data.model.PolicyResumeMark
 import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.RunSummary
 import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.model.SessionNameEntry
@@ -49,6 +50,7 @@ object PolicyRepository {
 
     private const val MAX_CHANGE_ENTRIES = 500
     private const val MAX_GAP_ENTRIES = 500
+    private const val MAX_RUN_SUMMARIES = 200
 
     private val GsonInstance = Gson()
 
@@ -284,6 +286,50 @@ object PolicyRepository {
     private fun DueReportStorageKey(SessionId: String): String =
         "due_report_${SafeSessionId(SessionId = SessionId)}"
 
+    fun SaveRunSummary(ContextRef: Context, SummaryObj: RunSummary) {
+        if (SummaryObj.SessionId.isBlank()) return
+        val ExistingList = GetRunSummaries(
+            ContextRef = ContextRef,
+            SessionId = SummaryObj.SessionId
+        )
+        val MergedList = ExistingList
+            .filter { RunItem -> RunItem.StartedAt != SummaryObj.StartedAt }
+            .plus(SummaryObj)
+            .sortedBy { RunItem -> RunItem.StartedAt }
+            .takeLast(MAX_RUN_SUMMARIES)
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            putString(
+                RunSummaryStorageKey(SessionId = SummaryObj.SessionId),
+                GsonInstance.toJson(MergedList)
+            )
+        }
+    }
+
+    fun GetRunSummaries(ContextRef: Context, SessionId: String): List<RunSummary> {
+        if (SessionId.isBlank()) return emptyList()
+        val PrefsObj = SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME)
+        val JsonText = PrefsObj.getString(
+            RunSummaryStorageKey(SessionId = SessionId),
+            null
+        ) ?: return emptyList()
+        val RunType = object : TypeToken<List<RunSummary>>() {}.type
+        return try {
+            GsonInstance.fromJson(JsonText, RunType) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun ClearRunSummaries(ContextRef: Context, SessionId: String) {
+        if (SessionId.isBlank()) return
+        SecurePrefs.Of(ContextRef = ContextRef, PrefsName = PREFS_NAME).edit {
+            remove(RunSummaryStorageKey(SessionId = SessionId))
+        }
+    }
+
+    private fun RunSummaryStorageKey(SessionId: String): String =
+        "run_summary_${SafeSessionId(SessionId = SessionId)}"
+
     fun SaveSessionGaps(ContextRef: Context, SessionId: String, Gaps: List<SessionGap>) {
         if (SessionId.isBlank() || Gaps.isEmpty()) return
         val ExistingGaps = ReadStoredGaps(ContextRef = ContextRef, SessionId = SessionId)
@@ -508,6 +554,7 @@ object PolicyRepository {
             remove(VisitedStorageKey(SessionId = SessionId))
             remove(DueReportStorageKey(SessionId = SessionId))
             remove(NameStorageKey(SessionId = SessionId))
+            remove(RunSummaryStorageKey(SessionId = SessionId))
             for (TrackVal in PolicyResumeTrack.All) {
                 remove(ResumeStorageKey(SessionId = SessionId, TrackVal = TrackVal))
             }

@@ -159,4 +159,67 @@
     <string name="cd_arrow_launch">Open Module</string>
     <string name="cd_document_icon">Document Icon</string>
     <string name="cd_share_button">Share Document</string>
+
+    <string name="runs_title">Run history</string>
+    <string name="action_runs_desc">Every time this session was run</string>
+    <string name="settings_advanced_runs_title">Run history</string>
+    <string name="settings_advanced_runs_desc">Show a report for each time a session ran</string>
+    <string name="runs_summary_format">%1$d run(s) recorded</string>
+    <string name="runs_empty_title">No runs recorded</string>
+    <string name="runs_empty_body">Reports are written when a capture finishes. Runs from before this was switched on are not listed.</string>
+    <string name="runs_entry_title_format">%1$s · %2$s</string>
+
+    <string name="runs_outcome_finished">Finished</string>
+    <string name="runs_outcome_stopped">Stopped early</string>
+    <string name="runs_outcome_user_stopped">You stopped it</string>
+    <string name="runs_outcome_discarded">Discarded</string>
+    <string name="runs_outcome_unfinished">Never finished</string>
+
+    <string name="runs_mode_policy">Policies</string>
+    <string name="runs_mode_policy_full">Policies with details</string>
+    <string name="runs_mode_customer">Personal details</string>
+    <string name="runs_mode_renewal">Renewals</string>
+    <string name="runs_mode_renewal_due">Renewals due</string>
+    <string name="runs_mode_other">Capture</string>
+
+    <string name="runs_group_facts">The run</string>
+    <string name="runs_group_why">Why it stopped</string>
+    <string name="runs_group_along">Along the way</string>
+
+    <string name="runs_fact_ran_for">Ran for</string>
+    <string name="runs_fact_picked_up">Picked up</string>
+    <string name="runs_fact_got_through">Got through</string>
+    <string name="runs_fact_collected">Collected</string>
+    <string name="runs_fact_saved">Saved</string>
+
+    <string name="runs_value_ran_for">%1$s  (%2$s – %3$s)</string>
+    <string name="runs_value_fresh">a fresh start</string>
+    <string name="runs_value_resumed">an earlier run · %1$d already done</string>
+    <string name="runs_value_pages">pages %1$d to %2$d of %3$d</string>
+    <string name="runs_value_collected_policy">%1$d policies</string>
+    <string name="runs_value_collected_customer">%1$d customers · %2$d policies filled</string>
+    <string name="runs_value_saved">yes — %1$d new, %2$d updated</string>
+    <string name="runs_value_saved_none">yes — nothing new</string>
+    <string name="runs_value_discarded">no — you discarded it</string>
+    <string name="runs_value_paused">%1$d  (%2$s in total)</string>
+    <string name="runs_nothing_in_the_way">Nothing got in the way.</string>
+
+    <string name="runs_counter_wrong_page">Wrong page opened</string>
+    <string name="runs_counter_page_failed">Page selection failed</string>
+    <string name="runs_counter_asked_you">Asked you to pick a page</string>
+    <string name="runs_counter_you_turned">You turned a page</string>
+    <string name="runs_counter_restarted">Restarted from page 1</string>
+    <string name="runs_counter_recovered">Recovered and carried on</string>
+    <string name="runs_counter_app_error">LIC error screen</string>
+    <string name="runs_counter_cards_skipped">Cards skipped</string>
+    <string name="runs_counter_offline">Waited for internet</string>
+    <string name="runs_counter_paused">You paused</string>
+
+    <string name="runs_short_policies">%1$d policies</string>
+    <string name="runs_short_customers">%1$d customers</string>
+
+    <string name="runs_span_seconds">%1$d s</string>
+    <string name="runs_span_minutes">%1$d min %2$d s</string>
+    <string name="runs_span_hours">%1$d h %2$d min</string>
+
 </resources>

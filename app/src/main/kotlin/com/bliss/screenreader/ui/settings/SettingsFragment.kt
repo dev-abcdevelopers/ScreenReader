@@ -254,6 +254,20 @@ class SettingsFragment : Fragment() {
 
         AddRow(
             ContainerRef = SectionRef,
+            TitleText = getString(R.string.settings_advanced_runs_title),
+            DescText = getString(R.string.settings_advanced_runs_desc),
+            IconRes = R.drawable.ic_history,
+            SwitchState = SettingsStore.IsRunSummaryVisible(ContextRef = ContextRef)
+        ) {
+            SettingsStore.SetRunSummaryVisible(
+                ContextRef = ContextRef,
+                EnabledVal = !SettingsStore.IsRunSummaryVisible(ContextRef = ContextRef)
+            )
+            RenderAll()
+        }
+
+        AddRow(
+            ContainerRef = SectionRef,
             TitleText = getString(R.string.settings_advanced_exports_title),
             DescText = getString(R.string.settings_advanced_exports_desc),
             IconRes = R.drawable.ic_export,

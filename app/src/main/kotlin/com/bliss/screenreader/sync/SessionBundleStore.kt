@@ -192,6 +192,10 @@ object SessionBundleStore {
             NameHistory = PolicyRepository.GetSessionNameHistory(
                 ContextRef = ContextRef,
                 SessionId = SessionId
+            ),
+            Runs = PolicyRepository.GetRunSummaries(
+                ContextRef = ContextRef,
+                SessionId = SessionId
             )
         )
     }
@@ -382,6 +386,13 @@ object SessionBundleStore {
             AgencyCode = EntryRef.AgencyCode,
             NameHistory = EntryRef.NameHistory.orEmpty()
         )
+
+        for (RunItem in EntryRef.Runs.orEmpty()) {
+            PolicyRepository.SaveRunSummary(
+                ContextRef = ContextRef,
+                SummaryObj = RunItem.copy(SessionId = EntryRef.SessionId)
+            )
+        }
 
         CaptureDiagnostics.LogForSession(
             ContextObj = ContextRef,

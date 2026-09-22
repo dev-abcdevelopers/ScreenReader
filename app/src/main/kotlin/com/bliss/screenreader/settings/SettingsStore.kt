@@ -31,6 +31,7 @@ object SettingsStore {
     private const val KEY_IDLE_LOCK_MS = "idle_lock_ms"
     private const val KEY_ADVANCED_UNLOCKED = "advanced_unlocked"
     private const val KEY_SESSION_EXPORT = "session_export_visible"
+    private const val KEY_RUN_SUMMARY = "run_summary_visible"
     private const val KEY_RENEWAL_HISTORY = "renewal_history_visible"
     private const val KEY_RENEWAL_DUE = "renewal_due_visible"
     private const val KEY_AUTO_SAVE_SESSIONS = "auto_save_sessions"
@@ -197,6 +198,13 @@ object SettingsStore {
 
     fun SetSessionExportVisible(ContextRef: Context, EnabledVal: Boolean) {
         Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_SESSION_EXPORT, EnabledVal) }
+    }
+
+    fun IsRunSummaryVisible(ContextRef: Context): Boolean =
+        Prefs(ContextRef = ContextRef).getBoolean(KEY_RUN_SUMMARY, false)
+
+    fun SetRunSummaryVisible(ContextRef: Context, EnabledVal: Boolean) {
+        Prefs(ContextRef = ContextRef).edit { putBoolean(KEY_RUN_SUMMARY, EnabledVal) }
     }
 
     fun IsRenewalHistoryVisible(ContextRef: Context): Boolean =

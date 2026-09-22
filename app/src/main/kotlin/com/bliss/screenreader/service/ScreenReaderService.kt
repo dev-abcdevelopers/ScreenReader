@@ -111,7 +111,6 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val POLICY_SELECTOR_SCROLL_LIMIT = 12
         private const val POLICY_SELECTOR_REOPEN_LIMIT = 2
         private const val POLICY_SELECTOR_SCROLL_SETTLE_MS = 650L
-        private const val POLICY_SELECTOR_SCROLL_DURATION_MS = 420L
         private const val POLICY_SELECTOR_DRAG_SPEED_PX_PER_MS = 1.2f
         private const val POLICY_SELECTOR_DRAG_MIN_MS = 420L
         private const val POLICY_SELECTOR_DRAG_MAX_MS = 1600L
@@ -237,6 +236,12 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val CUSTOMER_PAGE_CHIP_MIN_HEIGHT_DIVISOR = 3
         private const val CUSTOMER_PAGE_OPTION_STALL_LIMIT = 3
         private const val CUSTOMER_PAGE_OPTION_SETTLE_MS = 900L
+        private const val CUSTOMER_PAGE_OPTION_DRAG_SPEED_PX_PER_MS = 1.0f
+        private const val CUSTOMER_PAGE_OPTION_DRAG_MIN_MS = 380L
+        private const val CUSTOMER_PAGE_OPTION_DRAG_MAX_MS = 1200L
+        private const val CUSTOMER_PAGE_OPTION_MAX_TRAVEL_RATIO = 0.72f
+        private const val CUSTOMER_PAGE_OPTION_STABLE_RECHECK_MS = 160L
+        private const val CUSTOMER_PAGE_OPTION_STABLE_LIMIT = 4
         private const val MAX_PAGE_LIST_DUMPS = 3
         private const val MAX_PAGE_LIST_DUMP_NODES = 24
         private const val MAX_PAGE_LIST_ANCESTORS = 8
@@ -377,6 +382,9 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var CustomerPageOptionPendingOffset = 0
     private var CustomerPageOptionDeadTaps = 0
     private var CustomerPageOptionSignature = ""
+    private var CustomerPageOptionLastDragMs = 0L
+    private var CustomerPageOptionStableTop = Int.MIN_VALUE
+    private var CustomerPageOptionStableChecks = 0
     private var CustomerPageListDumpCount = 0
     private var CustomerPageListBaselineDumped = false
     private var CustomerPageOptionListRect: Rect? = null
@@ -10485,10 +10493,14 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             if (ScrollCustomerPageOptionList(
                     OptionNodes = OptionNodes,
                     ChipBounds = ChipBounds,
-                    ForwardVal = ScrollForward
+                    ForwardVal = ScrollForward,
+                    TargetBounds = OptionBounds
                 )
             ) {
-                ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_OPTION_SETTLE_MS) {
+                CustomerPageOptionStableTop = Int.MIN_VALUE
+                ScheduleCustomerAction(
+                    DelayMs = CUSTOMER_PAGE_OPTION_SETTLE_MS + CustomerPageOptionLastDragMs
+                ) {
                     SelectNextCustomerPage()
                 }
                 return
@@ -10562,6 +10574,34 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             )
             return
         }
+        if (CustomerPageOptionStableTop != OptionBounds.top) {
+            CustomerPageOptionStableTop = OptionBounds.top
+            CustomerPageOptionStableChecks++
+            if (CustomerPageOptionStableChecks <= CUSTOMER_PAGE_OPTION_STABLE_LIMIT) {
+                DiagnosticInfo(
+                    EventName = "CUSTOMER_PAGE_OPTION_MOVING",
+                    MessageText = "target=$TargetCustomerPage top=${OptionBounds.top} " +
+                            "check=$CustomerPageOptionStableChecks; waiting for the column to stop"
+                )
+                ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_OPTION_STABLE_RECHECK_MS) {
+                    SelectNextCustomerPage()
+                }
+                return
+            }
+            DiagnosticWarning(
+                EventName = "CUSTOMER_PAGE_OPTION_UNSTABLE",
+                MessageText = "target=$TargetCustomerPage top=${OptionBounds.top} " +
+                        "checks=$CustomerPageOptionStableChecks; the column never stopped moving"
+            )
+            CustomerPageOptionStableTop = Int.MIN_VALUE
+            CustomerPageOptionStableChecks = 0
+            RetryCustomerPageNavigation(
+                ReasonText = "option $TargetCustomerPage never stopped moving"
+            )
+            return
+        }
+        CustomerPageOptionStableTop = Int.MIN_VALUE
+        CustomerPageOptionStableChecks = 0
         CustomerPageOptionPendingOffset = OffsetPx
         val TapAccepted = PerformTapGesture(XPos = TapXPos, YPos = TapYPos)
         DiagnosticInfo(
@@ -10573,8 +10613,13 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_LOAD_DELAY_MS) { WaitForCustomerPageLoad() }
     }
 
-    private fun SwipeCustomerPageOptionColumn(BoundsObj: Rect, ForwardVal: Boolean): Boolean {
+    private fun DragCustomerPageOptionColumn(
+        BoundsObj: Rect,
+        ForwardVal: Boolean,
+        DistancePx: Float
+    ): Boolean {
         CollapseBubbleForGesture()
+        CustomerPageOptionLastDragMs = 0L
         val ColumnHeight = BoundsObj.height().toFloat()
         val MinimumHeight = CUSTOMER_PAGE_OPTION_MIN_VIEWPORT_DP * resources.displayMetrics.density
         if (ColumnHeight < MinimumHeight) return false
@@ -10584,21 +10629,32 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         val NearBottom = BoundsObj.bottom - ColumnHeight * 0.12f
         if (NearBottom <= NearTop) return false
 
+        val TravelLimit = (NearBottom - NearTop) * CUSTOMER_PAGE_OPTION_MAX_TRAVEL_RATIO
+        if (TravelLimit <= 1f) return false
+        val TravelDistance = DistancePx.coerceIn(1f, TravelLimit)
+
+        val StartYVal = if (ForwardVal) NearBottom else NearTop
+        val EndYVal = if (ForwardVal) {
+            StartYVal - TravelDistance
+        } else {
+            StartYVal + TravelDistance
+        }
+        val DragMs = Paced(
+            BaseMs = (TravelDistance / CUSTOMER_PAGE_OPTION_DRAG_SPEED_PX_PER_MS).toLong()
+                .coerceIn(CUSTOMER_PAGE_OPTION_DRAG_MIN_MS, CUSTOMER_PAGE_OPTION_DRAG_MAX_MS)
+        )
+
         val ScrollPath = Path().apply {
-            moveTo(StartXVal, if (ForwardVal) NearBottom else NearTop)
-            lineTo(StartXVal, if (ForwardVal) NearTop else NearBottom)
+            moveTo(StartXVal, StartYVal)
+            lineTo(StartXVal, EndYVal)
         }
         val GestureObj = GestureDescription.Builder()
-            .addStroke(
-                GestureDescription.StrokeDescription(
-                    ScrollPath,
-                    0,
-                    POLICY_SELECTOR_SCROLL_DURATION_MS
-                )
-            )
+            .addStroke(GestureDescription.StrokeDescription(ScrollPath, 0, DragMs))
             .build()
         return try {
-            dispatchGesture(GestureObj, null, null)
+            val Dispatched = dispatchGesture(GestureObj, null, null)
+            if (Dispatched) CustomerPageOptionLastDragMs = DragMs
+            Dispatched
         } catch (ExceptionObj: Exception) {
             DiagnosticWarning(
                 EventName = "CUSTOMER_PAGE_OPTION_SCROLL_ERROR",
@@ -10609,10 +10665,19 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
     }
 
+    private fun CustomerPageOptionRowPitch(OptionNodes: List<Pair<String, Rect>>): Float {
+        val NumberedList = OptionNodes.mapNotNull { NodePair ->
+            NodePair.first.trim().toIntOrNull()?.let { NumberVal -> Pair(NumberVal, NodePair.second) }
+        }
+        if (NumberedList.size < 2) return 0f
+        return PolicySelectorRowPitch(ColumnList = NumberedList)
+    }
+
     private fun ScrollCustomerPageOptionList(
         OptionNodes: List<Pair<String, Rect>>,
         ChipBounds: Rect,
-        ForwardVal: Boolean
+        ForwardVal: Boolean,
+        TargetBounds: Rect?
     ): Boolean {
         if (PolicySelectorScrollCount >= POLICY_SELECTOR_SCROLL_LIMIT) return false
         if (OptionNodes.size < POLICY_SELECTOR_OPTION_MIN_COUNT) return false
@@ -10651,16 +10716,33 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             return false
         }
 
-        val ScrollAccepted = SwipeCustomerPageOptionColumn(
+        val RowPitch = CustomerPageOptionRowPitch(OptionNodes = OptionNodes)
+        val RestingTop = ChipBounds.bottom + (if (RowPitch > 0f) RowPitch else 0f)
+        val NeededPx = if (TargetBounds != null && RowPitch > 0f) {
+            TargetBounds.top - RestingTop
+        } else {
+            null
+        }
+        val DragForward = if (NeededPx != null) NeededPx > 0f else ForwardVal
+        val DistancePx = if (NeededPx != null) {
+            kotlin.math.abs(NeededPx)
+        } else {
+            ViewportPx * CUSTOMER_PAGE_OPTION_MAX_TRAVEL_RATIO
+        }
+
+        val ScrollAccepted = DragCustomerPageOptionColumn(
             BoundsObj = ColumnBounds,
-            ForwardVal = ForwardVal
+            ForwardVal = DragForward,
+            DistancePx = DistancePx
         )
         PolicySelectorScrollCount++
         DiagnosticInfo(
             EventName = "CUSTOMER_PAGE_OPTION_SCROLL",
             MessageText = "target=$TargetCustomerPage attempt=$PolicySelectorScrollCount " +
-                    "direction=${if (ForwardVal) "down" else "up"} " +
+                    "direction=${if (DragForward) "down" else "up"} " +
                     "drawn=${DrawnNodes.size} of ${OptionNodes.size} " +
+                    "pitch=${RowPitch.toInt()} needPx=${NeededPx?.toInt() ?: -1} " +
+                    "dragPx=${DistancePx.toInt()} dragMs=$CustomerPageOptionLastDragMs " +
                     "viewport=${ViewportPx}px bounds=$ColumnBounds accepted=$ScrollAccepted"
         )
         return ScrollAccepted
@@ -10678,6 +10760,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             CustomerScrollStallCount = 0
             CustomerPageOptionPendingOffset = 0
             CustomerPageOptionDeadTaps = 0
+            CustomerPageOptionStableTop = Int.MIN_VALUE
+            CustomerPageOptionStableChecks = 0
             LatestCustomerVisibleSignature = 0
             DiagnosticInfo(
                 EventName = "CUSTOMER_PAGE_LOADED",
@@ -10719,6 +10803,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                             "reachable<${CustomerPageOptionDeadOffset}px " +
                             "attempt=$CustomerPageOptionDeadTaps"
                 )
+                CustomerPageOptionStableTop = Int.MIN_VALUE
                 ScheduleCustomerAction(DelayMs = CUSTOMER_PAGE_OPTION_SETTLE_MS) {
                     SelectNextCustomerPage()
                 }
@@ -10731,6 +10816,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun RetryCustomerPageNavigation(ReasonText: String) {
+        CustomerPageOptionStableTop = Int.MIN_VALUE
+        CustomerPageOptionStableChecks = 0
         CustomerPageRetryCount++
         DiagnosticWarning(
             EventName = "CUSTOMER_PAGE_RETRY",

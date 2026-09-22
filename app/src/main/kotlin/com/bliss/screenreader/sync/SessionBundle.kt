@@ -7,6 +7,7 @@ import com.bliss.screenreader.data.model.FupPolicy
 import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.PsPolicy
 import com.bliss.screenreader.data.model.RecordFieldChange
+import com.bliss.screenreader.data.model.RunSummary
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.model.SessionNameEntry
 
@@ -26,7 +27,8 @@ data class SessionBundleEntry(
     val Gaps: List<SessionGap>? = null,
     val Changes: Map<String, List<RecordFieldChange>>? = null,
     val VisitedCustomers: List<String>? = null,
-    val NameHistory: List<SessionNameEntry>? = null
+    val NameHistory: List<SessionNameEntry>? = null,
+    val Runs: List<RunSummary>? = null
 ) {
     val TotalRecordCount: Int
         get() = Policies.orEmpty().size + Renewals.orEmpty().size +
