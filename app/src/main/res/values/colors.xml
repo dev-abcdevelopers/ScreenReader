@@ -51,6 +51,7 @@
     <!-- Capture overlay -->
     <color name="bubble_surface">#1E40AF</color>
     <color name="bubble_surface_paused">#475569</color>
+    <color name="bubble_surface_waiting">#B45309</color>
     <color name="bubble_stroke">#3B82F6</color>
     <color name="bubble_meta_text">#DBEAFE</color>
     <color name="bubble_on_surface">#FFFFFF</color>

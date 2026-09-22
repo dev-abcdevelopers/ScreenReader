@@ -47,6 +47,7 @@
 
     <color name="bubble_surface">#1D4ED8</color>
     <color name="bubble_surface_paused">#374151</color>
+    <color name="bubble_surface_waiting">#92400E</color>
     <color name="bubble_stroke">#3B82F6</color>
     <color name="bubble_meta_text">#DBEAFE</color>
     <color name="bubble_on_surface">#FFFFFF</color>

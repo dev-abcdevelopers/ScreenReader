@@ -109,6 +109,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val POLICY_PAGE_RETRY_LIMIT = 3
         private const val POLICY_AUTOMATION_RECOVERY_LIMIT = 3
         private const val POLICY_SELECTOR_SCROLL_LIMIT = 12
+        private const val POLICY_SELECTOR_REOPEN_LIMIT = 2
         private const val POLICY_SELECTOR_SCROLL_SETTLE_MS = 650L
         private const val POLICY_SELECTOR_SCROLL_DURATION_MS = 420L
         private const val POLICY_SELECTOR_OPTION_MIN_COUNT = 4
@@ -475,6 +476,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var PolicySelectorScrollCount = 0
     private var PolicySelectorHighestOption = 0
     private var PolicySelectorScrollStalls = 0
+    private var PolicySelectorReopenCount = 0
+    private var PolicyPageBeforeSelect = 0
+    private var IsAwaitingManualPolicyPage = false
+    private var ManualPolicyPageTarget = 0
     private var PolicyLastFailurePage = 0
     private var IsPolicyDetailScreenActive = false
     private var IsPolicyDashboardScreenVisible = false
@@ -589,7 +594,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         override fun run() {
             if (!IsCapturing) return
             val PolicyAutomationOwnsCapture = CurrentMode == CaptureMode.POLICY &&
-                    IsPolicyDashboardAutomationRunning
+                    IsPolicyDashboardAutomationRunning &&
+                    !IsAwaitingManualPolicyPage
             val RenewalAutomationOwnsCapture = CurrentMode == CaptureMode.FUP &&
                     IsRenewalAutomationRunning
             if (!IsPaused &&
@@ -918,6 +924,12 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     EventName = "POLICY_PAGE_DETECTED",
                     MessageText = "page=$PolicyCurrentPage total=$PolicyTotalPages"
                 )
+            }
+            if (IsAwaitingManualPolicyPage &&
+                PolicyCurrentPage > 0 &&
+                PolicyCurrentPage != PolicyPageBeforeSelect
+            ) {
+                ResumeAfterManualPolicyPage()
             }
         }
 
@@ -3683,6 +3695,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun OpenPolicyPageSelector() {
+        PolicyPageBeforeSelect = PolicyCurrentPage
         PolicyExpectedPage = if (PolicyJumpTarget > 0) {
             PolicyJumpTarget
         } else if (PolicyCurrentPage > 0) {
@@ -3749,15 +3762,35 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
 
         if (!PageSelected) {
-            if (ScrollPolicyPageSelectorList()) {
-                SchedulePolicyAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
-                    SelectNextPolicyPage()
+            when (ScrollPolicyPageSelectorList()) {
+                PolicySelectorScrollOutcome.SCROLLED -> {
+                    SchedulePolicyAction(DelayMs = POLICY_SELECTOR_SCROLL_SETTLE_MS) {
+                        SelectNextPolicyPage()
+                    }
                 }
-                return
+
+                PolicySelectorScrollOutcome.LIST_MISSING -> {
+                    ResetPolicySelectorScrollState()
+                    if (PolicySelectorReopenCount < POLICY_SELECTOR_REOPEN_LIMIT) {
+                        PolicySelectorReopenCount++
+                        DiagnosticInfo(
+                            EventName = "POLICY_SELECTOR_REOPEN",
+                            MessageText = "expected=$PolicyExpectedPage page=$PolicyCurrentPage " +
+                                    "attempt=$PolicySelectorReopenCount"
+                        )
+                        SchedulePolicyAction(DelayMs = POLICY_PAGE_SELECTOR_DELAY_MS) {
+                            ReturnToPolicyPageSelector()
+                        }
+                    } else {
+                        AwaitManualPolicyPage(TargetPage = PolicyExpectedPage)
+                    }
+                }
+
+                PolicySelectorScrollOutcome.EXHAUSTED -> {
+                    ResetPolicySelectorScrollState()
+                    AwaitManualPolicyPage(TargetPage = PolicyExpectedPage)
+                }
             }
-            ResetPolicySelectorScrollState()
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            RetryPolicyPageNavigation("Could not select page $PolicyExpectedPage")
             return
         }
 
@@ -3773,6 +3806,25 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private fun WaitForPolicyPageLoad() {
         SchedulePolicyAction(DelayMs = POLICY_PAGE_LOAD_DELAY_MS) {
             CaptureActiveWindow(ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE)
+
+            if (IsPolicyPageSelectorVisible &&
+                PolicyCurrentPage > 0 &&
+                PolicyCurrentPage != PolicyExpectedPage &&
+                PolicyCurrentPage != PolicyPageBeforeSelect &&
+                !IsRestoringPolicyPageAfterDetail
+            ) {
+                DiagnosticInfo(
+                    EventName = "POLICY_PAGE_ADOPTED",
+                    MessageText = "expected=$PolicyExpectedPage actual=$PolicyCurrentPage " +
+                            "from=$PolicyPageBeforeSelect total=$PolicyTotalPages"
+                )
+                PolicyExpectedPage = PolicyCurrentPage
+                PolicyPageBeforeSelect = PolicyCurrentPage
+                ClearPolicyJump()
+                PolicyResumeTargetPage = 0
+                PolicyAutomationFailureCount = 0
+                PolicyLastFailurePage = 0
+            }
 
             if (!IsPolicyPageSelectorVisible || PolicyCurrentPage != PolicyExpectedPage) {
                 PolicyPageRetryCount++
@@ -3798,6 +3850,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
             PolicyPageRetryCount = 0
             PolicyScrollStallCount = 0
+            PolicySelectorReopenCount = 0
             if (PolicyCurrentPage > PolicyLastFailurePage) {
                 PolicyAutomationFailureCount = 0
                 PolicyLastFailurePage = 0
@@ -3996,20 +4049,22 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         return true
     }
 
-    private fun ScrollPolicyPageSelectorList(): Boolean {
+    private enum class PolicySelectorScrollOutcome { SCROLLED, LIST_MISSING, EXHAUSTED }
+
+    private fun ScrollPolicyPageSelectorList(): PolicySelectorScrollOutcome {
         if (PolicySelectorScrollCount >= POLICY_SELECTOR_SCROLL_LIMIT) {
             DiagnosticWarning(
                 EventName = "POLICY_SELECTOR_SCROLL_LIMIT",
                 MessageText = "expected=$PolicyExpectedPage scrolls=$PolicySelectorScrollCount " +
                         "highestVisible=$PolicySelectorHighestOption"
             )
-            return false
+            return PolicySelectorScrollOutcome.EXHAUSTED
         }
 
         val OptionList = mutableListOf<Pair<Int, Rect>>()
         val RootNode = FindReadableRoot(
             ExpectedPackage = AppLauncherUtils.LIC_SUPER_APP_PACKAGE
-        ) ?: return false
+        ) ?: return PolicySelectorScrollOutcome.LIST_MISSING
         try {
             CollectPolicyPageOptions(TargetNode = RootNode, OutList = OptionList)
         } finally {
@@ -4039,7 +4094,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 MessageText = "expected=$PolicyExpectedPage options=${ColumnList.size} " +
                         "bounds=$OptionBounds"
             )
-            return false
+            return PolicySelectorScrollOutcome.LIST_MISSING
         }
 
         val HighestOption = ColumnList.maxOf { OptionItem -> OptionItem.first }
@@ -4056,7 +4111,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 EventName = "POLICY_SELECTOR_SCROLL_STALLED",
                 MessageText = "expected=$PolicyExpectedPage highestVisible=$PolicySelectorHighestOption"
             )
-            return false
+            return PolicySelectorScrollOutcome.EXHAUSTED
         }
 
         val ScrollAccepted = ScrollNodeCoveringBounds(BoundsObj = OptionBounds) ||
@@ -4068,7 +4123,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "options=${ColumnList.size} highestVisible=$HighestOption " +
                     "bounds=$OptionBounds accepted=$ScrollAccepted"
         )
-        return ScrollAccepted
+        return if (ScrollAccepted) {
+            PolicySelectorScrollOutcome.SCROLLED
+        } else {
+            PolicySelectorScrollOutcome.EXHAUSTED
+        }
     }
 
     private fun CollectPolicyPageOptions(
@@ -4198,6 +4257,59 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         }
         SchedulePolicyAction(DelayMs = POLICY_PAGE_LOAD_DELAY_MS) {
             ReturnToPolicyPageSelector()
+        }
+    }
+
+    private fun AwaitManualPolicyPage(TargetPage: Int) {
+        if (IsAwaitingManualPolicyPage) return
+        PolicyAutomationRunnable?.let { RunnableRef -> MainHandler.removeCallbacks(RunnableRef) }
+        PolicyAutomationRunnable = null
+        IsAwaitingManualPolicyPage = true
+        ManualPolicyPageTarget = TargetPage
+        PolicyPageRetryCount = 0
+        PolicyReturnToTopCount = 0
+        PolicyScrollStallCount = 0
+        PolicySelectorReopenCount = 0
+        ResetPolicySelectorScrollState()
+        ClearPolicyJump()
+        PolicyResumeTargetPage = 0
+        SavePolicyResumeProgress(IsCompleteVal = false)
+        DiagnosticWarning(
+            EventName = "POLICY_MANUAL_PAGE_WAIT",
+            MessageText = "target=$TargetPage page=$PolicyCurrentPage total=$PolicyTotalPages " +
+                    "captured=${CapturedPolicyMap.size}"
+        )
+        ShowServiceToast(
+            MessageText = getString(R.string.toast_manual_page_needed, TargetPage),
+            KindVal = AppToast.Kind.Warning
+        )
+        RefreshBubble()
+    }
+
+    private fun ResumeAfterManualPolicyPage() {
+        if (!IsAwaitingManualPolicyPage) return
+        IsAwaitingManualPolicyPage = false
+        DiagnosticInfo(
+            EventName = "POLICY_MANUAL_PAGE_ACCEPTED",
+            MessageText = "target=$ManualPolicyPageTarget page=$PolicyCurrentPage " +
+                    "total=$PolicyTotalPages captured=${CapturedPolicyMap.size}"
+        )
+        ManualPolicyPageTarget = 0
+        PolicyExpectedPage = PolicyCurrentPage
+        PolicyPageBeforeSelect = PolicyCurrentPage
+        PolicyPageRetryCount = 0
+        PolicyReturnToTopCount = 0
+        PolicyScrollStallCount = 0
+        PolicySelectorReopenCount = 0
+        PolicyAutomationFailureCount = 0
+        PolicyLastFailurePage = 0
+        PolicyAutomationRetryAfter = 0L
+        ResetPolicySelectorScrollState()
+        ClearPolicyJump()
+        IsPolicyDashboardAutomationRunning = true
+        RefreshBubble()
+        SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
+            StartPolicyPageWork()
         }
     }
 
@@ -4494,6 +4606,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             PolicyPageRetryCount = 0
             PolicyReturnToTopCount = 0
             PolicyScrollStallCount = 0
+            PolicySelectorReopenCount = 0
+            PolicyPageBeforeSelect = 0
+            IsAwaitingManualPolicyPage = false
+            ManualPolicyPageTarget = 0
             LatestPolicyVisibleSignature = 0
             IsPolicyPageSelectorVisible = false
             LatestPolicyPageNumbers = emptyList()
@@ -4532,6 +4648,10 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             if (IsPaused) {
                 PolicyAutomationRunnable = WrappedRunnable
                 MainHandler.postDelayed(WrappedRunnable, TICK_INTERVAL_MS)
+                return@Runnable
+            }
+            if (IsAwaitingManualPolicyPage) {
+                PolicyAutomationRunnable = null
                 return@Runnable
             }
             if (!IsScreenSettled(WaitCount = RenderWaitCount)) {
@@ -8352,6 +8472,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         TvBubbleCount?.text = when {
             IsPaused -> getString(R.string.bubble_paused)
+            IsAwaitingManualPolicyPage ->
+                getString(R.string.bubble_manual_page, ManualPolicyPageTarget)
             IsCustomerMode && SessionPolicyNumbers.isNotEmpty() -> CustomerCountLabel()
             RecordCount == 0 -> getString(R.string.bubble_starting)
             else -> CurrentMode.DescribeCount(CountVal = RecordCount)
@@ -8372,7 +8494,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         )
 
         PillContainer?.setBackgroundResource(
-            if (IsPaused) R.drawable.bg_bubble_pill_paused else R.drawable.bg_bubble_pill
+            when {
+                IsPaused -> R.drawable.bg_bubble_pill_paused
+                IsAwaitingManualPolicyPage -> R.drawable.bg_bubble_pill_waiting
+                else -> R.drawable.bg_bubble_pill
+            }
         )
 
         CaptureSessionState.OnProgress(
