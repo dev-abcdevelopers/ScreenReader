@@ -9,11 +9,16 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
 import com.bliss.screenreader.data.model.CaptureMode
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object CaptureDiagnostics {
 
@@ -29,6 +34,9 @@ object CaptureDiagnostics {
     private const val MAX_VISIBLE_NODES = 100
     private const val MAX_NODE_LENGTH = 240
     private const val SHARE_MIME_TYPE = "text/plain"
+    private const val SHARE_ZIP_MIME_TYPE = "application/zip"
+    private const val ZIP_DIRECTORY_NAME = "shared-logs"
+    private const val ZIP_EXTENSION = ".zip"
     private const val SHARE_SUBJECT = "Screen Reader capture diagnostics"
     private const val SHARE_CLIP_LABEL = "capture diagnostics"
     private const val SEPARATOR =
@@ -221,6 +229,28 @@ object CaptureDiagnostics {
         val ExistingFiles = LogFiles.filter { FileRef -> FileRef.exists() }
         if (ExistingFiles.isEmpty()) return null
 
+        if (ExistingFiles.size > 1) {
+            val ZipFile = BuildLogZip(ContextObj = ContextObj, LogFiles = ExistingFiles)
+            if (ZipFile != null) {
+                val ZipUri = runCatching {
+                    FileProvider.getUriForFile(
+                        ContextObj,
+                        "${ContextObj.packageName}.fileprovider",
+                        ZipFile
+                    )
+                }.getOrNull()
+                if (ZipUri != null) {
+                    return Intent(Intent.ACTION_SEND).apply {
+                        putExtra(Intent.EXTRA_STREAM, ZipUri)
+                        type = SHARE_ZIP_MIME_TYPE
+                        putExtra(Intent.EXTRA_SUBJECT, SHARE_SUBJECT)
+                        clipData = ClipData.newRawUri(SHARE_CLIP_LABEL, ZipUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+            }
+        }
+
         val AuthorityText = "${ContextObj.packageName}.fileprovider"
         val UriList = ArrayList<Uri>(ExistingFiles.size)
         for (FileRef in ExistingFiles) {
@@ -250,6 +280,28 @@ object CaptureDiagnostics {
             putExtra(Intent.EXTRA_SUBJECT, SHARE_SUBJECT)
             clipData = ClipDataObj
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    private fun BuildLogZip(ContextObj: Context, LogFiles: List<File>): File? {
+        return try {
+            val ZipDirectory = File(ContextObj.cacheDir, ZIP_DIRECTORY_NAME)
+            ZipDirectory.mkdirs()
+            ZipDirectory.listFiles()?.forEach { StaleFile -> StaleFile.delete() }
+
+            val BaseName = LogFiles.first().name.substringBeforeLast('.')
+            val ZipFile = File(ZipDirectory, BaseName + ZIP_EXTENSION)
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(ZipFile))).use { ZipStream ->
+                ZipStream.setLevel(Deflater.BEST_COMPRESSION)
+                for (FileRef in LogFiles) {
+                    ZipStream.putNextEntry(ZipEntry(FileRef.name))
+                    FileRef.inputStream().use { InputRef -> InputRef.copyTo(ZipStream) }
+                    ZipStream.closeEntry()
+                }
+            }
+            if (ZipFile.length() > 0L) ZipFile else null
+        } catch (_: Exception) {
+            null
         }
     }
 
