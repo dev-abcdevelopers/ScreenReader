@@ -95,6 +95,7 @@
     <string name="bubble_discard">Discard session</string>
     <string name="bubble_paused">Paused</string>
     <string name="bubble_manual_page">Pick page %1$d</string>
+    <string name="toast_home_nav_needed">Can\'t reach the %1$s tab. Please open it and capture will carry on.</string>
     <string name="toast_manual_page_needed">Can\'t open page %1$d. Please pick it from the page list and capture will carry on.</string>
     <string name="bubble_meta_format">%1$s · %2$d fields</string>
     <string name="bubble_customer_count_format">%1$d of %2$d filled</string>
