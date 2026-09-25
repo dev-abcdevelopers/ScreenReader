@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_margin">24dp</dimen>
+    <dimen name="screen_margin_bleed">-24dp</dimen>
+    <dimen name="section_gap">24dp</dimen>
+</resources>

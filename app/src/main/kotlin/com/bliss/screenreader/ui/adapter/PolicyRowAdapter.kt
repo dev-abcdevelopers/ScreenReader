@@ -21,6 +21,7 @@ class PolicyRowAdapter(
 ) : RecyclerView.Adapter<PolicyRowAdapter.PolicyViewHolder>() {
 
     private var OpenRowNumber: String = ""
+    private var ActiveNumber: String = ""
     private val SelectedNumbers = linkedSetOf<String>()
 
     var IsSelectionMode: Boolean = false
@@ -56,6 +57,14 @@ class PolicyRowAdapter(
     }
 
     fun IsRowOpen(PolicyNumber: String): Boolean = OpenRowNumber == PolicyNumber
+
+    fun SetActiveNumber(PolicyNumber: String) {
+        if (ActiveNumber == PolicyNumber) return
+        val PreviousNumber = ActiveNumber
+        ActiveNumber = PolicyNumber
+        NotifyRowChanged(PolicyNumber = PreviousNumber)
+        NotifyRowChanged(PolicyNumber = PolicyNumber)
+    }
 
     private fun NotifyRowChanged(PolicyNumber: String) {
         if (PolicyNumber.isEmpty()) return
@@ -143,6 +152,14 @@ class PolicyRowAdapter(
             if (IsSelectionMode) View.VISIBLE else View.GONE
         BindingRef.cbPolicySelect.isChecked = IsSelected
         BindingRef.rowRoot.isActivated = IsSelected
+        val IsActiveRow = !IsSelectionMode && ActiveNumber.isNotEmpty() &&
+                ActiveNumber == PolicyItem.PolicyNumber
+        BindingRef.rowRoot.setBackgroundColor(
+            ContextCompat.getColor(
+                ContextRef,
+                if (IsActiveRow) R.color.primary_container else R.color.surface_light
+            )
+        )
 
         val RevealPx = if (!IsSelectionMode && IsRowOpen(PolicyNumber = PolicyItem.PolicyNumber)) {
             BindingRef.root.resources.getDimensionPixelSize(R.dimen.policy_reveal_width).toFloat()

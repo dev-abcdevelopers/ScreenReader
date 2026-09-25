@@ -468,6 +468,9 @@
     <string name="status_lapsed">Lapsed</string>
     <string name="status_unknown">Unknown</string>
 
+    <string name="pane_pick_session">Open a session to see its policies here</string>
+    <string name="pane_pick_policy">Select a policy to see its details here</string>
+
     <string name="cd_depth_info_fast">What Fast capture collects</string>
     <string name="cd_depth_info_full">What Full details collects</string>
     <string name="depth_info_captures">Captures</string>

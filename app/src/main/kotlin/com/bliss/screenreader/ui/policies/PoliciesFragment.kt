@@ -88,6 +88,8 @@ import com.bliss.screenreader.ui.changes.ChangesActivity
 import com.bliss.screenreader.ui.runs.RunHistoryActivity
 import com.bliss.screenreader.ui.capture.CaptureDepthInfo
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
+import com.bliss.screenreader.ui.detail.PolicyDetailFragment
+import com.bliss.screenreader.databinding.FragmentPoliciesSplitBinding
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -98,13 +100,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class PoliciesFragment : Fragment() {
+class PoliciesFragment : Fragment(), PolicyDetailFragment.Host {
 
     private val DELETE_PREVIEW_LIMIT = 12
     private val COMPLETE_PERCENT = 100
     private val PARTIAL_PERCENT = 70
 
     private var ViewBindingObj: FragmentPoliciesBinding? = null
+    private var SplitBindingObj: FragmentPoliciesSplitBinding? = null
+    private var ActiveDetailNumber: String = ""
     private val AdapterObj = PolicyRowAdapter(
         OnRowClick = { PolicyItem -> OpenDetail(PolicyItem = PolicyItem) },
         OnDeleteClick = { PolicyItem -> ConfirmDeletePolicies(PolicyList = listOf(PolicyItem)) },
@@ -148,7 +152,11 @@ class PoliciesFragment : Fragment() {
     ): View {
         val BindingObj = FragmentPoliciesBinding.inflate(inflater, container, false)
         ViewBindingObj = BindingObj
-        return BindingObj.root
+        if (!resources.getBoolean(R.bool.is_two_pane)) return BindingObj.root
+        val SplitObj = FragmentPoliciesSplitBinding.inflate(inflater, container, false)
+        SplitObj.listPane.addView(BindingObj.root)
+        SplitBindingObj = SplitObj
+        return SplitObj.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -223,6 +231,10 @@ class PoliciesFragment : Fragment() {
                 override fun handleOnBackPressed() {
                     if (AdapterObj.IsSelectionMode) {
                         AdapterObj.EndSelection()
+                        return
+                    }
+                    if (ActiveDetailNumber.isNotEmpty()) {
+                        ClearDetail()
                         return
                     }
                     ShowSessions()
@@ -338,6 +350,7 @@ class PoliciesFragment : Fragment() {
             }
         }
         RenderList()
+        ReloadDetail()
     }
 
     private fun LoadSessionRecords() {
@@ -1046,6 +1059,7 @@ class PoliciesFragment : Fragment() {
             else -> RenderPolicies()
         }
         RenderSelectionBar()
+        SyncDetailPane()
         if (ResetScroll) ViewBindingObj?.rvPolicies?.scrollToPosition(0)
     }
 
@@ -2588,11 +2602,99 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun OpenDetail(PolicyItem: CustomerPolicy) {
+        if (SplitBindingObj != null) {
+            ShowDetailInPane(PolicyNumber = PolicyItem.PolicyNumber)
+            return
+        }
         startActivity(
             Intent(requireContext(), PolicyDetailActivity::class.java).apply {
                 putExtra(PolicyDetailActivity.EXTRA_POLICY_NUMBER, PolicyItem.PolicyNumber)
                 putExtra(PolicyDetailActivity.EXTRA_SESSION_ID, SelectedSessionId)
             }
+        )
+    }
+
+
+    private fun ShowDetailInPane(PolicyNumber: String) {
+        if (SplitBindingObj == null || PolicyNumber.isEmpty()) return
+        if (childFragmentManager.isStateSaved) return
+        ActiveDetailNumber = PolicyNumber
+        AdapterObj.SetActiveNumber(PolicyNumber = PolicyNumber)
+        childFragmentManager.beginTransaction()
+            .replace(
+                R.id.detailPane,
+                PolicyDetailFragment.NewInstance(
+                    PolicyNumber = PolicyNumber,
+                    SessionId = SelectedSessionId,
+                    Embedded = true,
+                    TwoColumn = IsDetailPaneWide()
+                ),
+                PolicyDetailFragment.TAG
+            )
+            .commitNow()
+        SyncDetailPane()
+        SessionBackCallback?.isEnabled = true
+    }
+
+    private fun ReloadDetail() {
+        val NumberVal = ActiveDetailNumber
+        if (NumberVal.isEmpty()) return
+        if (!IsPolicySessionOpen() ||
+            AllPolicies.none { PolicyItem -> PolicyItem.PolicyNumber == NumberVal }
+        ) {
+            ClearDetail()
+            return
+        }
+        ShowDetailInPane(PolicyNumber = NumberVal)
+    }
+
+    private fun ClearDetail() {
+        ActiveDetailNumber = ""
+        SyncDetailPane()
+        RenderSelectionBar()
+    }
+
+    override fun OnDetailClosed() {
+        ClearDetail()
+    }
+
+    private fun IsPolicySessionOpen(): Boolean =
+        SelectedSessionId.isNotEmpty() && SelectedSessionMode == CaptureMode.POLICY
+
+    private fun IsDetailPaneWide(): Boolean {
+        val ListPaneDp = resources.getDimension(R.dimen.policy_list_pane_width) /
+                resources.displayMetrics.density
+        val PaneDp = resources.configuration.screenWidthDp - ListPaneDp - NAV_RAIL_ALLOWANCE_DP
+        return PaneDp >= TWO_COLUMN_MIN_DP
+    }
+
+    private fun SyncDetailPane() {
+        val SplitObj = SplitBindingObj ?: return
+        val ShowsPane = SelectedSessionId.isEmpty() || SelectedSessionMode == CaptureMode.POLICY
+        SplitObj.detailPaneFrame.visibility = if (ShowsPane) View.VISIBLE else View.GONE
+        SplitObj.paneDivider.visibility = if (ShowsPane) View.VISIBLE else View.GONE
+        SplitObj.listPane.layoutParams = SplitObj.listPane.layoutParams.apply {
+            width = if (ShowsPane) {
+                resources.getDimensionPixelSize(R.dimen.policy_list_pane_width)
+            } else {
+                ViewGroup.LayoutParams.MATCH_PARENT
+            }
+        }
+
+        if (ActiveDetailNumber.isEmpty() || !IsPolicySessionOpen()) {
+            ActiveDetailNumber = ""
+            AdapterObj.SetActiveNumber(PolicyNumber = "")
+            if (!childFragmentManager.isStateSaved) {
+                childFragmentManager.findFragmentById(R.id.detailPane)?.let { FragmentRef ->
+                    childFragmentManager.beginTransaction().remove(FragmentRef).commitNow()
+                }
+            }
+        }
+
+        val HasDetail = ActiveDetailNumber.isNotEmpty()
+        SplitObj.panePlaceholder.visibility = if (HasDetail) View.GONE else View.VISIBLE
+        SplitObj.tvPanePlaceholder.setText(
+            if (SelectedSessionId.isEmpty()) R.string.pane_pick_session else R.string.pane_pick_policy
         )
     }
 
@@ -2895,6 +2997,7 @@ class PoliciesFragment : Fragment() {
         UploadSheetBinding = null
         SessionStickyObj.Reset()
         ViewBindingObj = null
+        SplitBindingObj = null
         SessionBackCallback = null
         RenderedChipSignature = ""
         SuppressChipCallback = false
@@ -2908,6 +3011,8 @@ class PoliciesFragment : Fragment() {
     )
 
     companion object {
+        private const val NAV_RAIL_ALLOWANCE_DP = 80f
+        private const val TWO_COLUMN_MIN_DP = 600f
         private const val FILTER_ALL = "all"
         private const val FILTER_INFORCE = "inforce"
         private const val FILTER_GRACE = "grace"

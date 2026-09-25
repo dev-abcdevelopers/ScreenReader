@@ -222,4 +222,11 @@
         <item name="android:color">@color/primary_container</item>
     </style>
 
+    <style name="Widget.App.NavRail" parent="Widget.Material3.NavigationRailView">
+        <item name="itemActiveIndicatorStyle">@style/Widget.App.BottomNav.Indicator</item>
+        <item name="itemIconTint">@color/bottom_nav_item</item>
+        <item name="itemTextColor">@color/bottom_nav_item</item>
+        <item name="backgroundTint">@color/surface_light</item>
+    </style>
+
 </resources>

@@ -19,27 +19,30 @@ import com.bliss.screenreader.ui.settings.SettingsFragment
 import com.bliss.screenreader.ui.update.UpdateSheet
 import com.bliss.screenreader.update.UpdateChecker
 import com.bliss.screenreader.utils.HapticFeedback
+import com.google.android.material.navigation.NavigationBarView
 
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var ViewBindingObj: ActivityMainBinding
+    private lateinit var NavBarRef: NavigationBarView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ViewBindingObj = ActivityMainBinding.inflate(layoutInflater)
         setContentView(ViewBindingObj.root)
+        NavBarRef = ViewBindingObj.bottomNav ?: requireNotNull(ViewBindingObj.navRail)
 
         ApplyInsets()
 
-        ViewBindingObj.bottomNav.setOnItemSelectedListener { MenuItemRef ->
-            HapticFeedback.Tap(ViewRef = ViewBindingObj.bottomNav)
+        NavBarRef.setOnItemSelectedListener { MenuItemRef ->
+            HapticFeedback.Tap(ViewRef = NavBarRef)
             ShowTab(ItemId = MenuItemRef.itemId)
             true
         }
-        ViewBindingObj.bottomNav.setOnItemReselectedListener {
-            HapticFeedback.Tap(ViewRef = ViewBindingObj.bottomNav)
+        NavBarRef.setOnItemReselectedListener {
+            HapticFeedback.Tap(ViewRef = NavBarRef)
         }
 
 
@@ -69,15 +72,24 @@ class MainActivity : AppCompatActivity() {
         val NothingShowing =
             ManagerRef.fragments.none { !it.isHidden && it.tag?.startsWith("tab_") == true }
         if (NothingShowing) {
-            ShowTab(ItemId = ViewBindingObj.bottomNav.selectedItemId)
+            ShowTab(ItemId = NavBarRef.selectedItemId)
         }
     }
 
     private fun ApplyInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(ViewBindingObj.root) { _, WindowInsetsObj ->
             val BarInsets = WindowInsetsObj.getInsets(WindowInsetsCompat.Type.systemBars())
-            ViewBindingObj.navHost.updatePadding(top = BarInsets.top)
-            ViewBindingObj.bottomNav.updatePadding(bottom = BarInsets.bottom)
+            val BottomNavRef = ViewBindingObj.bottomNav
+            if (BottomNavRef != null) {
+                ViewBindingObj.navHost.updatePadding(top = BarInsets.top)
+                BottomNavRef.updatePadding(bottom = BarInsets.bottom)
+            } else {
+                ViewBindingObj.navHost.updatePadding(
+                    top = BarInsets.top,
+                    right = BarInsets.right,
+                    bottom = BarInsets.bottom
+                )
+            }
             WindowInsetsObj
         }
     }
@@ -123,12 +135,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun GoToCaptureTab() {
-        ViewBindingObj.bottomNav.selectedItemId = R.id.tabCapture
+        NavBarRef.selectedItemId = R.id.tabCapture
     }
 
     fun GoToPoliciesTab() {
-        if (ViewBindingObj.bottomNav.selectedItemId == R.id.tabPolicies) return
-        ViewBindingObj.bottomNav.selectedItemId = R.id.tabPolicies
+        if (NavBarRef.selectedItemId == R.id.tabPolicies) return
+        NavBarRef.selectedItemId = R.id.tabPolicies
     }
 
     companion object {
