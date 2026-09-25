@@ -55,6 +55,7 @@ import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.CaptureParsers
 import com.bliss.screenreader.data.parser.FupDataParser
 import com.bliss.screenreader.data.parser.PlanIdentity
+import com.bliss.screenreader.BuildConfig
 import com.bliss.screenreader.data.parser.PolicySearchParser
 import com.bliss.screenreader.data.parser.RecordMerge
 import com.bliss.screenreader.data.repository.PolicyRepository
@@ -104,6 +105,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         private const val POLICY_DETAIL_RETURN_DELAY_MS = 900L
         private const val POLICY_DETAIL_SCROLL_LIMIT = 10
         private const val POLICY_DETAIL_RETURN_LIMIT = 3
+        private const val POLICY_DETAIL_RETURN_LOADING_LIMIT = 30
         private const val POLICY_SCROLL_STALL_LIMIT = 2
         private const val POLICY_RETURN_TO_TOP_LIMIT = 20
         private const val POLICY_PAGE_RETRY_LIMIT = 3
@@ -482,6 +484,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private var PolicyDetailOpenAttempts = 0
     private var PolicyDetailReturnAttempts = 0
     private var PolicyDetailOriginPage = 0
+    private var PolicyDetailQueuePage = 0
+    private var PolicyDetailReturnLoadingWaits = 0
     private var PolicyJumpTarget = 0
     private var PolicyJumpReason = POLICY_JUMP_NONE
     private var PolicyResumeTargetPage = 0
@@ -1355,6 +1359,26 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
     private fun Paced(BaseMs: Long): Long = PaceProfileValue.Scale(BaseMs = BaseMs)
 
+    private fun LogSettingsSnapshot() {
+        DiagnosticInfo(
+            EventName = "SETTINGS_SNAPSHOT",
+            MessageText = "app=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) " +
+                    "flavor=${BuildConfig.FLAVOR} " +
+                    "depthSetting=${SettingsStore.DepthOf(ContextRef = this).StoredName} " +
+                    "depthThisRun=${if (CapturePolicyDetailsEnabled) "full" else "fast"} " +
+                    "pace=${PaceProfileValue.StoredName} paceFactor=${PaceProfileValue.Factor} " +
+                    "offlineWaitMs=$OfflineWaitMs " +
+                    "errorRetryLimit=$ErrorRetryLimit errorGiveUpLimit=$ErrorGiveUpLimit " +
+                    "errorSlowDown=$ErrorSlowDownEnabled " +
+                    "contactOcr=$ContactOcrEnabled " +
+                    "renewalRangeDays=$RenewalRangeDays renewalDueRangeDays=$RenewalDueRangeDays " +
+                    "psMode=${SettingsStore.IsPsModeVisible(ContextRef = this)} " +
+                    "autoSave=${SettingsStore.IsAutoSaveSessions(ContextRef = this)} " +
+                    "advancedUnlocked=${SettingsStore.IsAdvancedUnlocked(ContextRef = this)} " +
+                    "agentPackage=$AgentPackageName"
+        )
+    }
+
     private fun LoadRunSettings() {
         PaceProfileValue = SettingsStore.PaceOf(ContextRef = this)
         OfflineWaitMs = SettingsStore.OfflineWaitMs(ContextRef = this)
@@ -1494,6 +1518,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                     "expected=${ExpectedTargetPackage()} " +
                     "origin=$OriginActivityVal"
         )
+        LogSettingsSnapshot()
         val ActiveServiceInfo = serviceInfo
         val IsDeclaredAccessibilityTool = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActiveServiceInfo?.isAccessibilityTool == true
         val CanRetrieveWindowContent = (
@@ -3263,6 +3288,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 .filter { PolicyNumber -> !ProcessedPolicyDetailNumbers.contains(PolicyNumber) }
         )
         PolicyDetailQueueIndex = 0
+        PolicyDetailQueuePage = PolicyCurrentPage
         PolicyDetailScrollAttempts = 0
         PolicyDetailOpenAttempts = 0
         PolicyDetailReturnAttempts = 0
@@ -3279,6 +3305,28 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     }
 
     private fun ProcessNextPolicyDetail() {
+        if (!SearchRoute.IsDriving &&
+            PolicyDetailQueuePage > 0 &&
+            PolicyCurrentPage > 0 &&
+            PolicyCurrentPage != PolicyDetailQueuePage
+        ) {
+            SetPolicyJump(
+                TargetPage = PolicyDetailQueuePage,
+                ReasonVal = POLICY_JUMP_DETAIL_RESTORE
+            )
+            PolicyReturnToTopCount = 0
+            PolicyPageRetryCount = 0
+            PolicyDetailScrollAttempts = 0
+            DiagnosticWarning(
+                EventName = "POLICY_DETAIL_QUEUE_PAGE_MISMATCH",
+                MessageText = "queuePage=$PolicyDetailQueuePage current=$PolicyCurrentPage " +
+                        "index=$PolicyDetailQueueIndex/${PolicyDetailQueue.size}; restoring"
+            )
+            SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
+                ReturnToPolicyPageSelector()
+            }
+            return
+        }
         while (PolicyDetailQueueIndex < PolicyDetailQueue.size &&
             ProcessedPolicyDetailNumbers.contains(PolicyDetailQueue[PolicyDetailQueueIndex])
         ) {
@@ -3493,6 +3541,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
     private fun FinishPolicyDetailAndReturn() {
         ProcessedPolicyDetailNumbers.add(PolicyDetailCurrentPolicyNumber)
         PolicyDetailReturnAttempts = 0
+        PolicyDetailReturnLoadingWaits = 0
         DiagnosticInfo(
             EventName = "POLICY_DETAIL_READY",
             MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
@@ -3548,6 +3597,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             PolicyDetailScrollAttempts = 0
             PolicyDetailOpenAttempts = 0
             PolicyDetailReturnAttempts = 0
+            PolicyDetailReturnLoadingWaits = 0
             HasExpandedCurrentPolicyScreen = false
             if (PolicyDetailOriginPage > 0 && PolicyCurrentPage != PolicyDetailOriginPage) {
                 SetPolicyJump(
@@ -3568,6 +3618,25 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             }
             SchedulePolicyAction(DelayMs = POLICY_NAVIGATION_DELAY_MS) {
                 ProcessNextPolicyDetail()
+            }
+            return
+        }
+
+        if (IsPolicyDashboardScreenVisible &&
+            !IsPolicyDetailScreenActive &&
+            !IsPolicyPageSelectorVisible &&
+            PolicyDetailReturnLoadingWaits < POLICY_DETAIL_RETURN_LOADING_LIMIT
+        ) {
+            PolicyDetailReturnLoadingWaits++
+            if (PolicyDetailReturnLoadingWaits == 1 || PolicyDetailReturnLoadingWaits % 5 == 0) {
+                DiagnosticInfo(
+                    EventName = "POLICY_DETAIL_RETURN_LOADING",
+                    MessageText = "policy=$PolicyDetailCurrentPolicyNumber " +
+                            "waits=$PolicyDetailReturnLoadingWaits/$POLICY_DETAIL_RETURN_LOADING_LIMIT"
+                )
+            }
+            SchedulePolicyAction(DelayMs = POLICY_DETAIL_RETURN_DELAY_MS) {
+                WaitForPolicyDashboardReturn()
             }
             return
         }
@@ -4486,6 +4555,11 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             },
             KindVal = if (CanRetryAutomatically) AppToast.Kind.Warning else AppToast.Kind.Error
         )
+        PolicyCurrentPage = 0
+        IsPolicyPageSelectorVisible = false
+        LatestPolicyPageNumbers = emptyList()
+        PolicyDetailQueuePage = 0
+        PolicyDetailReturnLoadingWaits = 0
         RefreshBubble()
     }
 
@@ -4719,6 +4793,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
             PolicyDetailOpenAttempts = 0
             PolicyDetailReturnAttempts = 0
             PolicyDetailOriginPage = 0
+            PolicyDetailQueuePage = 0
+            PolicyDetailReturnLoadingWaits = 0
             ClearPolicyJump()
             ResetPolicySelectorScrollState()
             IsPolicyDetailScreenActive = false
