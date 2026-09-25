@@ -1394,6 +1394,7 @@ class PoliciesFragment : Fragment(), PolicyDetailFragment.Host {
             }
             val BehaviourRef = BottomSheetBehavior.from(SheetView)
             BehaviourRef.isFitToContents = false
+            BehaviourRef.peekHeight = BottomSheetBehavior.PEEK_HEIGHT_AUTO
             BehaviourRef.skipCollapsed = true
             BehaviourRef.expandedOffset = 0
             BehaviourRef.state = BottomSheetBehavior.STATE_EXPANDED

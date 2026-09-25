@@ -66,6 +66,7 @@ class CaptureReviewSheet : BottomSheetDialogFragment() {
             }
             val BehaviorRef = BottomSheetBehavior.from(SheetView)
             BehaviorRef.isFitToContents = false
+            BehaviorRef.peekHeight = BottomSheetBehavior.PEEK_HEIGHT_AUTO
             BehaviorRef.skipCollapsed = true
             BehaviorRef.expandedOffset = 0
             BehaviorRef.isDraggable = false
