@@ -86,6 +86,7 @@ import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.toast.AppToast
 import com.bliss.screenreader.ui.changes.ChangesActivity
 import com.bliss.screenreader.ui.runs.RunHistoryActivity
+import com.bliss.screenreader.ui.capture.CaptureDepthInfo
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.utils.HapticFeedback
@@ -1633,6 +1634,7 @@ class PoliciesFragment : Fragment() {
             val SheetBinding = SheetPolicyCaptureModeBinding.inflate(layoutInflater)
             val SheetDialog = BottomSheetDialog(ActivityRef)
             SheetDialog.setContentView(SheetBinding.root)
+            CaptureDepthInfo.Bind(SheetBinding = SheetBinding, SheetDialog = SheetDialog)
             val ResumePages = BindResumeFromPageRow(
                 SheetBinding = SheetBinding,
                 SessionRef = SessionRef

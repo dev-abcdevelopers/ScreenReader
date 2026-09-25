@@ -468,4 +468,35 @@
     <string name="status_lapsed">Lapsed</string>
     <string name="status_unknown">Unknown</string>
 
+    <string name="cd_depth_info_fast">What Fast capture collects</string>
+    <string name="cd_depth_info_full">What Full details collects</string>
+    <string name="depth_info_captures">Captures</string>
+    <string name="depth_info_skips">Does not capture</string>
+    <string name="depth_info_fast_pace">Quickest. Reads the dashboard cards page by page without opening any policy.</string>
+    <string name="depth_info_full_pace">Slower. Opens every policy, about 10 visits per page.</string>
+    <string name="depth_info_fast_hint">Run Full details later on the same session to fill the missing policy fields.</string>
+    <string name="depth_info_full_hint">For contact details, use Capture personal details from the session\'s Actions.</string>
+    <string-array name="depth_info_fast_includes">
+        <item>Policy number, plan and holder name</item>
+        <item>Premium amount and mode</item>
+        <item>Status, due date and renewal type</item>
+        <item>Auto pay, KYC, NEFT, nominee and update flags</item>
+    </string-array>
+    <string-array name="depth_info_fast_excludes">
+        <item>Sum assured and term / PPT</item>
+        <item>Commencement, premium-end and maturity dates</item>
+        <item>Commission details</item>
+        <item>Mobile, email, address and date of birth</item>
+    </string-array>
+    <string-array name="depth_info_full_includes">
+        <item>Everything in Fast capture</item>
+        <item>Sum assured and term / PPT</item>
+        <item>Commencement, premium-end and maturity dates</item>
+        <item>Commission type, dates, bonus and amount paid</item>
+    </string-array>
+    <string-array name="depth_info_full_excludes">
+        <item>Mobile, email, address and date of birth</item>
+        <item>Premiums already paid (renewal history)</item>
+    </string-array>
+
 </resources>

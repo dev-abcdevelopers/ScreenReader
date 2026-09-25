@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/space_sm"
+    android:background="@drawable/bg_stat_tile"
+    android:orientation="vertical"
+    android:padding="@dimen/card_padding"
+    android:visibility="gone">
+
+    <TextView
+        android:id="@+id/tvDepthPace"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="@style/TextAppearance.App.Label"
+        android:textColor="@color/text_secondary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_md"
+        android:text="@string/depth_info_captures"
+        android:textAppearance="@style/TextAppearance.App.Overline"
+        android:textColor="@color/status_green_text" />
+
+    <LinearLayout
+        android:id="@+id/depthIncludes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_md"
+        android:text="@string/depth_info_skips"
+        android:textAppearance="@style/TextAppearance.App.Overline"
+        android:textColor="@color/status_red_text" />
+
+    <LinearLayout
+        android:id="@+id/depthExcludes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/tvDepthHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_md"
+        android:textAppearance="@style/TextAppearance.App.Caption" />
+
+</LinearLayout>

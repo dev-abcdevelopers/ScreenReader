@@ -344,6 +344,7 @@ class CaptureFragment : Fragment() {
         val SheetBinding = SheetPolicyCaptureModeBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
         SheetDialog.setContentView(SheetBinding.root)
+        CaptureDepthInfo.Bind(SheetBinding = SheetBinding, SheetDialog = SheetDialog)
         SheetBinding.cardFastCapture.setOnClickListener {
             SheetDialog.dismiss()
             StartSelectedCapture(CapturePolicyDetails = false)

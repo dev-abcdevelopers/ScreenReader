@@ -148,8 +148,6 @@
 
         </LinearLayout>
 
-        </LinearLayout>
-
         <TextView
             android:id="@+id/labelActionsRefresh"
             android:layout_width="match_parent"
@@ -207,6 +205,8 @@
                     android:textAppearance="@style/TextAppearance.App.Caption" />
 
             </LinearLayout>
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/rowActionRefreshHistory"
