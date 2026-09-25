@@ -587,30 +587,30 @@ object PolicyRepository {
         }
 
         val StorageKey = SessionStorageKey(ModeVal = ModeVal, SessionId = SessionId)
+        val HistoryList = GetSessionHistory(ContextRef = ContextRef).toMutableList()
+        val ExistingRef = HistoryList.firstOrNull { SessionRef -> SessionRef.SessionId == SessionId }
+        val CurrentTime = System.currentTimeMillis()
+        val UpdatedRef = CaptureSessionReference(
+            SessionId = SessionId,
+            Mode = ModeVal,
+            SavedAt = CurrentTime,
+            RecordCount = Records.size,
+            CapturePolicyDetails = CapturePolicyDetails ||
+                    ExistingRef?.CapturePolicyDetails == true,
+            LastResumedAt = if (ExistingRef == null) 0L else CurrentTime,
+            ChangeCount = GetFieldChanges(
+                ContextRef = ContextRef,
+                ModeVal = ModeVal,
+                SessionId = SessionId
+            ).size
+        )
+        HistoryList.removeAll { SessionRef -> SessionRef.SessionId == SessionId }
+        HistoryList.add(0, UpdatedRef)
         PrefsObj.edit {
             putString(StorageKey, JsonText)
             putString(LatestSessionKey, SessionId)
+            putString(KEY_SESSION_HISTORY, GsonInstance.toJson(HistoryList))
         }
-
-        val ExistingRef = GetSessionReference(ContextRef = ContextRef, SessionId = SessionId)
-        val CurrentTime = System.currentTimeMillis()
-        RegisterSession(
-            ContextRef = ContextRef,
-            SessionRef = CaptureSessionReference(
-                SessionId = SessionId,
-                Mode = ModeVal,
-                SavedAt = CurrentTime,
-                RecordCount = Records.size,
-                CapturePolicyDetails = CapturePolicyDetails ||
-                        ExistingRef?.CapturePolicyDetails == true,
-                LastResumedAt = if (ExistingRef == null) 0L else CurrentTime,
-                ChangeCount = GetFieldChanges(
-                    ContextRef = ContextRef,
-                    ModeVal = ModeVal,
-                    SessionId = SessionId
-                ).size
-            )
-        )
     }
 
     private fun <RecordType> ReadSessionRecords(

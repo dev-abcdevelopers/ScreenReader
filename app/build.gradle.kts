@@ -71,7 +71,7 @@ android {
 
     buildTypes {
         getByName("debug") {
-            buildConfigField("boolean", "BYPASS_AUTH", "false")
+            buildConfigField("boolean", "BYPASS_AUTH", "true")
         }
         getByName("release") {
             buildConfigField("boolean", "BYPASS_AUTH", "false")
@@ -108,6 +108,8 @@ dependencies {
     // Lifecycle & ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.activity:activity-ktx:1.13.0")
 
     // Excel Export (Apache POI)

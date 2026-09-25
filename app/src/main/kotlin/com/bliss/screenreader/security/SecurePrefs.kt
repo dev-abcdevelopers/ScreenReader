@@ -4,15 +4,43 @@ package com.bliss.screenreader.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Looper
+import android.util.LruCache
 import androidx.core.content.edit
 
 class SecurePrefs private constructor(
     private val DelegateRef: SharedPreferences
 ) : SharedPreferences {
+    private val CacheLock = Any()
+    private var CacheVersion = 0L
+    private val PlainCache = object : LruCache<String, String>(PLAIN_CACHE_CHARS) {
+        override fun sizeOf(KeyText: String, ValueText: String): Int =
+            KeyText.length + ValueText.length
+    }
+
     override fun getString(KeyText: String?, DefaultText: String?): String? {
+        if (KeyText == null) return DelegateRef.getString(null, DefaultText)
+        val VersionAtRead = synchronized(CacheLock) {
+            PlainCache.get(KeyText)?.let { return it }
+            CacheVersion
+        }
         val StoredText = DelegateRef.getString(KeyText, null) ?: return DefaultText
         if (!KeyVault.IsEncrypted(StoredText = StoredText)) return StoredText
-        return KeyVault.Decrypt(StoredText = StoredText) ?: DefaultText
+        val PlainText = KeyVault.Decrypt(StoredText = StoredText) ?: return DefaultText
+        synchronized(CacheLock) {
+            if (CacheVersion == VersionAtRead) PlainCache.put(KeyText, PlainText)
+        }
+        return PlainText
+    }
+
+    private fun ApplyToCache(PendingMap: Map<String, String?>, Cleared: Boolean) {
+        synchronized(CacheLock) {
+            CacheVersion++
+            if (Cleared) PlainCache.evictAll()
+            for ((KeyText, ValueText) in PendingMap) {
+                if (ValueText == null) PlainCache.remove(KeyText) else PlainCache.put(KeyText, ValueText)
+            }
+        }
     }
 
     override fun getStringSet(KeyText: String?, DefaultSet: MutableSet<String>?): MutableSet<String>? {
@@ -52,7 +80,10 @@ class SecurePrefs private constructor(
         return ResultMap
     }
 
-    override fun edit(): SharedPreferences.Editor = SecureEditor(DelegateRef.edit())
+    override fun edit(): SharedPreferences.Editor = SecureEditor(
+        DelegateEditor = DelegateRef.edit(),
+        OnCommitted = { PendingMap, Cleared -> ApplyToCache(PendingMap = PendingMap, Cleared = Cleared) }
+    )
 
     override fun registerOnSharedPreferenceChangeListener(
         ListenerRef: SharedPreferences.OnSharedPreferenceChangeListener?
@@ -63,14 +94,19 @@ class SecurePrefs private constructor(
     ) = DelegateRef.unregisterOnSharedPreferenceChangeListener(ListenerRef)
 
     private class SecureEditor(
-        private val DelegateEditor: SharedPreferences.Editor
+        private val DelegateEditor: SharedPreferences.Editor,
+        private val OnCommitted: (Map<String, String?>, Boolean) -> Unit
     ) : SharedPreferences.Editor {
+        private val PendingMap = LinkedHashMap<String, String?>()
+        private var Cleared = false
+
         override fun putString(KeyText: String?, ValueText: String?): SharedPreferences.Editor {
             if (ValueText == null) {
                 DelegateEditor.remove(KeyText)
             } else {
                 DelegateEditor.putString(KeyText, SafeEncrypt(PlainText = ValueText))
             }
+            if (KeyText != null) PendingMap[KeyText] = ValueText
             return this
         }
 
@@ -86,6 +122,7 @@ class SecurePrefs private constructor(
                     ValueSet.map { SafeEncrypt(PlainText = it) }.toMutableSet()
                 )
             }
+            if (KeyText != null) PendingMap[KeyText] = null
             return this
         }
 
@@ -93,10 +130,30 @@ class SecurePrefs private constructor(
         override fun putLong(KeyText: String?, ValueVal: Long) = apply { DelegateEditor.putLong(KeyText, ValueVal) }
         override fun putFloat(KeyText: String?, ValueVal: Float) = apply { DelegateEditor.putFloat(KeyText, ValueVal) }
         override fun putBoolean(KeyText: String?, ValueVal: Boolean) = apply { DelegateEditor.putBoolean(KeyText, ValueVal) }
-        override fun remove(KeyText: String?) = apply { DelegateEditor.remove(KeyText) }
-        override fun clear() = apply { DelegateEditor.clear() }
-        override fun commit(): Boolean = DelegateEditor.commit()
-        override fun apply() = DelegateEditor.apply()
+        override fun remove(KeyText: String?) = apply {
+            DelegateEditor.remove(KeyText)
+            if (KeyText != null) PendingMap[KeyText] = null
+        }
+
+        override fun clear() = apply {
+            DelegateEditor.clear()
+            Cleared = true
+        }
+
+        override fun commit(): Boolean {
+            val Result = DelegateEditor.commit()
+            OnCommitted(PendingMap.toMap(), Cleared)
+            return Result
+        }
+
+        override fun apply() {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                DelegateEditor.apply()
+            } else {
+                DelegateEditor.commit()
+            }
+            OnCommitted(PendingMap.toMap(), Cleared)
+        }
 
         private fun SafeEncrypt(PlainText: String): String = try {
             KeyVault.Encrypt(PlainText = PlainText)
@@ -107,6 +164,7 @@ class SecurePrefs private constructor(
 
     companion object {
         private const val MIGRATION_FLAG = "secure_prefs_migrated_v1"
+        private const val PLAIN_CACHE_CHARS = 8 * 1024 * 1024
 
         private val InstanceCache = HashMap<String, SecurePrefs>()
 

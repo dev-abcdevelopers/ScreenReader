@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/space_lg"
+    android:importantForAccessibility="noHideDescendants"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/touch_min"
+        android:orientation="horizontal">
+
+        <View
+            android:layout_width="@dimen/icon_lg"
+            android:layout_height="@dimen/icon_lg"
+            android:layout_marginEnd="@dimen/space_md"
+            android:background="@drawable/bg_skeleton_bar" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <View
+                android:layout_width="160dp"
+                android:layout_height="14dp"
+                android:background="@drawable/bg_skeleton_bar" />
+
+            <View
+                android:layout_width="104dp"
+                android:layout_height="10dp"
+                android:layout_marginTop="@dimen/space_sm"
+                android:background="@drawable/bg_skeleton_bar" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/space_xl">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="12dp"
+            android:layout_marginTop="@dimen/space_md"
+            android:background="@drawable/bg_skeleton_bar" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="12dp"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginEnd="48dp"
+            android:background="@drawable/bg_skeleton_bar" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="12dp"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginEnd="96dp"
+            android:background="@drawable/bg_skeleton_bar" />
+
+    </LinearLayout>
+
+</LinearLayout>

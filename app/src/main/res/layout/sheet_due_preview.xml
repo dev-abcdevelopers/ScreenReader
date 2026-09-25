@@ -19,6 +19,39 @@
         android:background="@drawable/bg_sheet_handle" />
 
     <LinearLayout
+        android:id="@+id/dueWorkingGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="@dimen/space_md"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvDueWorkingTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:textAppearance="@style/TextAppearance.App.Heading" />
+
+        <TextView
+            android:id="@+id/tvDueWorkingBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:lineSpacingMultiplier="1.25"
+            android:textAppearance="@style/TextAppearance.App.Caption" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/dueWorkingBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_lg"
+            android:indeterminate="true"
+            app:trackCornerRadius="2dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/dueHeroGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -123,6 +156,15 @@
             android:orientation="vertical" />
 
     </ScrollView>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/dueSavingBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_md"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:trackCornerRadius="2dp" />
 
     <LinearLayout
         android:layout_width="match_parent"

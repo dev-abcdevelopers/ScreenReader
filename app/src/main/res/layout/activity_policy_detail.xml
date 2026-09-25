@@ -18,10 +18,15 @@
         app:navigationIcon="@drawable/ic_arrow_back"
         app:titleTextAppearance="@style/TextAppearance.App.Mono" />
 
-    <androidx.core.widget.NestedScrollView
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="1">
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/detailScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:clipToPadding="false">
 
         <LinearLayout
@@ -333,5 +338,11 @@
         </LinearLayout>
 
     </androidx.core.widget.NestedScrollView>
+
+        <include
+            android:id="@+id/detailSkeleton"
+            layout="@layout/partial_skeleton_list" />
+
+    </FrameLayout>
 
 </LinearLayout>

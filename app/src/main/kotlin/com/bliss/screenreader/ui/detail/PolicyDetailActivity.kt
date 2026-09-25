@@ -33,7 +33,10 @@ import com.bliss.screenreader.ui.SetupEdgeToEdge
 import com.bliss.screenreader.ui.capture.CaptureFlow
 import com.bliss.screenreader.ui.main.MainActivity
 import com.bliss.screenreader.ui.toast.AppToast
+import com.bliss.screenreader.data.model.FupPolicy
+import com.bliss.screenreader.utils.BackgroundWork
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.Skeleton
 import com.bliss.screenreader.data.parser.PolicyStatusRules
 import com.bliss.screenreader.data.parser.StatusChipRules
 import com.google.android.material.chip.Chip
@@ -49,6 +52,7 @@ class PolicyDetailActivity : AppCompatActivity() {
     private var SessionIdVal: String = ""
     private var ActivePolicyObj: CustomerPolicy? = null
     private var RenewalRowBinding: PartialRenewalRowBinding? = null
+    private var PolicyRenewals: List<FupPolicy> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,16 +74,45 @@ class PolicyDetailActivity : AppCompatActivity() {
         val PolicyNumber = intent.getStringExtra(EXTRA_POLICY_NUMBER).orEmpty()
         SessionIdVal = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
 
-        val ResolvedPolicy = PolicyRepository.GetCustomerPolicies(
-            ContextRef = this,
-            SessionId = SessionIdVal
-        ).firstOrNull { PolicyItem -> PolicyItem.PolicyNumber == PolicyNumber }
+        if (PolicyNumber.isNotEmpty()) ViewBindingObj.toolbar.title = PolicyNumber
+        ViewBindingObj.detailScroll.visibility = View.INVISIBLE
 
-        if (ResolvedPolicy == null) {
-            finish()
-            return
-        }
+        val AppContext = applicationContext
+        val SessionId = SessionIdVal
+        BackgroundWork.Run(
+            OwnerRef = this,
+            OnSlow = { Skeleton.Show(SkeletonView = ViewBindingObj.detailSkeleton.root) },
+            Work = {
+                val FoundPolicy = PolicyRepository.GetCustomerPolicies(
+                    ContextRef = AppContext,
+                    SessionId = SessionId
+                ).firstOrNull { PolicyItem -> PolicyItem.PolicyNumber == PolicyNumber }
+                val FoundRenewals = if (FoundPolicy == null) {
+                    emptyList()
+                } else {
+                    PolicyRepository.GetFupPolicies(ContextRef = AppContext)
+                        .filter { RenewalItem -> RenewalItem.PolicyNumber == PolicyNumber }
+                }
+                FoundPolicy to FoundRenewals
+            },
+            OnResult = { (FoundPolicy, FoundRenewals) ->
+                if (FoundPolicy == null) {
+                    finish()
+                } else {
+                    PolicyRenewals = FoundRenewals
+                    BindAll(ResolvedPolicy = FoundPolicy)
+                    ViewBindingObj.detailScroll.visibility = View.VISIBLE
+                    Skeleton.Hide(
+                        SkeletonView = ViewBindingObj.detailSkeleton.root,
+                        ContentView = ViewBindingObj.detailScroll
+                    )
+                    RenderAdvancedVisibility()
+                }
+            }
+        )
+    }
 
+    private fun BindAll(ResolvedPolicy: CustomerPolicy) {
         ActivePolicyObj = ResolvedPolicy
         BindHeader(PolicyRef = ResolvedPolicy)
         BindVerdict(PolicyRef = ResolvedPolicy)
@@ -506,8 +539,7 @@ class PolicyDetailActivity : AppCompatActivity() {
 
     private fun BindRenewalHistory(PolicyRef: CustomerPolicy) {
         val RowBinding = RenewalRowBinding ?: return
-        val RenewalList = PolicyRepository.GetFupPolicies(ContextRef = this)
-            .filter { RenewalItem -> RenewalItem.PolicyNumber == PolicyRef.PolicyNumber }
+        val RenewalList = PolicyRenewals
 
         RowBinding.tvRenewalMeta.text = if (RenewalList.isEmpty()) {
             getString(R.string.detail_renewals_none)

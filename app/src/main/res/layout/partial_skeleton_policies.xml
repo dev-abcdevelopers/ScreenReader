@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_light"
+    android:clickable="true"
+    android:contentDescription="@string/loading_announce"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/space_md"
+    android:visibility="gone">
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+    <include layout="@layout/partial_skeleton_policy_row" />
+
+</LinearLayout>

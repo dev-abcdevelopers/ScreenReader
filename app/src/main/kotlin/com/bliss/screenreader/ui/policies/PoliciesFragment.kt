@@ -36,6 +36,7 @@ import com.bliss.screenreader.data.model.PolicyCompleteness
 import com.bliss.screenreader.utils.CompletenessLabels
 import com.bliss.screenreader.utils.SessionLabels
 import com.bliss.screenreader.data.model.PolicyResumeMark
+import com.bliss.screenreader.data.model.SessionNameEntry
 import com.bliss.screenreader.data.model.PolicyResumeTarget
 import com.bliss.screenreader.data.model.PolicyResumeTrack
 import com.bliss.screenreader.data.parser.FupDataParser
@@ -89,7 +90,10 @@ import com.bliss.screenreader.ui.runs.RunHistoryActivity
 import com.bliss.screenreader.ui.capture.CaptureDepthInfo
 import com.bliss.screenreader.ui.detail.PolicyDetailActivity
 import com.bliss.screenreader.ui.main.MainActivity
+import com.bliss.screenreader.utils.BackgroundWork
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.Skeleton
+import kotlinx.coroutines.Job
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.io.File
@@ -140,6 +144,18 @@ class PoliciesFragment : Fragment() {
     private var SearchQuery: String = ""
     private var StatusFilter: String = FILTER_ALL
     private var ShowPdfAction = true
+    private var ReloadJob: Job? = null
+    private var IsLoadingSession = false
+    private val PendingLoaded = mutableListOf<() -> Unit>()
+    private var PendingResetScroll = false
+
+    private data class StoreSnapshot(
+        val Sessions: List<PolicyRepository.CaptureSessionReference>,
+        val SessionFound: Boolean,
+        val Policies: List<CustomerPolicy>,
+        val Renewals: List<FupPolicy>,
+        val RenewalsDue: List<RenewalDuePolicy>
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -268,19 +284,57 @@ class PoliciesFragment : Fragment() {
         CaptureSessionState.ConsumePending()
         (ActivityRef as? MainActivity)?.GoToPoliciesTab()
 
-        val CommitObj = CaptureFlow.CommitPendingSession(
-            ContextRef = ContextRef,
-            SessionObj = SessionObj
+        var WorkingSheet: DueSheet? = null
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            OnSlow = {
+                WorkingSheet = CreateDueSheet(ActivityRef = ActivityRef).also { SheetRef ->
+                    ShowDueWorking(
+                        SheetRef = SheetRef,
+                        TitleText = getString(R.string.linked_working_title),
+                        BodyText = getString(R.string.linked_working_body)
+                    )
+                    SheetRef.Dialog.show()
+                }
+            },
+            Work = {
+                val CommitObj = CaptureFlow.CommitPendingSession(
+                    ContextRef = ContextRef,
+                    SessionObj = SessionObj
+                )
+                CaptureDiagnostics.LogForSession(
+                    ContextObj = ContextRef,
+                    SessionId = HostId,
+                    EventName = if (CommitObj.SavedCount > 0) "LINKED_RENEWAL_SAVED" else "LINKED_RENEWAL_EMPTY",
+                    MessageText = "host=$HostId mode=${SessionObj.Mode.name} " +
+                            "renewalSession=${SessionObj.SessionId} captured=$CapturedCount " +
+                            "saved=${CommitObj.SavedCount}"
+                )
+                CommitObj.SavedCount
+            },
+            OnResult = { SavedCount ->
+                FinishLinkedRenewal(
+                    SessionObj = SessionObj,
+                    HostId = HostId,
+                    SavedCount = SavedCount,
+                    WorkingSheet = WorkingSheet?.takeIf { SheetRef -> SheetRef.Dialog.isShowing }
+                )
+            }
         )
-        CaptureDiagnostics.LogForSession(
-            ContextObj = ContextRef,
-            SessionId = HostId,
-            EventName = if (CommitObj.SavedCount > 0) "LINKED_RENEWAL_SAVED" else "LINKED_RENEWAL_EMPTY",
-            MessageText = "host=$HostId mode=${SessionObj.Mode.name} " +
-                    "renewalSession=${SessionObj.SessionId} captured=$CapturedCount " +
-                    "saved=${CommitObj.SavedCount}"
-        )
-        if (CommitObj.SavedCount <= 0) {
+    }
+
+    private fun FinishLinkedRenewal(
+        SessionObj: CaptureSession,
+        HostId: String,
+        SavedCount: Int,
+        WorkingSheet: DueSheet?
+    ) {
+        if (ViewBindingObj == null) {
+            WorkingSheet?.Dialog?.dismiss()
+            return
+        }
+        if (SavedCount <= 0) {
+            WorkingSheet?.Dialog?.dismiss()
             ShowSnack(
                 MessageVal = getString(R.string.linked_run_empty),
                 KindVal = AppToast.Kind.Warning
@@ -291,6 +345,7 @@ class PoliciesFragment : Fragment() {
         LoadSessions()
         val HostRef = SessionList.firstOrNull { ItemRef -> ItemRef.SessionId == HostId }
         if (HostRef == null || HostRef.Mode != CaptureMode.POLICY) {
+            WorkingSheet?.Dialog?.dismiss()
             RenderList()
             ShowSnack(
                 MessageVal = getString(R.string.linked_run_host_missing),
@@ -298,22 +353,23 @@ class PoliciesFragment : Fragment() {
             )
             return
         }
-        if (SelectedSessionId != HostId) {
-            OpenSession(SessionRef = HostRef)
-        } else {
-            LoadSessionRecords()
-            RenderList()
-        }
-
         ShowSnack(
-            MessageVal = getString(R.string.linked_run_saved, CommitObj.SavedCount),
+            MessageVal = getString(R.string.linked_run_saved, SavedCount),
             KindVal = AppToast.Kind.Success
         )
-        ApplyDueDatesFrom(
-            RenewalSessionId = SessionObj.SessionId,
-            RenewalModeVal = SessionObj.Mode,
-            LinkedHostId = HostId
-        )
+        val ContinueImport = {
+            ApplyDueDatesFrom(
+                RenewalSessionId = SessionObj.SessionId,
+                RenewalModeVal = SessionObj.Mode,
+                LinkedHostId = HostId,
+                ExistingSheet = WorkingSheet
+            )
+        }
+        if (SelectedSessionId != HostId) {
+            OpenSession(SessionRef = HostRef, OnLoaded = ContinueImport)
+        } else {
+            ReloadFromStore(OnLoaded = ContinueImport)
+        }
     }
 
     private fun LogLinkedCommit(HostId: String, ModeVal: CaptureMode, UpdatedCount: Int) {
@@ -327,44 +383,113 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    private fun ReloadFromStore() {
-        if (ViewBindingObj == null) return
-        LoadSessions()
-        if (SelectedSessionId.isNotEmpty()) {
-            if (SessionList.none { SessionRef -> SessionRef.SessionId == SelectedSessionId }) {
-                SelectedSessionId = ""
-            } else {
-                LoadSessionRecords()
+    private fun ReloadFromStore(
+        ShowSkeleton: Boolean = false,
+        ResetScroll: Boolean = false,
+        OnLoaded: () -> Unit = {}
+    ) {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context.applicationContext
+        val SessionId = SelectedSessionId
+        val ModeVal = SelectedSessionMode
+        val ShowRenewals = SettingsStore.IsRenewalHistoryVisible(ContextRef = ContextRef)
+        val ShowRenewalsDue = SettingsStore.IsRenewalDueVisible(ContextRef = ContextRef)
+
+        PendingLoaded.add(OnLoaded)
+        PendingResetScroll = PendingResetScroll || ResetScroll
+        ReloadJob?.cancel()
+        ReloadJob = BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            OnSlow = {
+                if (ShowSkeleton) {
+                    Skeleton.Show(SkeletonView = BindingObj.listSkeleton.root)
+                } else {
+                    BindingObj.listRefreshBar.visibility = View.VISIBLE
+                }
+            },
+            Work = {
+                ReadSnapshot(
+                    ContextRef = ContextRef,
+                    SessionId = SessionId,
+                    ModeVal = ModeVal,
+                    ShowRenewals = ShowRenewals,
+                    ShowRenewalsDue = ShowRenewalsDue
+                )
+            },
+            OnResult = { SnapshotObj ->
+                BindingObj.listRefreshBar.visibility = View.GONE
+                IsLoadingSession = false
+                val LoadedCallbacks = PendingLoaded.toList()
+                val WantsReset = PendingResetScroll
+                PendingLoaded.clear()
+                PendingResetScroll = false
+                if (SelectedSessionId != SessionId || SelectedSessionMode != ModeVal) {
+                    Skeleton.Hide(SkeletonView = BindingObj.listSkeleton.root)
+                    return@Run
+                }
+                SessionList = SnapshotObj.Sessions
+                if (SessionId.isNotEmpty()) {
+                    if (SnapshotObj.SessionFound) {
+                        AllPolicies = SnapshotObj.Policies
+                        AllRenewals = SnapshotObj.Renewals
+                        AllRenewalsDue = SnapshotObj.RenewalsDue
+                    } else {
+                        SelectedSessionId = ""
+                    }
+                }
+                RenderList(ResetScroll = WantsReset)
+                Skeleton.Hide(
+                    SkeletonView = BindingObj.listSkeleton.root,
+                    ContentView = BindingObj.rvPolicies
+                )
+                LoadedCallbacks.forEach { CallbackRef -> CallbackRef() }
             }
-        }
-        RenderList()
+        )
     }
 
-    private fun LoadSessionRecords() {
-        if (SelectedSessionMode == CaptureMode.RENEWAL_DUE) {
-            AllRenewalsDue = PolicyRepository.GetRenewalDuePolicies(
-                ContextRef = requireContext(),
-                SessionId = SelectedSessionId
+    private fun ReadSnapshot(
+        ContextRef: android.content.Context,
+        SessionId: String,
+        ModeVal: CaptureMode,
+        ShowRenewals: Boolean,
+        ShowRenewalsDue: Boolean
+    ): StoreSnapshot {
+        val Sessions = FilterSessions(
+            HistoryList = PolicyRepository.GetSessionHistory(ContextRef = ContextRef),
+            ShowRenewals = ShowRenewals,
+            ShowRenewalsDue = ShowRenewalsDue
+        )
+        val Found = SessionId.isNotEmpty() &&
+                Sessions.any { SessionRef -> SessionRef.SessionId == SessionId }
+        if (!Found) {
+            return StoreSnapshot(
+                Sessions = Sessions,
+                SessionFound = false,
+                Policies = emptyList(),
+                Renewals = emptyList(),
+                RenewalsDue = emptyList()
             )
-            AllRenewals = emptyList()
-            AllPolicies = emptyList()
-        } else if (SelectedSessionMode == CaptureMode.FUP) {
-            AllRenewals = PolicyRepository.GetFupPolicies(
-                ContextRef = requireContext(),
-                SessionId = SelectedSessionId
-            )
-            AllRenewalsDue = emptyList()
-            AllPolicies = emptyList()
-        } else {
-            AllPolicies = PolicyRepository.GetCustomerPolicies(
-                ContextRef = requireContext(),
-                SessionId = SelectedSessionId
-            )
-            AllRenewals = emptyList()
-            AllRenewalsDue = emptyList()
         }
+        return StoreSnapshot(
+            Sessions = Sessions,
+            SessionFound = true,
+            Policies = if (ModeVal != CaptureMode.FUP && ModeVal != CaptureMode.RENEWAL_DUE) {
+                PolicyRepository.GetCustomerPolicies(ContextRef = ContextRef, SessionId = SessionId)
+            } else {
+                emptyList()
+            },
+            Renewals = if (ModeVal == CaptureMode.FUP) {
+                PolicyRepository.GetFupPolicies(ContextRef = ContextRef, SessionId = SessionId)
+            } else {
+                emptyList()
+            },
+            RenewalsDue = if (ModeVal == CaptureMode.RENEWAL_DUE) {
+                PolicyRepository.GetRenewalDuePolicies(ContextRef = ContextRef, SessionId = SessionId)
+            } else {
+                emptyList()
+            }
+        )
     }
-
 
     private fun VisiblePolicies(): List<CustomerPolicy> {
         val QueryLower = SearchQuery.trim().lowercase(Locale.ROOT)
@@ -489,75 +614,161 @@ class PoliciesFragment : Fragment() {
         SheetDialog.show()
     }
 
+    private class DueSheet(
+        val Dialog: BottomSheetDialog,
+        val Binding: SheetDuePreviewBinding
+    )
+
+    private data class DueImportResult(
+        val SourceCount: Int,
+        val Outcome: DueDateOutcome?
+    )
+
+    private fun CreateDueSheet(ActivityRef: androidx.appcompat.app.AppCompatActivity): DueSheet {
+        val SheetBinding = SheetDuePreviewBinding.inflate(layoutInflater)
+        val SheetDialog = BottomSheetDialog(ActivityRef)
+        SheetDialog.setContentView(SheetBinding.root)
+        SheetDialog.setCanceledOnTouchOutside(false)
+        SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        SheetDialog.behavior.skipCollapsed = true
+        SheetDialog.behavior.isDraggable = false
+        SheetBinding.dueSheetHandle.visibility = View.INVISIBLE
+        return DueSheet(Dialog = SheetDialog, Binding = SheetBinding)
+    }
+
+    private fun ShowDueWorking(SheetRef: DueSheet, TitleText: String, BodyText: String) {
+        val SheetBinding = SheetRef.Binding
+        SheetBinding.dueWorkingGroup.visibility = View.VISIBLE
+        SheetBinding.tvDueWorkingTitle.text = TitleText
+        SheetBinding.tvDueWorkingBody.text = BodyText
+        SheetBinding.dueHeroGroup.visibility = View.GONE
+        SheetBinding.tvDuePreviewTitle.visibility = View.GONE
+        SheetBinding.tvDuePreviewHint.visibility = View.GONE
+        SheetBinding.duePreviewScroll.visibility = View.GONE
+        SheetBinding.btnDuePreviewApply.visibility = View.GONE
+        SheetBinding.btnDuePreviewCancel.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetRef.Dialog.dismiss()
+        }
+    }
+
     private fun ApplyDueDatesFrom(
         RenewalSessionId: String,
         RenewalModeVal: CaptureMode,
-        LinkedHostId: String = ""
+        LinkedHostId: String = "",
+        ExistingSheet: DueSheet? = null
     ) {
-        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity
+        if (ActivityRef == null || SelectedSessionId.isEmpty()) {
+            ExistingSheet?.Dialog?.dismiss()
+            return
+        }
         val ContextRef = ActivityRef.applicationContext
-        if (SelectedSessionId.isEmpty()) return
+        val PolicySnapshot = AllPolicies
 
-        val SourceCount: Int
-        val OutcomeObj: DueDateOutcome
+        var WorkingSheet: DueSheet? = ExistingSheet
+        if (ExistingSheet != null) {
+            ShowDueWorking(
+                SheetRef = ExistingSheet,
+                TitleText = getString(R.string.due_working_title),
+                BodyText = getString(R.string.due_working_body, PolicySnapshot.size)
+            )
+        }
+
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            OnSlow = {
+                if (WorkingSheet == null) {
+                    WorkingSheet = CreateDueSheet(ActivityRef = ActivityRef).also { SheetRef ->
+                        ShowDueWorking(
+                            SheetRef = SheetRef,
+                            TitleText = getString(R.string.due_working_title),
+                            BodyText = getString(R.string.due_working_body, PolicySnapshot.size)
+                        )
+                        SheetRef.Dialog.show()
+                    }
+                }
+            },
+            Work = {
+                ComputeDueImport(
+                    ContextRef = ContextRef,
+                    RenewalSessionId = RenewalSessionId,
+                    RenewalModeVal = RenewalModeVal,
+                    PolicySnapshot = PolicySnapshot
+                )
+            },
+            OnResult = { ResultObj ->
+                val SheetRef = WorkingSheet
+                if (SheetRef != null && !SheetRef.Dialog.isShowing) return@Run
+                val OutcomeObj = ResultObj.Outcome
+                if (OutcomeObj == null) {
+                    SheetRef?.Dialog?.dismiss()
+                    ShowSnack(
+                        MessageVal = getString(R.string.due_no_sessions),
+                        KindVal = AppToast.Kind.Warning
+                    )
+                    return@Run
+                }
+                if (OutcomeObj.MatchedCount == 0) {
+                    SheetRef?.Dialog?.dismiss()
+                    if (LinkedHostId.isNotEmpty()) {
+                        LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
+                    }
+                    ShowSnack(
+                        MessageVal = getString(R.string.due_no_matches),
+                        KindVal = AppToast.Kind.Warning
+                    )
+                    return@Run
+                }
+
+                if (LinkedHostId.isNotEmpty() && OutcomeObj.Updates.isEmpty()) {
+                    LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
+                }
+
+                ShowDuePreviewSheet(
+                    ActivityRef = ActivityRef,
+                    OutcomeObj = OutcomeObj,
+                    RenewalSessionId = RenewalSessionId,
+                    RenewalCount = ResultObj.SourceCount,
+                    RenewalModeVal = RenewalModeVal,
+                    LinkedHostId = LinkedHostId,
+                    ExistingSheet = SheetRef
+                )
+            }
+        )
+    }
+
+    private fun ComputeDueImport(
+        ContextRef: android.content.Context,
+        RenewalSessionId: String,
+        RenewalModeVal: CaptureMode,
+        PolicySnapshot: List<CustomerPolicy>
+    ): DueImportResult {
         if (RenewalModeVal == CaptureMode.RENEWAL_DUE) {
             val DueList = PolicyRepository.GetRenewalDuePolicies(
                 ContextRef = ContextRef,
                 SessionId = RenewalSessionId
             )
-            if (DueList.isEmpty()) {
-                ShowSnack(
-                    MessageVal = getString(R.string.due_no_sessions),
-                    KindVal = AppToast.Kind.Warning
+            if (DueList.isEmpty()) return DueImportResult(SourceCount = 0, Outcome = null)
+            return DueImportResult(
+                SourceCount = DueList.size,
+                Outcome = RenewalDueImport.Apply(
+                    Policies = PolicySnapshot,
+                    DueRecords = DueList
                 )
-                return
-            }
-            SourceCount = DueList.size
-            OutcomeObj = RenewalDueImport.Apply(
-                Policies = AllPolicies,
-                DueRecords = DueList
             )
-        } else {
-            val RenewalList = PolicyRepository.GetFupPolicies(
-                ContextRef = ContextRef,
-                SessionId = RenewalSessionId
-            )
-            if (RenewalList.isEmpty()) {
-                ShowSnack(
-                    MessageVal = getString(R.string.due_no_sessions),
-                    KindVal = AppToast.Kind.Warning
-                )
-                return
-            }
-            SourceCount = RenewalList.size
-            OutcomeObj = RenewalDueProjection.Apply(
-                Policies = AllPolicies,
+        }
+        val RenewalList = PolicyRepository.GetFupPolicies(
+            ContextRef = ContextRef,
+            SessionId = RenewalSessionId
+        )
+        if (RenewalList.isEmpty()) return DueImportResult(SourceCount = 0, Outcome = null)
+        return DueImportResult(
+            SourceCount = RenewalList.size,
+            Outcome = RenewalDueProjection.Apply(
+                Policies = PolicySnapshot,
                 Renewals = RenewalList
             )
-        }
-
-        if (OutcomeObj.MatchedCount == 0) {
-            if (LinkedHostId.isNotEmpty()) {
-                LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
-            }
-            ShowSnack(
-                MessageVal = getString(R.string.due_no_matches),
-                KindVal = AppToast.Kind.Warning
-            )
-            return
-        }
-
-        if (LinkedHostId.isNotEmpty() && OutcomeObj.Updates.isEmpty()) {
-            LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
-        }
-
-        ShowDuePreviewSheet(
-            ActivityRef = ActivityRef,
-            OutcomeObj = OutcomeObj,
-            RenewalSessionId = RenewalSessionId,
-            RenewalCount = SourceCount,
-            RenewalModeVal = RenewalModeVal,
-            LinkedHostId = LinkedHostId
         )
     }
 
@@ -567,16 +778,17 @@ class PoliciesFragment : Fragment() {
         RenewalSessionId: String,
         RenewalCount: Int,
         RenewalModeVal: CaptureMode = CaptureMode.FUP,
-        LinkedHostId: String = ""
+        LinkedHostId: String = "",
+        ExistingSheet: DueSheet? = null
     ) {
-        val SheetBinding = SheetDuePreviewBinding.inflate(layoutInflater)
-        val SheetDialog = BottomSheetDialog(ActivityRef)
-        SheetDialog.setContentView(SheetBinding.root)
-        SheetDialog.setCanceledOnTouchOutside(false)
-        SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        SheetDialog.behavior.skipCollapsed = true
-        SheetDialog.behavior.isDraggable = false
-        SheetBinding.dueSheetHandle.visibility = View.INVISIBLE
+        val SheetRef = ExistingSheet ?: CreateDueSheet(ActivityRef = ActivityRef)
+        val SheetBinding = SheetRef.Binding
+        val SheetDialog = SheetRef.Dialog
+        SheetBinding.dueWorkingGroup.visibility = View.GONE
+        SheetBinding.tvDuePreviewTitle.visibility = View.VISIBLE
+        SheetBinding.tvDuePreviewHint.visibility = View.VISIBLE
+        SheetBinding.duePreviewScroll.visibility = View.VISIBLE
+        SheetBinding.btnDuePreviewApply.visibility = View.VISIBLE
 
         val HasUpdates = OutcomeObj.Updates.isNotEmpty()
         val SkipGroups = GroupSkips(SkipList = OutcomeObj.Skips)
@@ -597,26 +809,38 @@ class PoliciesFragment : Fragment() {
 
         SheetBinding.btnDuePreviewApply.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
-            SheetDialog.dismiss()
-            val Committed = CommitDueDates(
+            SheetBinding.btnDuePreviewApply.isEnabled = false
+            SheetBinding.btnDuePreviewCancel.isEnabled = false
+            SheetBinding.btnDuePreviewApply.setText(R.string.due_saving)
+            SheetBinding.dueSavingBar.visibility = View.VISIBLE
+            SheetDialog.setCancelable(false)
+            CommitDueDates(
                 OutcomeObj = OutcomeObj,
                 RenewalSessionId = RenewalSessionId,
                 RenewalCount = RenewalCount,
-                LinkedHostId = LinkedHostId
+                LinkedHostId = LinkedHostId,
+                OnDone = { Committed ->
+                    SheetDialog.dismiss()
+                    if (Committed && LinkedHostId.isNotEmpty()) {
+                        LogLinkedCommit(
+                            HostId = LinkedHostId,
+                            ModeVal = RenewalModeVal,
+                            UpdatedCount = OutcomeObj.UpdatedCount
+                        )
+                    }
+                }
             )
-            if (Committed && LinkedHostId.isNotEmpty()) {
-                LogLinkedCommit(
-                    HostId = LinkedHostId,
-                    ModeVal = RenewalModeVal,
-                    UpdatedCount = OutcomeObj.UpdatedCount
-                )
-            }
         }
         SheetBinding.btnDuePreviewCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
         }
-        SheetDialog.show()
+        if (SheetDialog.isShowing) {
+            SheetBinding.root.requestLayout()
+            SheetDialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        } else {
+            SheetDialog.show()
+        }
     }
 
     private fun BindUpdatePreview(
@@ -915,55 +1139,69 @@ class PoliciesFragment : Fragment() {
         OutcomeObj: DueDateOutcome,
         RenewalSessionId: String,
         RenewalCount: Int,
-        LinkedHostId: String = ""
-    ): Boolean {
-        val ContextRef = context?.applicationContext ?: return false
-        if (SelectedSessionId.isEmpty() || OutcomeObj.Changes.isEmpty()) return false
-        if (LinkedHostId.isNotEmpty() && LinkedHostId != SelectedSessionId) return false
-
-        PolicyRepository.SaveFieldChanges(
-            ContextRef = ContextRef,
-            ModeVal = CaptureMode.POLICY,
-            SessionId = SelectedSessionId,
-            Changes = OutcomeObj.Changes,
-            SourceName = ChangeSource.DUE_IMPORT
-        )
-        PolicyRepository.SaveCustomerPolicies(
-            ContextRef = ContextRef,
-            Policies = OutcomeObj.Policies,
-            SessionId = SelectedSessionId
-        )
-        PolicyRepository.SaveDueDateReport(
-            ContextRef = ContextRef,
-            SessionId = SelectedSessionId,
-            ReportObj = BuildDueDateReport(
-                OutcomeObj = OutcomeObj,
-                RenewalSessionId = RenewalSessionId
-            )
-        )
-        LoadSessionRecords()
-        RenderList()
-
-        CaptureDiagnostics.LogForSession(
-            ContextObj = ContextRef,
-            SessionId = SelectedSessionId,
-            EventName = "DUE_DATE_IMPORT",
-            MessageText = "source=$RenewalSessionId renewals=$RenewalCount " +
-                    "matched=${OutcomeObj.MatchedCount} anchored=${OutcomeObj.AnchoredCount} " +
-                    "updated=${OutcomeObj.UpdatedCount} current=${OutcomeObj.UnchangedCount} " +
-                    "skipped=${OutcomeObj.SkippedCount}"
+        LinkedHostId: String = "",
+        OnDone: (Boolean) -> Unit = {}
+    ) {
+        val ContextRef = context?.applicationContext
+        val SessionId = SelectedSessionId
+        if (ContextRef == null || SessionId.isEmpty() || OutcomeObj.Changes.isEmpty() ||
+            (LinkedHostId.isNotEmpty() && LinkedHostId != SessionId)
+        ) {
+            OnDone(false)
+            return
+        }
+        val ReportObj = BuildDueDateReport(
+            OutcomeObj = OutcomeObj,
+            RenewalSessionId = RenewalSessionId
         )
 
-        ShowSnack(
-            MessageVal = getString(
-                R.string.due_result_format,
-                OutcomeObj.UpdatedCount,
-                OutcomeObj.UnchangedCount,
-                OutcomeObj.SkippedCount
-            ),
-            KindVal = AppToast.Kind.Success
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            Work = {
+                PolicyRepository.SaveFieldChanges(
+                    ContextRef = ContextRef,
+                    ModeVal = CaptureMode.POLICY,
+                    SessionId = SessionId,
+                    Changes = OutcomeObj.Changes,
+                    SourceName = ChangeSource.DUE_IMPORT
+                )
+                PolicyRepository.SaveCustomerPolicies(
+                    ContextRef = ContextRef,
+                    Policies = OutcomeObj.Policies,
+                    SessionId = SessionId
+                )
+                PolicyRepository.SaveDueDateReport(
+                    ContextRef = ContextRef,
+                    SessionId = SessionId,
+                    ReportObj = ReportObj
+                )
+                CaptureDiagnostics.LogForSession(
+                    ContextObj = ContextRef,
+                    SessionId = SessionId,
+                    EventName = "DUE_DATE_IMPORT",
+                    MessageText = "source=$RenewalSessionId renewals=$RenewalCount " +
+                            "matched=${OutcomeObj.MatchedCount} anchored=${OutcomeObj.AnchoredCount} " +
+                            "updated=${OutcomeObj.UpdatedCount} current=${OutcomeObj.UnchangedCount} " +
+                            "skipped=${OutcomeObj.SkippedCount}"
+                )
+            },
+            OnResult = {
+                if (SelectedSessionId == SessionId) {
+                    AllPolicies = OutcomeObj.Policies
+                    RenderList()
+                }
+                OnDone(true)
+                ShowSnack(
+                    MessageVal = getString(
+                        R.string.due_result_format,
+                        OutcomeObj.UpdatedCount,
+                        OutcomeObj.UnchangedCount,
+                        OutcomeObj.SkippedCount
+                    ),
+                    KindVal = AppToast.Kind.Success
+                )
+            }
         )
-        return true
     }
 
     private fun BuildDueDateReport(
@@ -999,18 +1237,17 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    private fun HasRecordedChanges(): Boolean {
-        val ContextRef = context?.applicationContext ?: return false
-        if (SelectedSessionId.isEmpty()) return false
+    private fun HasRecordedChanges(ContextRef: android.content.Context, SessionId: String): Boolean {
+        if (SessionId.isEmpty()) return false
         val HasChanges = PolicyRepository.GetFieldChanges(
             ContextRef = ContextRef,
             ModeVal = CaptureMode.POLICY,
-            SessionId = SelectedSessionId
+            SessionId = SessionId
         ).isNotEmpty()
         if (HasChanges) return true
         val ReportObj = PolicyRepository.GetDueDateReport(
             ContextRef = ContextRef,
-            SessionId = SelectedSessionId
+            SessionId = SessionId
         )
         return ReportObj != null && ReportObj.Skips.isNotEmpty()
     }
@@ -1039,6 +1276,7 @@ class PoliciesFragment : Fragment() {
     private fun HasAnySessionAction(): Boolean = SelectedSessionId.isNotEmpty()
 
     private fun RenderList(ResetScroll: Boolean = false) {
+        if (IsLoadingSession) return
         when {
             SelectedSessionId.isEmpty() -> RenderSessions()
             SelectedSessionMode == CaptureMode.RENEWAL_DUE -> RenderRenewalsDue()
@@ -1123,8 +1361,11 @@ class PoliciesFragment : Fragment() {
         )
         SheetBinding.btnDeleteConfirm.setOnClickListener { ViewRef ->
             HapticFeedback.Reject(ViewRef = ViewRef)
-            SheetDialog.dismiss()
-            DeletePolicies(PolicyList = TargetList)
+            SheetBinding.btnDeleteConfirm.isEnabled = false
+            SheetBinding.btnDeleteCancel.isEnabled = false
+            SheetBinding.btnDeleteConfirm.setText(R.string.delete_working)
+            SheetDialog.setCancelable(false)
+            DeletePolicies(PolicyList = TargetList, OnDone = { SheetDialog.dismiss() })
         }
         SheetBinding.btnDeleteCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -1215,33 +1456,44 @@ class PoliciesFragment : Fragment() {
         )
     }
 
-    private fun DeletePolicies(PolicyList: List<CustomerPolicy>) {
-        val ContextRef = context?.applicationContext ?: return
-        if (SelectedSessionId.isEmpty()) return
+    private fun DeletePolicies(PolicyList: List<CustomerPolicy>, OnDone: () -> Unit = {}) {
+        val ContextRef = context?.applicationContext
+        val SessionId = SelectedSessionId
+        if (ContextRef == null || SessionId.isEmpty()) {
+            OnDone()
+            return
+        }
 
         val NumberList = PolicyList.map { PolicyItem -> PolicyItem.PolicyNumber }
-        val RemovedCount = PolicyRepository.DeletePoliciesFromSession(
-            ContextRef = ContextRef,
-            SessionId = SelectedSessionId,
-            PolicyNumbers = NumberList
-        )
-        if (RemovedCount <= 0) return
-
-        CaptureDiagnostics.LogForSession(
-            ContextObj = ContextRef,
-            SessionId = SelectedSessionId,
-            EventName = "POLICIES_DELETED",
-            MessageText = "removed=$RemovedCount policies=${NumberList.joinToString(",")}"
-        )
-
-        AdapterObj.EndSelection()
-        AdapterObj.CloseOpenRow()
-        LoadSessions()
-        LoadSessionRecords()
-        RenderList()
-        ShowSnack(
-            MessageVal = getString(R.string.policies_deleted_format, RemovedCount),
-            KindVal = AppToast.Kind.Success
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            Work = {
+                val RemovedCount = PolicyRepository.DeletePoliciesFromSession(
+                    ContextRef = ContextRef,
+                    SessionId = SessionId,
+                    PolicyNumbers = NumberList
+                )
+                if (RemovedCount > 0) {
+                    CaptureDiagnostics.LogForSession(
+                        ContextObj = ContextRef,
+                        SessionId = SessionId,
+                        EventName = "POLICIES_DELETED",
+                        MessageText = "removed=$RemovedCount policies=${NumberList.joinToString(",")}"
+                    )
+                }
+                RemovedCount
+            },
+            OnResult = { RemovedCount ->
+                OnDone()
+                if (RemovedCount <= 0) return@Run
+                AdapterObj.EndSelection()
+                AdapterObj.CloseOpenRow()
+                ReloadFromStore()
+                ShowSnack(
+                    MessageVal = getString(R.string.policies_deleted_format, RemovedCount),
+                    KindVal = AppToast.Kind.Success
+                )
+            }
         )
     }
 
@@ -1496,16 +1748,24 @@ class PoliciesFragment : Fragment() {
 
 
     private fun LoadSessions() {
-        val ShowRenewals = SettingsStore.IsRenewalHistoryVisible(ContextRef = requireContext())
-        val ShowRenewalsDue = SettingsStore.IsRenewalDueVisible(ContextRef = requireContext())
-        SessionList = PolicyRepository.GetSessionHistory(ContextRef = requireContext())
-            .filter { SessionRef ->
-                SessionRef.Mode == CaptureMode.POLICY ||
-                        (SessionRef.Mode == CaptureMode.FUP && ShowRenewals) ||
-                        (SessionRef.Mode == CaptureMode.RENEWAL_DUE && ShowRenewalsDue)
-            }
-            .sortedByDescending { SessionRef -> SessionRef.SavedAt }
+        SessionList = FilterSessions(
+            HistoryList = PolicyRepository.GetSessionHistory(ContextRef = requireContext()),
+            ShowRenewals = SettingsStore.IsRenewalHistoryVisible(ContextRef = requireContext()),
+            ShowRenewalsDue = SettingsStore.IsRenewalDueVisible(ContextRef = requireContext())
+        )
     }
+
+    private fun FilterSessions(
+        HistoryList: List<PolicyRepository.CaptureSessionReference>,
+        ShowRenewals: Boolean,
+        ShowRenewalsDue: Boolean
+    ): List<PolicyRepository.CaptureSessionReference> = HistoryList
+        .filter { SessionRef ->
+            SessionRef.Mode == CaptureMode.POLICY ||
+                    (SessionRef.Mode == CaptureMode.FUP && ShowRenewals) ||
+                    (SessionRef.Mode == CaptureMode.RENEWAL_DUE && ShowRenewalsDue)
+        }
+        .sortedByDescending { SessionRef -> SessionRef.SavedAt }
 
     private fun StatusFilterKey(StatusText: String): String {
         return when (StatusText) {
@@ -1616,14 +1876,17 @@ class PoliciesFragment : Fragment() {
         SuppressChipCallback = false
     }
 
-    private fun OpenSession(SessionRef: PolicyRepository.CaptureSessionReference) {
+    private fun OpenSession(
+        SessionRef: PolicyRepository.CaptureSessionReference,
+        OnLoaded: () -> Unit = {}
+    ) {
+        IsLoadingSession = true
         SelectedSessionId = SessionRef.SessionId
         SelectedSessionMode = SessionRef.Mode
         SearchQuery = ""
         StatusFilter = FILTER_ALL
         ViewBindingObj?.etSearch?.setText("")
-        LoadSessionRecords()
-        RenderList(ResetScroll = true)
+        ReloadFromStore(ShowSkeleton = true, ResetScroll = true, OnLoaded = OnLoaded)
     }
 
 
@@ -2023,14 +2286,22 @@ class PoliciesFragment : Fragment() {
 
     private fun ClearSessionLog(SessionRef: PolicyRepository.CaptureSessionReference) {
         HapticFeedback.Tap(ViewRef = ViewBindingObj?.root)
-        CaptureDiagnostics.DeleteSessionLogs(
-            ContextObj = requireContext().applicationContext,
-            SessionId = SessionRef.SessionId
-        )
-        SessionAdapterObj.CloseOpenRow()
-        ShowSnack(
-            MessageVal = getString(R.string.sessions_clear_log_done),
-            KindVal = AppToast.Kind.Success
+        val ContextRef = requireContext().applicationContext
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            Work = {
+                CaptureDiagnostics.DeleteSessionLogs(
+                    ContextObj = ContextRef,
+                    SessionId = SessionRef.SessionId
+                )
+            },
+            OnResult = {
+                SessionAdapterObj.CloseOpenRow()
+                ShowSnack(
+                    MessageVal = getString(R.string.sessions_clear_log_done),
+                    KindVal = AppToast.Kind.Success
+                )
+            }
         )
     }
 
@@ -2055,25 +2326,35 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun DeleteSession(SessionRef: PolicyRepository.CaptureSessionReference) {
-        HapticFeedback.Reject(ViewRef = ViewBindingObj?.root)
-        PolicyRepository.DeleteSession(
-            ContextRef = requireContext().applicationContext,
-            SessionId = SessionRef.SessionId,
-            ModeVal = SessionRef.Mode
+        val BindingObj = ViewBindingObj ?: return
+        HapticFeedback.Reject(ViewRef = BindingObj.root)
+        val ContextRef = requireContext().applicationContext
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            OnSlow = { BindingObj.listRefreshBar.visibility = View.VISIBLE },
+            Work = {
+                PolicyRepository.DeleteSession(
+                    ContextRef = ContextRef,
+                    SessionId = SessionRef.SessionId,
+                    ModeVal = SessionRef.Mode
+                )
+                CaptureDiagnostics.DeleteSessionLogs(
+                    ContextObj = ContextRef,
+                    SessionId = SessionRef.SessionId
+                )
+            },
+            OnResult = { FinishDeleteSession(SessionRef = SessionRef) }
         )
-        CaptureDiagnostics.DeleteSessionLogs(
-            ContextObj = requireContext().applicationContext,
-            SessionId = SessionRef.SessionId
-        )
+    }
 
+    private fun FinishDeleteSession(SessionRef: PolicyRepository.CaptureSessionReference) {
         if (SelectedSessionId == SessionRef.SessionId) {
             SelectedSessionId = ""
             AllPolicies = emptyList()
             AllRenewals = emptyList()
         }
         SessionAdapterObj.CloseOpenRow()
-        LoadSessions()
-        RenderList()
+        ReloadFromStore()
 
         ShowSnack(
             MessageVal = getString(R.string.sessions_deleted),
@@ -2082,6 +2363,14 @@ class PoliciesFragment : Fragment() {
     }
 
     private fun ShowSessions() {
+        ReloadJob?.cancel()
+        IsLoadingSession = false
+        PendingLoaded.clear()
+        PendingResetScroll = false
+        ViewBindingObj?.let { BindingObj ->
+            Skeleton.Hide(SkeletonView = BindingObj.listSkeleton.root)
+            BindingObj.listRefreshBar.visibility = View.GONE
+        }
         SessionAdapterObj.CloseOpenRow()
         AdapterObj.EndSelection()
         AdapterObj.CloseOpenRow()
@@ -2094,7 +2383,54 @@ class PoliciesFragment : Fragment() {
         RenderList(ResetScroll = true)
     }
 
+    private data class SessionActionFacts(
+        val HasLogs: Boolean,
+        val HasChanges: Boolean,
+        val DisplayName: String,
+        val NameHistory: List<SessionNameEntry>
+    )
+
     private fun ShowSessionActionsSheet() {
+        val BindingObj = ViewBindingObj ?: return
+        val ContextRef = BindingObj.root.context.applicationContext
+        val SessionId = SelectedSessionId
+        val IsPolicySession = SessionId.isNotEmpty() && SelectedSessionMode == CaptureMode.POLICY
+        val HasSessionRef = SessionList.any { ItemRef -> ItemRef.SessionId == SessionId }
+        BindingObj.btnSessionActions.isEnabled = false
+        BackgroundWork.Run(
+            OwnerRef = viewLifecycleOwner,
+            Work = {
+                SessionActionFacts(
+                    HasLogs = SessionId.isNotEmpty() && CaptureDiagnostics.HasSessionLogs(
+                        ContextObj = ContextRef,
+                        SessionId = SessionId
+                    ),
+                    HasChanges = IsPolicySession && HasRecordedChanges(
+                        ContextRef = ContextRef,
+                        SessionId = SessionId
+                    ),
+                    DisplayName = PolicyRepository.GetSessionName(
+                        ContextRef = ContextRef,
+                        SessionId = SessionId
+                    ),
+                    NameHistory = if (HasSessionRef) {
+                        PolicyRepository.GetSessionNameHistory(
+                            ContextRef = ContextRef,
+                            SessionId = SessionId
+                        )
+                    } else {
+                        emptyList()
+                    }
+                )
+            },
+            OnResult = { FactsObj ->
+                BindingObj.btnSessionActions.isEnabled = true
+                if (SelectedSessionId == SessionId) ShowSessionActionsSheet(FactsObj = FactsObj)
+            }
+        )
+    }
+
+    private fun ShowSessionActionsSheet(FactsObj: SessionActionFacts) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val SheetBinding = SheetSessionActionsBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
@@ -2112,10 +2448,7 @@ class PoliciesFragment : Fragment() {
         val SessionRef = SessionList.firstOrNull { ItemRef ->
             ItemRef.SessionId == SelectedSessionId
         }
-        val HasLogs = SelectedSessionId.isNotEmpty() && CaptureDiagnostics.HasSessionLogs(
-            ContextObj = requireContext().applicationContext,
-            SessionId = SelectedSessionId
-        )
+        val HasLogs = FactsObj.HasLogs
 
         SheetBinding.rowActionPersonal.visibility =
             if (IsPolicySession) View.VISIBLE else View.GONE
@@ -2127,7 +2460,7 @@ class PoliciesFragment : Fragment() {
             if (IsPolicySession) View.VISIBLE else View.GONE
         SheetBinding.rowActionUpload.visibility = if (ShowUpload) View.VISIBLE else View.GONE
         SheetBinding.rowActionChanges.visibility =
-            if (IsPolicySession && HasRecordedChanges()) View.VISIBLE else View.GONE
+            if (IsPolicySession && FactsObj.HasChanges) View.VISIBLE else View.GONE
         val ShowExports = SettingsStore.IsSessionExportVisible(ContextRef = requireContext())
         SheetBinding.rowActionExcel.visibility = if (ShowExports) View.VISIBLE else View.GONE
         SheetBinding.rowActionPdf.visibility =
@@ -2152,22 +2485,13 @@ class PoliciesFragment : Fragment() {
         )
         SheetBinding.tvActionDeleteDesc.text = getString(
             R.string.action_delete_desc,
-            SessionLabels.NameOrFallback(
-                ContextRef = requireContext(),
-                SessionId = SelectedSessionId,
-                FallbackText = SelectedSessionMode.DescribeCount(
+            FactsObj.DisplayName.ifEmpty {
+                SelectedSessionMode.DescribeCount(
                     CountVal = SessionRef?.RecordCount ?: AllPolicies.size
                 )
-            )
+            }
         )
-        val NameHistoryList = if (SessionRef == null) {
-            emptyList()
-        } else {
-            PolicyRepository.GetSessionNameHistory(
-                ContextRef = requireContext(),
-                SessionId = SessionRef.SessionId
-            )
-        }
+        val NameHistoryList = if (SessionRef == null) emptyList() else FactsObj.NameHistory
         SheetBinding.rowActionRename.visibility =
             if (SessionRef != null) View.VISIBLE else View.GONE
         SheetBinding.rowActionNameHistory.visibility =
