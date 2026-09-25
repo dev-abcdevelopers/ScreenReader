@@ -27,7 +27,9 @@ import com.bliss.screenreader.databinding.PartialDueDateGroupBinding
 import com.bliss.screenreader.databinding.PartialDueDateRowBinding
 import com.bliss.screenreader.databinding.PartialDueReasonGroupBinding
 import com.bliss.screenreader.ui.SetupEdgeToEdge
+import com.bliss.screenreader.utils.BackgroundWork
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.Skeleton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,6 +43,14 @@ class ChangesActivity : AppCompatActivity() {
     private var ReportObj: DueDateReport? = null
     private var NameMap: Map<String, String> = emptyMap()
     private var FilterVal: String = FILTER_ALL
+    private var IsLoaded = false
+
+    private data class LoadedRuns(
+        val Names: Map<String, String>,
+        val Runs: List<ChangeRun>,
+        val Report: DueDateReport?,
+        val ChangeCount: Int
+    )
 
     private data class ChangeRun(
         val SourceName: String,
@@ -66,32 +76,59 @@ class ChangesActivity : AppCompatActivity() {
                 R.id.chipChangeSkipped -> FILTER_SKIPPED
                 else -> FILTER_ALL
             }
-            RenderRuns()
+            if (IsLoaded) RenderRuns()
         }
 
         ViewBindingObj.btnShareChanges.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
-            ShareRuns()
+            if (IsLoaded) ShareRuns()
         }
 
         LoadRuns()
-        RenderRuns()
     }
 
     private fun LoadRuns() {
-        NameMap = PolicyRepository.GetCustomerPolicies(
-            ContextRef = this,
-            SessionId = SessionIdVal
+        val AppContext = applicationContext
+        val SessionId = SessionIdVal
+        ViewBindingObj.changesScroll.visibility = View.GONE
+        ViewBindingObj.emptyState.emptyStateRoot.visibility = View.GONE
+        BackgroundWork.Run(
+            OwnerRef = this,
+            OnSlow = { Skeleton.Show(SkeletonView = ViewBindingObj.skeletonList.root) },
+            Work = { ReadRuns(ContextRef = AppContext, SessionId = SessionId) },
+            OnResult = { LoadedObj ->
+                NameMap = LoadedObj.Names
+                RunList = LoadedObj.Runs
+                ReportObj = LoadedObj.Report
+                ViewBindingObj.tvChangesSummary.text = getString(
+                    R.string.changes_summary_format,
+                    LoadedObj.ChangeCount,
+                    LoadedObj.Report?.Skips?.size ?: 0
+                )
+                IsLoaded = true
+                RenderRuns()
+                Skeleton.Hide(
+                    SkeletonView = ViewBindingObj.skeletonList.root,
+                    ContentView = ViewBindingObj.changesScroll
+                )
+            }
+        )
+    }
+
+    private fun ReadRuns(ContextRef: android.content.Context, SessionId: String): LoadedRuns {
+        val Names = PolicyRepository.GetCustomerPolicies(
+            ContextRef = ContextRef,
+            SessionId = SessionId
         ).associate { PolicyItem -> PolicyItem.PolicyNumber to PolicyItem.HolderName }
 
         val ChangeList = PolicyRepository.GetFieldChanges(
-            ContextRef = this,
+            ContextRef = ContextRef,
             ModeVal = CaptureMode.POLICY,
-            SessionId = SessionIdVal
+            SessionId = SessionId
         )
-        ReportObj = PolicyRepository.GetDueDateReport(
-            ContextRef = this,
-            SessionId = SessionIdVal
+        val Report = PolicyRepository.GetDueDateReport(
+            ContextRef = ContextRef,
+            SessionId = SessionId
         )
 
         val GroupedMap = ChangeList.groupBy { ChangeItem ->
@@ -106,7 +143,7 @@ class ChangesActivity : AppCompatActivity() {
             .filter { KeyPair -> KeyPair.first == ChangeSource.DUE_IMPORT }
             .maxOfOrNull { KeyPair -> KeyPair.second }
 
-        RunList = GroupedMap
+        val Runs = GroupedMap
             .map { EntryRef ->
                 val CarriesSkips = EntryRef.key.first == ChangeSource.DUE_IMPORT &&
                         EntryRef.key.second == NewestImportAt
@@ -114,15 +151,16 @@ class ChangesActivity : AppCompatActivity() {
                     SourceName = EntryRef.key.first,
                     ChangedAt = EntryRef.key.second,
                     Changes = EntryRef.value,
-                    Skips = if (CarriesSkips) ReportObj?.Skips.orEmpty() else emptyList()
+                    Skips = if (CarriesSkips) Report?.Skips.orEmpty() else emptyList()
                 )
             }
             .sortedByDescending { RunItem -> RunItem.ChangedAt }
 
-        ViewBindingObj.tvChangesSummary.text = getString(
-            R.string.changes_summary_format,
-            ChangeList.size,
-            ReportObj?.Skips?.size ?: 0
+        return LoadedRuns(
+            Names = Names,
+            Runs = Runs,
+            Report = Report,
+            ChangeCount = ChangeList.size
         )
     }
 
@@ -156,7 +194,8 @@ class ChangesActivity : AppCompatActivity() {
                 ContainerRef = ContainerRef,
                 RunItem = RunItem,
                 ChangeList = ChangeList,
-                SkipList = SkipList
+                SkipList = SkipList,
+                StartExpanded = RenderedCount == 0
             )
             RenderedCount++
         }
@@ -183,7 +222,8 @@ class ChangesActivity : AppCompatActivity() {
         ContainerRef: ViewGroup,
         RunItem: ChangeRun,
         ChangeList: List<RecordFieldChange>,
-        SkipList: List<DueDateReportEntry>
+        SkipList: List<DueDateReportEntry>,
+        StartExpanded: Boolean
     ) {
         val RunBinding = PartialChangeRunBinding.inflate(layoutInflater, ContainerRef, false)
         RunBinding.tvChangeRunTitle.setText(RunTitleRes(SourceName = RunItem.SourceName))
@@ -194,16 +234,28 @@ class ChangesActivity : AppCompatActivity() {
             SkipCount = SkipList.size
         )
 
-        val DueList = ChangeList.filter { ChangeItem -> IsDueDate(ChangeItem = ChangeItem) }
-        val OtherList = ChangeList.filterNot { ChangeItem -> IsDueDate(ChangeItem = ChangeItem) }
+        var BodyBuilt = false
+        fun BuildBody() {
+            if (BodyBuilt) return
+            BodyBuilt = true
+            val DueList = ChangeList.filter { ChangeItem -> IsDueDate(ChangeItem = ChangeItem) }
+            val OtherList = ChangeList.filterNot { ChangeItem -> IsDueDate(ChangeItem = ChangeItem) }
+            AddDueDateGroups(ContainerRef = RunBinding.changeRunBody, ChangeList = DueList)
+            AddFieldGroups(ContainerRef = RunBinding.changeRunBody, ChangeList = OtherList)
+            AddSkipGroups(ContainerRef = RunBinding.changeRunBody, SkipList = SkipList)
+        }
 
-        AddDueDateGroups(ContainerRef = RunBinding.changeRunBody, ChangeList = DueList)
-        AddFieldGroups(ContainerRef = RunBinding.changeRunBody, ChangeList = OtherList)
-        AddSkipGroups(ContainerRef = RunBinding.changeRunBody, SkipList = SkipList)
+        if (StartExpanded) {
+            BuildBody()
+        } else {
+            RunBinding.changeRunBody.visibility = View.GONE
+            RunBinding.ivChangeRunChevron.rotation = 0f
+        }
 
         RunBinding.changeRunHeader.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             val WillShow = RunBinding.changeRunBody.visibility != View.VISIBLE
+            if (WillShow) BuildBody()
             RunBinding.changeRunBody.visibility = if (WillShow) View.VISIBLE else View.GONE
             RunBinding.ivChangeRunChevron.rotation = if (WillShow) 90f else 0f
         }

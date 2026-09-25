@@ -105,6 +105,10 @@
             android:id="@+id/emptyState"
             layout="@layout/partial_empty_state" />
 
+        <include
+            android:id="@+id/skeletonList"
+            layout="@layout/partial_skeleton_list" />
+
     </FrameLayout>
 
 </LinearLayout>

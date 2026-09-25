@@ -283,6 +283,13 @@
     <string name="due_pick_row_format">%1$s \u00b7 %2$s</string>
     <string name="due_no_matches">Nothing to update — no policy in this session matched a renewal record</string>
     <string name="changes_title">Changes</string>
+    <string name="loading_announce">Loading</string>
+    <string name="due_working_title">Matching renewals</string>
+    <string name="due_working_body">Checking %1$d policies against the renewal list…</string>
+    <string name="linked_working_title">Saving renewals from LIC</string>
+    <string name="linked_working_body">Adding the captured renewals to this session…</string>
+    <string name="due_saving">Saving…</string>
+    <string name="delete_working">Deleting…</string>
     <string name="changes_share">Share this list</string>
     <string name="changes_summary_format">%1$d rewritten \u00b7 %2$d left alone</string>
     <string name="changes_run_due_import">Due dates from renewals</string>

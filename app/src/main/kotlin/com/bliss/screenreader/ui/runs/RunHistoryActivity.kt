@@ -17,7 +17,9 @@ import com.bliss.screenreader.databinding.PartialRunEntryBinding
 import com.bliss.screenreader.databinding.PartialRunFactRowBinding
 import com.bliss.screenreader.databinding.PartialRunGroupBinding
 import com.bliss.screenreader.ui.SetupEdgeToEdge
+import com.bliss.screenreader.utils.BackgroundWork
 import com.bliss.screenreader.utils.HapticFeedback
+import com.bliss.screenreader.utils.Skeleton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,7 +47,6 @@ class RunHistoryActivity : AppCompatActivity() {
         }
 
         LoadRuns()
-        RenderRuns()
     }
 
     private fun ConfirmClearRuns() {
@@ -60,20 +61,45 @@ class RunHistoryActivity : AppCompatActivity() {
 
     private fun ClearRuns() {
         HapticFeedback.Reject(ViewRef = ViewBindingObj.root)
-        PolicyRepository.ClearRunSummaries(
-            ContextRef = applicationContext,
-            SessionId = SessionIdVal
-        )
-        LoadRuns()
-        RenderRuns()
+        ViewBindingObj.btnClearRuns.isEnabled = false
+        LoadRuns(ClearFirst = true)
     }
 
-    private fun LoadRuns() {
-        RunList = PolicyRepository.GetRunSummaries(
-            ContextRef = this,
-            SessionId = SessionIdVal
-        ).sortedByDescending { RunItem -> RunItem.StartedAt }
+    private fun LoadRuns(ClearFirst: Boolean = false) {
+        val AppContext = applicationContext
+        val SessionId = SessionIdVal
+        if (!ClearFirst) {
+            ViewBindingObj.runsScroll.visibility = View.GONE
+            ViewBindingObj.tvRunsSummary.visibility = View.GONE
+            ViewBindingObj.btnClearRuns.visibility = View.GONE
+            ViewBindingObj.emptyState.emptyStateRoot.visibility = View.GONE
+        }
+        BackgroundWork.Run(
+            OwnerRef = this,
+            OnSlow = {
+                if (!ClearFirst) Skeleton.Show(SkeletonView = ViewBindingObj.skeletonList.root)
+            },
+            Work = {
+                if (ClearFirst) {
+                    PolicyRepository.ClearRunSummaries(ContextRef = AppContext, SessionId = SessionId)
+                }
+                PolicyRepository.GetRunSummaries(ContextRef = AppContext, SessionId = SessionId)
+                    .sortedByDescending { RunItem -> RunItem.StartedAt }
+            },
+            OnResult = { LoadedList ->
+                RunList = LoadedList
+                ViewBindingObj.btnClearRuns.isEnabled = true
+                ApplySummary()
+                RenderRuns()
+                Skeleton.Hide(
+                    SkeletonView = ViewBindingObj.skeletonList.root,
+                    ContentView = ViewBindingObj.runsScroll
+                )
+            }
+        )
+    }
 
+    private fun ApplySummary() {
         ViewBindingObj.tvRunsSummary.text = if (RunList.size == 1) {
             getString(R.string.runs_summary_one)
         } else {
@@ -115,11 +141,15 @@ class RunHistoryActivity : AppCompatActivity() {
         ).filter { PartText -> PartText.isNotEmpty() }.joinToString(separator = " · ")
         RunBinding.ivRunEntryIcon.setImageResource(OutcomeIconRes(OutcomeVal = RunItem.Outcome))
 
-        AddReport(ContainerRef = RunBinding.runEntryBody, RunItem = RunItem)
+        var BodyBuilt = false
 
         RunBinding.runEntryHeader.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
             val WillShow = RunBinding.runEntryBody.visibility != View.VISIBLE
+            if (WillShow && !BodyBuilt) {
+                BodyBuilt = true
+                AddReport(ContainerRef = RunBinding.runEntryBody, RunItem = RunItem)
+            }
             RunBinding.runEntryBody.visibility = if (WillShow) View.VISIBLE else View.GONE
             RunBinding.ivRunEntryChevron.rotation = if (WillShow) 90f else 0f
         }

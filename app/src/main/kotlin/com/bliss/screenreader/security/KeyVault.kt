@@ -27,11 +27,25 @@ object KeyVault {
     private fun LoadKeyStore(): KeyStore =
         KeyStore.getInstance(KEYSTORE_NAME).apply { load(null) }
 
+    @Volatile
+    private var CachedKey: SecretKey? = null
+
+    private val KeyLock = Any()
+
     private fun ObtainKey(): SecretKey {
-        val StoreRef = LoadKeyStore()
-        val ExistingEntry = StoreRef.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
-        ExistingEntry?.let { return it.secretKey }
-        return GenerateKey()
+        CachedKey?.let { return it }
+        synchronized(KeyLock) {
+            CachedKey?.let { return it }
+            val StoreRef = LoadKeyStore()
+            val ExistingEntry = StoreRef.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+            val KeyRef = ExistingEntry?.secretKey ?: GenerateKey()
+            CachedKey = KeyRef
+            return KeyRef
+        }
+    }
+
+    private fun ForgetKey() {
+        CachedKey = null
     }
 
     private fun GenerateKey(): SecretKey {
@@ -79,6 +93,7 @@ object KeyVault {
             System.arraycopy(CipherBytes, 0, PackedBytes, CipherRef.iv.size, CipherBytes.size)
             return CIPHER_PREFIX + Base64.getEncoder().encodeToString(PackedBytes)
         } catch (ErrorRef: Exception) {
+            ForgetKey()
             throw VaultUnavailable(MessageText = "Could not encrypt", CauseRef = ErrorRef)
         }
     }
@@ -99,6 +114,7 @@ object KeyVault {
             )
             String(CipherRef.doFinal(CipherBytes), Charsets.UTF_8)
         } catch (_: Exception) {
+            ForgetKey()
             null
         }
     }
