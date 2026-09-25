@@ -19,13 +19,14 @@ import com.bliss.screenreader.data.model.RenewalDuePolicy
 import com.bliss.screenreader.data.model.SessionGap
 import com.bliss.screenreader.data.model.SessionNameEntry
 import com.bliss.screenreader.data.model.SessionNameRules
+import com.bliss.screenreader.security.BlobRouting
 import com.bliss.screenreader.security.SecurePrefs
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
 object PolicyRepository {
 
-    const val PREFS_NAME = "data_reader_prefs"
+    const val PREFS_NAME = BlobRouting.DATA_PREFS_NAME
 
     private const val KEY_CUSTOMER_POLICIES = "key_customer_policies"
     private const val KEY_FUP_POLICIES = "key_fup_policies"

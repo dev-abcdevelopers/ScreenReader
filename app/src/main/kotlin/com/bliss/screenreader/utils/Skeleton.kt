@@ -14,10 +14,9 @@ object Skeleton {
     fun Show(SkeletonView: View) {
         if (SkeletonView.visibility == View.VISIBLE) return
         SkeletonView.alpha = 1f
+        SkeletonView.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        SkeletonView.contentDescription = SkeletonView.context.getString(R.string.loading_announce)
         SkeletonView.visibility = View.VISIBLE
-        SkeletonView.announceForAccessibility(
-            SkeletonView.context.getString(R.string.loading_announce)
-        )
         if (!ValueAnimator.areAnimatorsEnabled()) return
         val PulseRef = ObjectAnimator.ofFloat(SkeletonView, View.ALPHA, 1f, 0.45f).apply {
             duration = PULSE_MILLIS
