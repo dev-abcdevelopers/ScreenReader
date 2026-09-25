@@ -66,7 +66,8 @@ data class CaptureSession(
     val OriginActivity: String = "",
     val GapRecords: List<SessionGap> = emptyList(),
     val TargetedPolicyNumbers: List<String> = emptyList(),
-    val ChainCustomerName: String = ""
+    val ChainCustomerName: String = "",
+    val HostSessionId: String? = null
 ) {
     val DurationMs: Long get() = (EndedAt - StartedAt).coerceAtLeast(0L)
 

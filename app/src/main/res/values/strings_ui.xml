@@ -309,6 +309,14 @@
     <string name="actions_section_server">Server</string>
     <string name="actions_section_add">Add to this session</string>
     <string name="actions_section_review">Review and export</string>
+    <string name="actions_section_refresh">Update first unpaid due</string>
+    <string name="action_refresh_history">Download &amp; update from renewal history</string>
+    <string name="action_refresh_history_desc">Reads premiums already paid in the LIC app, then shows each next due date before you apply</string>
+    <string name="action_refresh_due">Download &amp; update from renewals due</string>
+    <string name="action_refresh_due_desc">Reads upcoming dues in the LIC app, then shows the dates before you apply</string>
+    <string name="linked_run_empty">The run captured no renewals, so there is nothing to compare</string>
+    <string name="linked_run_saved">%1$d renewals saved as their own session — review the changes</string>
+    <string name="linked_run_host_missing">The policy session this run was for no longer exists. The renewals were saved as their own session</string>
     <string name="actions_section_session">This session</string>
     <string name="sessions_clear_log">Clear session log</string>
     <string name="action_clear_log_desc">Deletes only the diagnostic log. Policies are kept</string>

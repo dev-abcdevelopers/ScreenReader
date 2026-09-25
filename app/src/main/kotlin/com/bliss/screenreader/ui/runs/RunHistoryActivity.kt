@@ -5,6 +5,7 @@ package com.bliss.screenreader.ui.runs
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.RunCounter
@@ -38,6 +39,31 @@ class RunHistoryActivity : AppCompatActivity() {
 
         SessionIdVal = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
 
+        ViewBindingObj.btnClearRuns.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            ConfirmClearRuns()
+        }
+
+        LoadRuns()
+        RenderRuns()
+    }
+
+    private fun ConfirmClearRuns() {
+        if (RunList.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.runs_clear_title)
+            .setMessage(R.string.runs_clear_body)
+            .setPositiveButton(R.string.runs_clear_confirm) { _, _ -> ClearRuns() }
+            .setNegativeButton(R.string.runs_clear_cancel, null)
+            .show()
+    }
+
+    private fun ClearRuns() {
+        HapticFeedback.Reject(ViewRef = ViewBindingObj.root)
+        PolicyRepository.ClearRunSummaries(
+            ContextRef = applicationContext,
+            SessionId = SessionIdVal
+        )
         LoadRuns()
         RenderRuns()
     }
@@ -48,10 +74,11 @@ class RunHistoryActivity : AppCompatActivity() {
             SessionId = SessionIdVal
         ).sortedByDescending { RunItem -> RunItem.StartedAt }
 
-        ViewBindingObj.tvRunsSummary.text = getString(
-            R.string.runs_summary_format,
-            RunList.size
-        )
+        ViewBindingObj.tvRunsSummary.text = if (RunList.size == 1) {
+            getString(R.string.runs_summary_one)
+        } else {
+            getString(R.string.runs_summary_format, RunList.size)
+        }
     }
 
     private fun RenderRuns() {
@@ -61,6 +88,7 @@ class RunHistoryActivity : AppCompatActivity() {
         for (RunItem in RunList) AddRun(ContainerRef = ContainerRef, RunItem = RunItem)
 
         val HasContent = RunList.isNotEmpty()
+        ViewBindingObj.btnClearRuns.visibility = if (HasContent) View.VISIBLE else View.GONE
         ViewBindingObj.runsScroll.visibility = if (HasContent) View.VISIBLE else View.GONE
         ViewBindingObj.tvRunsSummary.visibility = if (HasContent) View.VISIBLE else View.GONE
         ViewBindingObj.emptyState.emptyStateRoot.visibility =
@@ -246,6 +274,7 @@ class RunHistoryActivity : AppCompatActivity() {
 
     private fun SavedText(RunItem: RunSummary): String {
         if (RunItem.Outcome == RunOutcome.DISCARDED) return getString(R.string.runs_value_discarded)
+        if (!RunItem.Committed) return getString(R.string.runs_value_not_saved)
         if (RunItem.SavedAdded <= 0 && RunItem.SavedUpdated <= 0) {
             return getString(R.string.runs_value_saved_none)
         }

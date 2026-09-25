@@ -132,6 +132,14 @@ object CaptureDiagnostics {
         EventName: String,
         MessageText: String
     ) {
+        try {
+            RunSummaryTally.Note(
+                ContextObj = ContextObj,
+                EventName = EventName,
+                MessageText = MessageText
+            )
+        } catch (_: Exception) {
+        }
         WriteLine(
             ContextObj = ContextObj,
             CleanSessionId = SanitiseSessionId(SessionIdVal = SessionId),

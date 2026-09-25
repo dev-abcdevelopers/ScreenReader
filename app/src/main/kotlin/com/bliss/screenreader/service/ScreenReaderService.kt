@@ -340,6 +340,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
     private var CurrentMode: CaptureMode = CaptureMode.POLICY
     private var CurrentSessionId: String = ""
+    private var HostSessionId: String = ""
     private var IsResumedSession = false
     private var CapturePolicyDetailsEnabled = false
     private var OriginActivityName: String = ""
@@ -1376,7 +1377,8 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         TargetPolicyNumbersVal: List<String> = emptyList(),
         TargetNameHintsVal: Map<String, String> = emptyMap(),
         TargetCustomerNamesVal: List<String> = emptyList(),
-        ChainCustomerNameVal: String = ""
+        ChainCustomerNameVal: String = "",
+        HostSessionIdVal: String = ""
     ) {
         CurrentMode = ModeVal
         LoadRunSettings()
@@ -1384,6 +1386,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
         CancelEventWindowCapture()
         IsResumedSession = ResumeSessionIdVal.isNotBlank()
         CurrentSessionId = ResumeSessionIdVal.ifBlank { UUID.randomUUID().toString() }
+        HostSessionId = if (IsRenewalFamilyMode()) HostSessionIdVal else ""
         CapturePolicyDetailsEnabled = ModeVal == CaptureMode.POLICY && CapturePolicyDetailsVal
         OriginActivityName = OriginActivityVal
         SessionStartedAt = System.currentTimeMillis()
@@ -1476,15 +1479,16 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
 
         CaptureDiagnostics.StartSession(
             ContextObj = this,
-            SessionId = CurrentSessionId,
+            SessionId = LogSessionId(),
             ModeVal = ModeVal,
             ExpectedPackage = ExpectedTargetPackage(),
             IsResumedVal = IsResumedSession
         )
         DiagnosticInfo(
             EventName = "SESSION_START",
-            MessageText = "session=$CurrentSessionId mode=${ModeVal.name} " +
+            MessageText = "session=${LogSessionId()} mode=${ModeVal.name} " +
                     "resumed=$IsResumedSession " +
+                    (if (HostSessionId.isNotEmpty()) "renewalSession=$CurrentSessionId " else "") +
                     "capturePolicyDetails=$CapturePolicyDetailsEnabled " +
                     "resumeFromPage=$ResumeFromPageVal " +
                     "expected=${ExpectedTargetPackage()} " +
@@ -1788,12 +1792,15 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 TargetPackage = LastPackageName,
                 OriginActivity = OriginActivityName,
                 TargetedPolicyNumbers = TargetScope.Numbers,
-                ChainCustomerName = ChainCustomerName
+                ChainCustomerName = ChainCustomerName,
+                HostSessionId = HostSessionId.ifBlank { null }
             )
         )
 
         ReturnToOriginActivity()
     }
+
+    private fun LogSessionId(): String = HostSessionId.ifBlank { CurrentSessionId }
 
     fun DiscardCaptureSession() {
         if (!IsCapturing) return
@@ -8488,7 +8495,7 @@ class ScreenReaderService : AccessibilityService(), PolicySearchHost, CustomerSe
                 MessageText = "User requested the latest capture diagnostic log"
             )
             val LogFiles = CaptureDiagnostics
-                .GetSessionLogFiles(ContextObj = this, SessionId = CurrentSessionId)
+                .GetSessionLogFiles(ContextObj = this, SessionId = LogSessionId())
                 .ifEmpty { CaptureDiagnostics.GetActiveLogFiles(ContextObj = this) }
             val ShareIntent = CaptureDiagnostics.BuildShareIntent(
                 ContextObj = this,

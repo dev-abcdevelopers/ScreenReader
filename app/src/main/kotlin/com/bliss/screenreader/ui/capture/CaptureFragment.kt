@@ -432,6 +432,7 @@ class CaptureFragment : Fragment() {
     private fun ShowPendingReviewIfAny() {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val SessionObj = CaptureSessionState.PendingSession ?: return
+        if (!SessionObj.HostSessionId.isNullOrEmpty()) return
 
         if (SettingsStore.IsAutoSaveSessions(ContextRef = ActivityRef)) {
             AutoSavePendingSession(ActivityRef = ActivityRef, SessionObj = SessionObj)

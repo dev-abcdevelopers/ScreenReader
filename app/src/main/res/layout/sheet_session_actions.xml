@@ -148,6 +148,20 @@
 
         </LinearLayout>
 
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/labelActionsRefresh"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_md"
+            android:layout_marginBottom="2dp"
+            android:letterSpacing="0.05"
+            android:text="@string/actions_section_refresh"
+            android:textAllCaps="true"
+            android:textAppearance="@style/TextAppearance.App.Caption"
+            android:textColor="@color/text_faint" />
+
         <LinearLayout
             android:id="@+id/rowActionDueDates"
             android:layout_width="match_parent"
@@ -187,6 +201,100 @@
 
                 <TextView
                     android:text="@string/action_due_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/rowActionRefreshHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_history"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/action_refresh_history"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:text="@string/action_refresh_history_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.App.Caption" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/rowActionRefreshDue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="@dimen/touch_min"
+            android:orientation="horizontal"
+            android:paddingTop="@dimen/space_sm"
+            android:paddingBottom="@dimen/space_sm">
+
+            <ImageView
+                android:layout_width="@dimen/touch_min"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="@dimen/space_md"
+                android:background="@drawable/bg_stat_tile"
+                android:contentDescription="@null"
+                android:padding="@dimen/space_md"
+                android:src="@drawable/ic_bell"
+                app:tint="@color/primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/action_refresh_due"
+                    android:textAppearance="@style/TextAppearance.App.Body"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:text="@string/action_refresh_due_desc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"

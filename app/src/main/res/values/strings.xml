@@ -164,7 +164,13 @@
     <string name="action_runs_desc">Every time this session was run</string>
     <string name="settings_advanced_runs_title">Run history</string>
     <string name="settings_advanced_runs_desc">Show a report for each time a session ran</string>
-    <string name="runs_summary_format">%1$d run(s) recorded</string>
+    <string name="runs_summary_format">%1$d runs recorded</string>
+    <string name="runs_summary_one">1 run recorded</string>
+    <string name="runs_clear">Clear run history</string>
+    <string name="runs_clear_title">Clear run history?</string>
+    <string name="runs_clear_body">This removes every recorded run for this session. The capture itself is not touched.</string>
+    <string name="runs_clear_confirm">Clear</string>
+    <string name="runs_clear_cancel">Cancel</string>
     <string name="runs_empty_title">No runs recorded</string>
     <string name="runs_empty_body">Reports are written when a capture finishes. Runs from before this was switched on are not listed.</string>
     <string name="runs_entry_title_format">%1$s · %2$s</string>
@@ -200,6 +206,7 @@
     <string name="runs_value_collected_customer">%1$d customers · %2$d policies filled</string>
     <string name="runs_value_saved">yes — %1$d new, %2$d updated</string>
     <string name="runs_value_saved_none">yes — nothing new</string>
+    <string name="runs_value_not_saved">no — not saved</string>
     <string name="runs_value_discarded">no — you discarded it</string>
     <string name="runs_value_paused">%1$d  (%2$s in total)</string>
     <string name="runs_nothing_in_the_way">Nothing got in the way.</string>

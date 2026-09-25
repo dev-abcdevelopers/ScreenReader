@@ -154,6 +154,31 @@ object CaptureFlow {
         SheetDialog.show()
     }
 
+    fun StartLinkedRenewal(
+        ActivityRef: AppCompatActivity,
+        HostSessionIdVal: String,
+        ModeVal: CaptureMode
+    ): Boolean {
+        if (ModeVal != CaptureMode.FUP && ModeVal != CaptureMode.RENEWAL_DUE) return false
+        val HostRef = PolicyRepository.GetSessionReference(
+            ContextRef = ActivityRef,
+            SessionId = HostSessionIdVal
+        )
+        if (HostRef == null || HostRef.Mode != CaptureMode.POLICY) {
+            ShowMessage(
+                ActivityRef = ActivityRef,
+                MessageVal = ActivityRef.getString(R.string.capture_resume_mismatch)
+            )
+            return false
+        }
+        return Start(
+            ActivityRef = ActivityRef,
+            ModeVal = ModeVal,
+            LaunchTarget = true,
+            HostSessionId = HostSessionIdVal
+        )
+    }
+
     private fun LaunchCustomerCapture(
         ActivityRef: AppCompatActivity,
         SessionIdVal: String,
@@ -182,7 +207,8 @@ object CaptureFlow {
         TargetPolicyNumbers: List<String> = emptyList(),
         TargetNameHints: Map<String, String> = emptyMap(),
         TargetCustomerNames: List<String> = emptyList(),
-        ChainCustomerName: String = ""
+        ChainCustomerName: String = "",
+        HostSessionId: String = ""
     ): Boolean {
         val PendingSession = CaptureSessionState.PendingSession
         if (PendingSession != null) {
@@ -228,7 +254,8 @@ object CaptureFlow {
             TargetPolicyNumbersVal = TargetPolicyNumbers,
             TargetNameHintsVal = TargetNameHints,
             TargetCustomerNamesVal = TargetCustomerNames,
-            ChainCustomerNameVal = ChainCustomerName
+            ChainCustomerNameVal = ChainCustomerName,
+            HostSessionIdVal = HostSessionId
         )
 
         if (LaunchTarget) {

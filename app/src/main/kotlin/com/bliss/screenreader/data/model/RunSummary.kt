@@ -19,6 +19,7 @@ data class RunSummary(
     val SavedAdded: Int = 0,
     val SavedUpdated: Int = 0,
     val StopReason: String = "",
+    val Committed: Boolean = false,
     val PausedMs: Long = 0L,
     val Counters: Map<String, Int>? = null
 )

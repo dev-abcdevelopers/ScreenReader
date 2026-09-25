@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity() {
         ViewBindingObj.bottomNav.selectedItemId = R.id.tabCapture
     }
 
+    fun GoToPoliciesTab() {
+        if (ViewBindingObj.bottomNav.selectedItemId == R.id.tabPolicies) return
+        ViewBindingObj.bottomNav.selectedItemId = R.id.tabPolicies
+    }
+
     companion object {
         private const val TAG_CAPTURE = "tab_capture"
         private const val TAG_POLICIES = "tab_policies"

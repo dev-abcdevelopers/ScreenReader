@@ -26,6 +26,7 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
+import com.bliss.screenreader.data.model.CaptureSession
 import com.bliss.screenreader.data.model.ChangeSource
 import com.bliss.screenreader.data.model.CustomerPolicy
 import com.bliss.screenreader.data.model.FupPolicy
@@ -167,7 +168,7 @@ class PoliciesFragment : Fragment() {
             if (IsCapturingVal == false) ReloadFromStore()
         }
         CaptureSessionState.PendingSessionLive.observe(viewLifecycleOwner) { SessionObj ->
-            if (SessionObj == null) ReloadFromStore()
+            if (SessionObj == null) ReloadFromStore() else HandleLinkedRenewal(SessionObj = SessionObj)
         }
 
         BindingObj.etSearch.addTextChangedListener(object : TextWatcher {
@@ -234,6 +235,95 @@ class PoliciesFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         ReloadFromStore()
+        CaptureSessionState.PendingSession?.let { SessionObj ->
+            HandleLinkedRenewal(SessionObj = SessionObj)
+        }
+    }
+
+    private fun RunLinkedRenewal(ModeVal: CaptureMode) {
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (SelectedSessionId.isEmpty() || SelectedSessionMode != CaptureMode.POLICY) return
+        CaptureFlow.StartLinkedRenewal(
+            ActivityRef = ActivityRef,
+            HostSessionIdVal = SelectedSessionId,
+            ModeVal = ModeVal
+        )
+    }
+
+    private fun HandleLinkedRenewal(SessionObj: CaptureSession) {
+        val HostId = SessionObj.HostSessionId.orEmpty()
+        if (HostId.isEmpty()) return
+        if (CaptureSessionState.PendingSession !== SessionObj) return
+        val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (ActivityRef.supportFragmentManager.isStateSaved) return
+        if (ViewBindingObj == null) return
+        val ContextRef = ActivityRef.applicationContext
+
+        val CapturedCount = if (SessionObj.Mode == CaptureMode.RENEWAL_DUE) {
+            SessionObj.RenewalDueRecords.orEmpty().size
+        } else {
+            SessionObj.FupRecords.size
+        }
+        CaptureSessionState.ConsumePending()
+        (ActivityRef as? MainActivity)?.GoToPoliciesTab()
+
+        val CommitObj = CaptureFlow.CommitPendingSession(
+            ContextRef = ContextRef,
+            SessionObj = SessionObj
+        )
+        CaptureDiagnostics.LogForSession(
+            ContextObj = ContextRef,
+            SessionId = HostId,
+            EventName = if (CommitObj.SavedCount > 0) "LINKED_RENEWAL_SAVED" else "LINKED_RENEWAL_EMPTY",
+            MessageText = "host=$HostId mode=${SessionObj.Mode.name} " +
+                    "renewalSession=${SessionObj.SessionId} captured=$CapturedCount " +
+                    "saved=${CommitObj.SavedCount}"
+        )
+        if (CommitObj.SavedCount <= 0) {
+            ShowSnack(
+                MessageVal = getString(R.string.linked_run_empty),
+                KindVal = AppToast.Kind.Warning
+            )
+            return
+        }
+
+        LoadSessions()
+        val HostRef = SessionList.firstOrNull { ItemRef -> ItemRef.SessionId == HostId }
+        if (HostRef == null || HostRef.Mode != CaptureMode.POLICY) {
+            RenderList()
+            ShowSnack(
+                MessageVal = getString(R.string.linked_run_host_missing),
+                KindVal = AppToast.Kind.Warning
+            )
+            return
+        }
+        if (SelectedSessionId != HostId) {
+            OpenSession(SessionRef = HostRef)
+        } else {
+            LoadSessionRecords()
+            RenderList()
+        }
+
+        ShowSnack(
+            MessageVal = getString(R.string.linked_run_saved, CommitObj.SavedCount),
+            KindVal = AppToast.Kind.Success
+        )
+        ApplyDueDatesFrom(
+            RenewalSessionId = SessionObj.SessionId,
+            RenewalModeVal = SessionObj.Mode,
+            LinkedHostId = HostId
+        )
+    }
+
+    private fun LogLinkedCommit(HostId: String, ModeVal: CaptureMode, UpdatedCount: Int) {
+        val ContextRef = context?.applicationContext ?: return
+        CaptureDiagnostics.LogForSession(
+            ContextObj = ContextRef,
+            SessionId = HostId,
+            EventName = "SESSION_COMMIT",
+            MessageText = "session=$HostId mode=${ModeVal.name} saved=$UpdatedCount " +
+                    "added=0 updated=$UpdatedCount nodes=0 linked=true"
+        )
     }
 
     private fun ReloadFromStore() {
@@ -398,7 +488,11 @@ class PoliciesFragment : Fragment() {
         SheetDialog.show()
     }
 
-    private fun ApplyDueDatesFrom(RenewalSessionId: String, RenewalModeVal: CaptureMode) {
+    private fun ApplyDueDatesFrom(
+        RenewalSessionId: String,
+        RenewalModeVal: CaptureMode,
+        LinkedHostId: String = ""
+    ) {
         val ActivityRef = activity as? androidx.appcompat.app.AppCompatActivity ?: return
         val ContextRef = ActivityRef.applicationContext
         if (SelectedSessionId.isEmpty()) return
@@ -442,6 +536,9 @@ class PoliciesFragment : Fragment() {
         }
 
         if (OutcomeObj.MatchedCount == 0) {
+            if (LinkedHostId.isNotEmpty()) {
+                LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
+            }
             ShowSnack(
                 MessageVal = getString(R.string.due_no_matches),
                 KindVal = AppToast.Kind.Warning
@@ -449,11 +546,17 @@ class PoliciesFragment : Fragment() {
             return
         }
 
+        if (LinkedHostId.isNotEmpty() && OutcomeObj.Updates.isEmpty()) {
+            LogLinkedCommit(HostId = LinkedHostId, ModeVal = RenewalModeVal, UpdatedCount = 0)
+        }
+
         ShowDuePreviewSheet(
             ActivityRef = ActivityRef,
             OutcomeObj = OutcomeObj,
             RenewalSessionId = RenewalSessionId,
-            RenewalCount = SourceCount
+            RenewalCount = SourceCount,
+            RenewalModeVal = RenewalModeVal,
+            LinkedHostId = LinkedHostId
         )
     }
 
@@ -461,7 +564,9 @@ class PoliciesFragment : Fragment() {
         ActivityRef: androidx.appcompat.app.AppCompatActivity,
         OutcomeObj: DueDateOutcome,
         RenewalSessionId: String,
-        RenewalCount: Int
+        RenewalCount: Int,
+        RenewalModeVal: CaptureMode = CaptureMode.FUP,
+        LinkedHostId: String = ""
     ) {
         val SheetBinding = SheetDuePreviewBinding.inflate(layoutInflater)
         val SheetDialog = BottomSheetDialog(ActivityRef)
@@ -492,11 +597,19 @@ class PoliciesFragment : Fragment() {
         SheetBinding.btnDuePreviewApply.setOnClickListener { ViewRef ->
             HapticFeedback.Confirm(ViewRef = ViewRef)
             SheetDialog.dismiss()
-            CommitDueDates(
+            val Committed = CommitDueDates(
                 OutcomeObj = OutcomeObj,
                 RenewalSessionId = RenewalSessionId,
-                RenewalCount = RenewalCount
+                RenewalCount = RenewalCount,
+                LinkedHostId = LinkedHostId
             )
+            if (Committed && LinkedHostId.isNotEmpty()) {
+                LogLinkedCommit(
+                    HostId = LinkedHostId,
+                    ModeVal = RenewalModeVal,
+                    UpdatedCount = OutcomeObj.UpdatedCount
+                )
+            }
         }
         SheetBinding.btnDuePreviewCancel.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)
@@ -800,10 +913,12 @@ class PoliciesFragment : Fragment() {
     private fun CommitDueDates(
         OutcomeObj: DueDateOutcome,
         RenewalSessionId: String,
-        RenewalCount: Int
-    ) {
-        val ContextRef = context?.applicationContext ?: return
-        if (SelectedSessionId.isEmpty() || OutcomeObj.Changes.isEmpty()) return
+        RenewalCount: Int,
+        LinkedHostId: String = ""
+    ): Boolean {
+        val ContextRef = context?.applicationContext ?: return false
+        if (SelectedSessionId.isEmpty() || OutcomeObj.Changes.isEmpty()) return false
+        if (LinkedHostId.isNotEmpty() && LinkedHostId != SelectedSessionId) return false
 
         PolicyRepository.SaveFieldChanges(
             ContextRef = ContextRef,
@@ -847,6 +962,7 @@ class PoliciesFragment : Fragment() {
             ),
             KindVal = AppToast.Kind.Success
         )
+        return true
     }
 
     private fun BuildDueDateReport(
@@ -2003,6 +2119,10 @@ class PoliciesFragment : Fragment() {
             if (IsPolicySession) View.VISIBLE else View.GONE
         SheetBinding.rowActionDueDates.visibility =
             if (IsPolicySession) View.VISIBLE else View.GONE
+        SheetBinding.rowActionRefreshHistory.visibility =
+            if (IsPolicySession) View.VISIBLE else View.GONE
+        SheetBinding.rowActionRefreshDue.visibility =
+            if (IsPolicySession) View.VISIBLE else View.GONE
         SheetBinding.rowActionUpload.visibility = if (ShowUpload) View.VISIBLE else View.GONE
         SheetBinding.rowActionChanges.visibility =
             if (IsPolicySession && HasRecordedChanges()) View.VISIBLE else View.GONE
@@ -2057,7 +2177,14 @@ class PoliciesFragment : Fragment() {
 
         SheetBinding.labelActionsServer.visibility = SheetBinding.rowActionUpload.visibility
         SheetBinding.labelActionsAdd.visibility = SectionVisibility(
-            RowViews = listOf(SheetBinding.rowActionPersonal, SheetBinding.rowActionDueDates)
+            RowViews = listOf(SheetBinding.rowActionPersonal)
+        )
+        SheetBinding.labelActionsRefresh.visibility = SectionVisibility(
+            RowViews = listOf(
+                SheetBinding.rowActionDueDates,
+                SheetBinding.rowActionRefreshHistory,
+                SheetBinding.rowActionRefreshDue
+            )
         )
         SheetBinding.labelActionsReview.visibility = SectionVisibility(
             RowViews = listOf(
@@ -2086,6 +2213,16 @@ class PoliciesFragment : Fragment() {
             HapticFeedback.Tap(ViewRef = ViewRef)
             SheetDialog.dismiss()
             PickRenewalSessionForDueDates()
+        }
+        SheetBinding.rowActionRefreshHistory.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            RunLinkedRenewal(ModeVal = CaptureMode.FUP)
+        }
+        SheetBinding.rowActionRefreshDue.setOnClickListener { ViewRef ->
+            HapticFeedback.Tap(ViewRef = ViewRef)
+            SheetDialog.dismiss()
+            RunLinkedRenewal(ModeVal = CaptureMode.RENEWAL_DUE)
         }
         SheetBinding.rowActionUpload.setOnClickListener { ViewRef ->
             HapticFeedback.Tap(ViewRef = ViewRef)

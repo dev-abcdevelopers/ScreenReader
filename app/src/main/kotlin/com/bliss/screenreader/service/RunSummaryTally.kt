@@ -33,6 +33,7 @@ object RunSummaryTally {
     private var AutomationStartCount: Int = 0
     private var IsOpen: Boolean = false
     private var CompletedCleanly: Boolean = false
+    private var CommittedVal: Boolean = false
 
     private val CounterMap = linkedMapOf<String, Int>()
 
@@ -41,7 +42,17 @@ object RunSummaryTally {
             val FieldMap = ReadFields(MessageText = MessageText)
             when (EventName) {
                 "SESSION_START" -> {
-                    if (IsOpen) Persist(ContextObj = ContextObj, OutcomeVal = RunOutcome.UNFINISHED)
+                    if (IsOpen && EndedAtVal <= 0L) {
+                        Persist(
+                            ContextObj = ContextObj,
+                            OutcomeVal = if (CompletedCleanly) {
+                                RunOutcome.FINISHED
+                            } else {
+                                RunOutcome.UNFINISHED
+                            }
+                        )
+                    }
+                    Close()
                     Begin(FieldMap = FieldMap)
                 }
 
@@ -60,10 +71,21 @@ object RunSummaryTally {
                         CollectedVal,
                         FieldMap["policies"]?.toIntOrNull() ?: 0
                     )
+                    if (IsRenewalMode()) {
+                        CollectedVal = maxOf(
+                            CollectedVal,
+                            FieldMap["records"]?.toIntOrNull() ?: 0
+                        )
+                    }
                     Persist(ContextObj = ContextObj, OutcomeVal = DecideOutcome())
                 }
 
                 "SESSION_COMMIT" -> {
+                    val CommitSession = FieldMap["session"].orEmpty()
+                    if (!IsOpen || (CommitSession.isNotEmpty() && CommitSession != SessionIdVal)) {
+                        return
+                    }
+                    CommittedVal = true
                     SavedAddedVal = FieldMap["added"]?.toIntOrNull() ?: 0
                     SavedUpdatedVal = FieldMap["updated"]?.toIntOrNull() ?: 0
                     Persist(ContextObj = ContextObj, OutcomeVal = DecideOutcome())
@@ -82,7 +104,13 @@ object RunSummaryTally {
                     if (AutomationStartCount > 1 && PageVal <= 0) Bump(KeyVal = RunCounter.RESTARTED_AT_ONE)
                 }
 
-                "POLICY_PAGE_LOADED", "POLICY_PAGE_DETECTED" -> NotePage(FieldMap = FieldMap)
+                "POLICY_PAGE_LOADED", "POLICY_PAGE_DETECTED", "RENEWAL_PAGE_DETECTED" ->
+                    NotePage(FieldMap = FieldMap)
+
+                "RENEWAL_AUTOMATION_COMPLETE" -> {
+                    CompletedCleanly = true
+                    CollectedVal = maxOf(CollectedVal, FieldMap["records"]?.toIntOrNull() ?: 0)
+                }
                 "CUSTOMER_PAGE_LOADED" -> NoteCustomerPage(MessageText = MessageText)
                 "POLICY_PAGE_ADOPTED" -> Bump(KeyVal = RunCounter.YOU_TURNED_PAGE)
                 "POLICIES_CAPTURED" -> {
@@ -146,6 +174,7 @@ object RunSummaryTally {
         PausedTotalVal = 0L
         AutomationStartCount = 0
         CompletedCleanly = false
+        CommittedVal = false
         CounterMap.clear()
         IsOpen = true
     }
@@ -191,8 +220,15 @@ object RunSummaryTally {
     private fun DecideOutcome(): String = when {
         StopReasonVal.isNotEmpty() -> RunOutcome.STOPPED
         CompletedCleanly -> RunOutcome.FINISHED
+        ReachedLastPage() -> RunOutcome.FINISHED
         else -> RunOutcome.USER_STOPPED
     }
+
+    private fun IsRenewalMode(): Boolean =
+        ModeVal == "FUP" || ModeVal == "RENEWAL_DUE"
+
+    private fun ReachedLastPage(): Boolean =
+        TotalPagesVal > 0 && LastPageVal >= TotalPagesVal
 
     private fun Bump(KeyVal: String) {
         if (!IsOpen) return
@@ -233,6 +269,7 @@ object RunSummaryTally {
                 SavedAdded = SavedAddedVal,
                 SavedUpdated = SavedUpdatedVal,
                 StopReason = StopReasonVal,
+                Committed = CommittedVal,
                 PausedMs = PausedTotalVal,
                 Counters = if (CounterMap.isEmpty()) null else LinkedHashMap(CounterMap)
             )

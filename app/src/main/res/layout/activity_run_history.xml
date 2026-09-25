@@ -14,7 +14,19 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/bg_light"
         app:navigationContentDescription="@string/cd_back"
-        app:title="@string/runs_title" />
+        app:title="@string/runs_title">
+
+        <ImageButton
+            android:id="@+id/btnClearRuns"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_gravity="end"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/runs_clear"
+            android:src="@drawable/ic_delete"
+            app:tint="@color/text_secondary" />
+
+    </com.google.android.material.appbar.MaterialToolbar>
 
     <TextView
         android:id="@+id/tvRunsSummary"
