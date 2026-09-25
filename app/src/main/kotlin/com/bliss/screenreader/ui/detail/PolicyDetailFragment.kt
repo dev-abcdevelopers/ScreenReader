@@ -22,7 +22,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
-import androidx.core.os.bundleOf
 import com.bliss.screenreader.R
 import com.bliss.screenreader.data.model.CaptureMode
 import com.bliss.screenreader.data.model.CustomerPolicy
@@ -1006,13 +1005,14 @@ class PolicyDetailFragment : Fragment() {
             Embedded: Boolean,
             TwoColumn: Boolean
         ): PolicyDetailFragment = PolicyDetailFragment().apply {
-            arguments = bundleOf(
-                ARG_POLICY_NUMBER to PolicyNumber,
-                ARG_SESSION_ID to SessionId,
-                ARG_EMBEDDED to Embedded,
-                ARG_TWO_COLUMN to TwoColumn
-            )
+            arguments = Bundle().apply {
+                putString(ARG_POLICY_NUMBER, PolicyNumber)
+                putString(ARG_SESSION_ID, SessionId)
+                putBoolean(ARG_EMBEDDED, Embedded)
+                putBoolean(ARG_TWO_COLUMN, TwoColumn)
+            }
         }
+
         private const val MIN_DIALABLE_DIGITS = 6
         private const val STOP_PAST = 0
         private const val STOP_NOW = 1
